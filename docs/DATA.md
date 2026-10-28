@@ -17,6 +17,20 @@ Every file is written atomically and gets a provenance sidecar, `<name>.provenan
 
 Download settings live in [`configs/data_sources.yaml`](../configs/data_sources.yaml). Downloads start in January 2014, a year before the study period, so that indicators with long look-backs are defined from February 2015. The earlier data serve only as this warm-up.
 
+## Running the pipeline
+
+Run on a machine that can reach the sources (Michael's Mac), from the repository, with the `download` extra installed (README):
+
+```bash
+export RFGP_DATA_DIR=~/rfgp-data           # outside Box
+python -m regime_fusion.data prices        # Yahoo prices, about 3 minutes for the 92 usable candidates
+python -m regime_fusion.data market        # S&P 500 index, SPY, VIX
+python -m regime_fusion.data sec           # SEC company facts, about 2 minutes
+python -m regime_fusion.data fundamentals  # daily point-in-time values, about 2 minutes, no downloads
+```
+
+Each step caches its downloads (`--refresh` fetches again), prints what needs a look, and writes its checks to `reports/`. `--stocks AAPL MSFT` limits a step to some stocks (ids are January 2015 tickers). `python -m regime_fusion.data constituents` rebuilds the committed constituents list and is needed only if the pinned Wikipedia revisions change.
+
 ## When information may be used
 
 The clock is the New York Stock Exchange (calendar `XNYS` of the `exchange_calendars` package, which includes holidays, the closures of 5 December 2018 and 9 January 2025, and the 13:00 early closes). A value used on session *t* must be available by the close of *t*; trades execute on *t*+1. `regime_fusion.data.calendar.TradingCalendar` applies two rules:

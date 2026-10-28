@@ -79,6 +79,9 @@ def selected_stocks(args: argparse.Namespace) -> list[Stock]:
     """Stocks named on the command line, or every main and candidate stock; excluded ones are skipped."""
     universe = load_universe()
     if args.stocks:
+        unknown = sorted(set(args.stocks) - {stock.id for stock in universe.stocks})
+        if unknown:
+            raise SystemExit(f"not in configs/universe.yaml: {unknown} (ids are January 2015 tickers)")
         stocks = [universe.get(stock_id) for stock_id in args.stocks]
         if any(stock.role == "holdout" for stock in stocks) and not args.include_holdout:
             raise SystemExit("hold-out stocks need --include-holdout")

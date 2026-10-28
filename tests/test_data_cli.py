@@ -137,3 +137,8 @@ def test_sec_and_fundamentals_commands(offline, monkeypatch):
 
 def test_fundamentals_need_the_sec_step_first(offline):
     assert cli.main(["fundamentals", "--stocks", "MSFT"]) == 1
+
+
+def test_unknown_stock_ids_are_reported(offline):
+    with pytest.raises(SystemExit, match="META"):
+        cli.main(["prices", "--stocks", "META"])  # Facebook's id is its 2015 ticker, FB
