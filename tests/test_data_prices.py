@@ -91,3 +91,31 @@ def test_clean_series_has_no_flags():
     raw = yahoo_bars(sessions(), close)
     result = prices.check(raw, prices.align(raw, CAL), START, END, CAL)
     assert result.flags == []
+
+
+def test_spin_off_correction_recomputes_the_day_and_keeps_other_returns():
+    days = sessions()
+    raw = yahoo_bars(days, [10.0, 10.5, 10.2, 10.4, 10.3, 6.0, 6.1, 6.3, 6.2, 6.4])
+    parent = prices.align(raw, CAL)   # Yahoo missed a spin-off on the sixth session
+    child = prices.align(yahoo_bars(days, [20.0] * 10), CAL)
+    fix = prices.Correction("PARENT", CAL.sessions[5], "child spun off, 1 for 5", 1.0, {"CHILD": 0.2})
+    true = prices.corrected_return(parent, {"CHILD": child}, fix)
+    assert true == pytest.approx((6.0 + 20.0 * 0.2) / 10.3 - 1)
+    fixed = prices.apply_correction(parent, fix.date, true)
+    before, after = parent["adj_close"].pct_change(), fixed["adj_close"].pct_change()
+    assert after.iloc[5] == pytest.approx(true)
+    np.testing.assert_allclose(after.drop(after.index[5]).dropna(), before.drop(before.index[5]).dropna())
+    np.testing.assert_allclose(fixed["traded_close"], parent["traded_close"])
+
+
+def test_repository_corrections_point_at_main_stocks_on_sessions():
+    from regime_fusion.data.calendar import study_calendar
+    from regime_fusion.data.universe import load_universe
+
+    universe, calendar = load_universe(), study_calendar()
+    corrections = prices.load_corrections()
+    assert {c.stock for c in corrections} == {"XRX", "DD", "UTX"}
+    for correction in corrections:
+        assert universe.get(correction.stock).role == "main"
+        assert correction.date in calendar.sessions
+        assert correction.kept > 0 and all(v > 0 for v in correction.received.values())

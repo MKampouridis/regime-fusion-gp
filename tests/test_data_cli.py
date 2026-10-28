@@ -142,3 +142,11 @@ def test_fundamentals_need_the_sec_step_first(offline):
 def test_unknown_stock_ids_are_reported(offline):
     with pytest.raises(SystemExit, match="META"):
         cli.main(["prices", "--stocks", "META"])  # Facebook's id is its 2015 ticker, FB
+
+
+def test_reports_from_partial_runs_are_merged(offline):
+    root, _ = offline
+    assert cli.main(["prices", "--stocks", "AAPL"]) == 0
+    assert cli.main(["prices", "--stocks", "MSFT"]) == 0
+    report = json.loads((root / "reports" / "price_checks.json").read_text())
+    assert set(report) == {"AAPL", "MSFT"}

@@ -24,6 +24,10 @@ the calendar, from the first to the last trading day:
   later split ratio. Fundamental ratios such as price/earnings need it, because
   filed per-share values are not split-adjusted.
 
+On a few spin-off days Yahoo's adjustment is wrong; ``configs/price_corrections.yaml``
+lists them, and ``apply_correction`` resets the day's total return to the one
+recomputed from traded closes of the parent and the spun-off firms.
+
 Yahoo scales the whole history by splits and dividends that happen later. Ratios
 of prices within a look-back window are unaffected, so technical indicators must
 be scale-invariant (returns, price ratios, relative DC thresholds) and must never
@@ -37,9 +41,11 @@ import logging
 import time
 import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from regime_fusion.data.calendar import TradingCalendar
 
@@ -213,3 +219,51 @@ def _longest_run(values: np.ndarray) -> int:
         current = current + 1 if value == previous else 1
         longest = max(longest, current)
     return longest
+
+
+DEFAULT_CORRECTIONS = Path(__file__).resolve().parents[3] / "configs" / "price_corrections.yaml"
+
+
+@dataclass(frozen=True)
+class Correction:
+    """A spin-off day whose total return is recomputed from traded closes."""
+
+    stock: str
+    date: pd.Timestamp
+    event: str
+    kept: float                  # parent shares held after the event, per share before
+    received: dict[str, float]   # Yahoo symbol of each spun-off firm: shares per parent share
+
+
+def load_corrections(path: str | Path = DEFAULT_CORRECTIONS) -> list[Correction]:
+    raw = yaml.safe_load(Path(path).read_text())
+    return [
+        Correction(str(c["stock"]), pd.Timestamp(c["date"]), str(c["event"]), float(c["kept"]),
+                   {str(k): float(v) for k, v in c["received"].items()})
+        for c in raw["corrections"]
+    ]
+
+
+def corrected_return(parent: pd.DataFrame, children: dict[str, pd.DataFrame],
+                     correction: Correction) -> float:
+    """Total return of one parent share on the correction's day, from traded closes."""
+    day = correction.date
+    before = parent.index[parent.index.get_loc(day) - 1]
+    value = parent.loc[day, "traded_close"] * correction.kept
+    for symbol, shares in correction.received.items():
+        value += children[symbol].loc[day, "traded_close"] * shares
+    return float(value / parent.loc[before, "traded_close"] - 1.0)
+
+
+def apply_correction(aligned: pd.DataFrame, day: pd.Timestamp, true_return: float) -> pd.DataFrame:
+    """Rescale total-return prices before ``day`` so that the day's return is ``true_return``.
+
+    Returns on every other day are unchanged: only the level of the earlier prices moves.
+    """
+    out = aligned.copy()
+    before = out.index[out.index.get_loc(day) - 1]
+    factor = out.loc[day, "adj_close"] / (out.loc[before, "adj_close"] * (1.0 + true_return))
+    earlier = out.index < day
+    for column in ("adj_open", "adj_high", "adj_low", "adj_close"):
+        out.loc[earlier, column] = out.loc[earlier, column] * factor
+    return out

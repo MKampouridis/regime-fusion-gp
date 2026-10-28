@@ -1,0 +1,29 @@
+# Spin-off days on which Yahoo's adjustment is wrong (docs/DATA.md, Prices).
+#
+# Yahoo records most spin-offs as fractional "splits", which keeps total-return
+# prices right. On the days below its ratio is off, giving returns that never
+# happened. Each was found by comparing the return on every fractional split with
+# the market's move that day; the other fractional splits of the universe agree
+# with the traded prices.
+#
+# On these days the total return is recomputed from traded closes: the value of
+# what one parent share became (the parent shares kept, plus the shares of each
+# spun-off firm received, at their closes) over the parent's previous close.
+# "received" maps Yahoo symbols to shares received per parent share.
+
+corrections:
+  - stock: XRX
+    date: "2017-01-03"
+    event: "Conduent spun off: 1 CNDT for every 5 XRX shares"
+    kept: 1.0
+    received: {CNDT: 0.2}
+  - stock: DD
+    date: "2019-06-03"
+    event: "Corteva spun off (1 CTVA for every 3 DowDuPont shares), with a 1-for-3 reverse split"
+    kept: 0.3333333333333333
+    received: {CTVA: 0.3333333333333333}
+  - stock: UTX
+    date: "2020-04-03"
+    event: "Carrier and Otis spun off (1 CARR and 0.5 OTIS per share) as the Raytheon merger closed"
+    kept: 1.0
+    received: {CARR: 1.0, OTIS: 0.5}

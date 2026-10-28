@@ -131,6 +131,7 @@ def run_prices(args: argparse.Namespace) -> int:
     settings, config = load_settings(), load_config()
     settings.check_covers(config)
     calendar = study_calendar(settings)
+    corrections = prices.load_corrections()
     checks, failed = {}, []
     for stock in selected_stocks(args):
         raw_path = store.layer("raw", "yahoo", "stocks", f"{stock.id}.parquet")
@@ -140,9 +141,11 @@ def run_prices(args: argparse.Namespace) -> int:
             log.error("%s: %s", stock.id, problem)
             failed.append(stock.id)
             continue
+        fixes = [c for c in corrections if c.stock == stock.id]
         checks[stock.id] = align_and_check(
             stock.id, raw, store.layer("interim", "prices", f"{stock.id}.parquet"),
             calendar, config, symbol=stock.yahoo,
+            fixes=[(c, children_for(c, settings, calendar, args.refresh)) for c in fixes],
         )
     write_report("price_checks.json", checks)
     flagged = sorted(name for name, result in checks.items() if result.flags)
@@ -273,22 +276,48 @@ def cached_edgar(client: sec.Client, url: str, path: Path, refresh: bool) -> dic
 
 
 def align_and_check(name: str, raw: pd.DataFrame, path: Path, calendar: TradingCalendar,
-                    config: StudyConfig, **details) -> prices.PriceCheck:
+                    config: StudyConfig, fixes=(), **details) -> prices.PriceCheck:
     aligned = prices.align(raw, calendar)
-    store.write_parquet(path, aligned, series=name, **details)
+    applied = []
+    for correction, children in fixes:
+        true_return = prices.corrected_return(aligned, children, correction)
+        day = correction.date
+        before = aligned.index[aligned.index.get_loc(day) - 1]
+        yahoo_return = aligned.loc[day, "adj_close"] / aligned.loc[before, "adj_close"] - 1.0
+        aligned = prices.apply_correction(aligned, day, true_return)
+        applied.append({"date": day.date().isoformat(), "event": correction.event,
+                        "yahoo_return": round(float(yahoo_return), 4),
+                        "corrected_return": round(true_return, 4)})
+        log.info("%s %s: return %+.4f corrected to %+.4f (%s)", name, day.date(),
+                 yahoo_return, true_return, correction.event)
+    store.write_parquet(path, aligned, series=name, corrections=applied, **details)
     result = prices.check(raw, aligned, config.period.data_start, config.period.data_end, calendar)
     for flag in result.flags:
         log.warning("%s: %s", name, flag)
     return result
 
 
-def write_report(filename: str, entries: dict[str, Any]) -> None:
-    report = {
+def children_for(correction: prices.Correction, settings: DataSettings,
+                 calendar: TradingCalendar, refresh: bool) -> dict[str, pd.DataFrame]:
+    """Aligned prices of the firms spun off in a correction."""
+    children = {}
+    for symbol in correction.received:
+        path = store.layer("raw", "yahoo", "corrections", f"{symbol}.parquet")
+        raw = cached_prices(symbol, path, settings, refresh, purpose=f"correction for {correction.stock}")
+        children[symbol] = prices.align(raw, calendar)
+    return children
+
+
+def write_report(filename: str, entries: dict[str, Any], *, merge: bool = True) -> None:
+    """Write a report; by default entries from earlier runs for other names are kept."""
+    path = store.layer("reports", filename)
+    report = json.loads(path.read_text()) if merge and path.exists() else {}
+    report.update({
         name: dataclasses.asdict(entry) if dataclasses.is_dataclass(entry) else entry
         for name, entry in entries.items()
-    }
-    content = json.dumps(report, indent=2, default=str).encode()
-    store.write_bytes(store.layer("reports", filename), content, kind=filename.removesuffix(".json"))
+    })
+    content = json.dumps(dict(sorted(report.items())), indent=2, default=str).encode()
+    store.write_bytes(path, content, kind=filename.removesuffix(".json"))
 
 
 UNIVERSE_HEADER = """\
@@ -390,7 +419,7 @@ def run_draw(args: argparse.Namespace) -> int:
     rank = {"main": 0, "holdout": 1, "unused": 2, "excluded": 3}
     stocks = sorted(final.values(), key=lambda s: (rank[s.role], s.id))
     write_universe(UNIVERSE_FILE, stocks, UNIVERSE_HEADER)
-    write_report("universe_draw.json", report)
+    write_report("universe_draw.json", report, merge=False)
     counts = {role: sum(s.role == role for s in stocks) for role in rank}
     log.info("universe drawn: %s; written to %s", counts, UNIVERSE_FILE)
     return 0
