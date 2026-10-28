@@ -24,3 +24,4 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 | --- | --- | --- |
 | 2026-10-28 | Trade execution price on day t+1 (open or close) | To be settled when the backtester is designed (Phase 4) |
 | 2026-10-28 | Free headline source for 2024–25 (FNSPID ends in 2023) | Check whether GDELT records carry page titles; otherwise limit the FinBERT check to 2019–2023 |
+| 2026-10-28 | The VIX is calculated until 16:15 New York time, after the 16:00 stock close, so its close on day *t* is not strictly available by the close of *t* | Use the VIX close of *t*−1 on day *t*; if trades execute at the *t*+1 open, the close of *t* would also be safe |
