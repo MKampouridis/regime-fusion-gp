@@ -1,0 +1,68 @@
+"""Record what produced a result: code version, configuration, seed and environment."""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import platform
+import subprocess
+import sys
+from importlib import metadata
+from pathlib import Path
+from typing import Any
+
+from regime_fusion import __version__
+from regime_fusion.config import StudyConfig
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TRACKED_PACKAGES = ("numpy", "pandas", "pyyaml", "scipy", "numba", "scikit-learn", "lightgbm")
+
+
+def git_state(repo: Path = REPO_ROOT) -> dict[str, Any]:
+    """Current commit and whether the working tree has uncommitted changes."""
+
+    def run(*args: str) -> str | None:
+        try:
+            result = subprocess.run(
+                ["git", *args], cwd=repo, capture_output=True, text=True, check=True, timeout=10
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return result.stdout.strip()
+
+    commit = run("rev-parse", "HEAD")
+    status = run("status", "--porcelain")
+    return {"commit": commit, "dirty": None if status is None else bool(status)}
+
+
+def package_versions() -> dict[str, str]:
+    versions = {}
+    for name in TRACKED_PACKAGES:
+        try:
+            versions[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            continue
+    return versions
+
+
+def collect(config: StudyConfig | None = None, **extra: Any) -> dict[str, Any]:
+    """Provenance record for one run; ``extra`` holds run details such as stock and seed."""
+    record: dict[str, Any] = {
+        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "package_version": __version__,
+        "git": git_state(),
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "packages": package_versions(),
+    }
+    if config is not None:
+        record["config_digest"] = config.digest()
+        record["config"] = config.to_dict()
+    record.update(extra)
+    return record
+
+
+def write(path: str | Path, record: dict[str, Any]) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=2, sort_keys=True, default=str) + "\n")

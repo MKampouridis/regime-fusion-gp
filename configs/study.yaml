@@ -1,0 +1,27 @@
+# Settled study design. Only decided values live here; see docs/DECISIONS.md.
+# Values may still change until the recipe is frozen at the end of the pilot.
+
+study:
+  name: regime-fusion-gp
+  base_seed: 20261028
+
+period:
+  # GDELT GKG 2.0 news begins in the second half of February 2015; the exact
+  # first usable day is set when the data pipeline is built (Phase 2).
+  data_start: "2015-02-01"
+  data_end: "2025-12-31"
+  development_end: "2018-12-31"   # the recipe is designed on data up to here only
+  test_years: [2019, 2020, 2021, 2022, 2023, 2024, 2025]
+
+windows:
+  scheme: rolling                       # rolling (main results) or expanding (robustness)
+  train_years: 3                        # stage 1: evolve strategies
+  validation_years: 1                   # stage 1: choose exit settings
+  refit_on_train_and_validation: true   # stage 2: re-evolve on the 4 years before the test year
+
+runs:
+  per_configuration: 30                 # the pilot may raise this to 50
+
+costs:
+  bps_per_side: [0, 5, 10, 25]
+  primary_bps_per_side: 10
