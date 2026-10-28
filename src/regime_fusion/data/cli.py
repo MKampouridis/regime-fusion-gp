@@ -9,6 +9,7 @@ Commands (each has --help):
   fundamentals  build daily point-in-time accounting values from the report facts
   draw          draw the main universe and the hold-out stocks (once; see draw.py)
   gdelt         stream GDELT's GKG files and keep hourly news sums for the universe
+  fnspid        stream FNSPID's news files and keep the universe's headlines
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
 cached: a raw file already there is not fetched again unless --refresh is given.
@@ -19,6 +20,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import gzip
+import io
 import json
 import logging
 import shutil
@@ -31,7 +33,9 @@ import pandas as pd
 
 from regime_fusion import __version__
 from regime_fusion.config import StudyConfig, load_config
-from regime_fusion.data import constituents, draw, fundamentals, gdelt, market, prices, sec, store
+from regime_fusion.data import (
+    constituents, draw, fnspid, fundamentals, gdelt, market, prices, sec, store,
+)
 from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.settings import DataSettings, load_settings
 from regime_fusion.data.universe import (
@@ -85,6 +89,11 @@ def main(argv: list[str] | None = None) -> int:
                      help="stop when the data disk has less free space than this")
     sub.add_argument("--retry-failed", action="store_true", help="redo days with failed files")
     sub.set_defaults(run=run_gdelt)
+
+    sub = commands.add_parser("fnspid", help="stream FNSPID's news files; keep the universe's headlines")
+    sub.add_argument("--files", nargs="+", default=list(fnspid.FILES), help="files in the dataset")
+    sub.add_argument("--refresh", action="store_true", help="filter again even if done")
+    sub.set_defaults(run=run_fnspid)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -586,3 +595,25 @@ def gdelt_master_text() -> str:
         store.write_bytes(path, gzip.compress(response.content, mtime=0), source="GDELT",
                           url=gdelt.MASTER_URL)
     return gzip.decompress(path.read_bytes()).decode()
+
+
+def run_fnspid(args: argparse.Namespace) -> int:
+    import requests
+
+    universe = load_universe(UNIVERSE_FILE)
+    tickers = fnspid.ticker_map(universe.select("main", "holdout", include_holdout=True))
+    session = requests.Session()
+    session.headers["User-Agent"] = user_agent()
+    for name in args.files:
+        path = store.layer("raw", "fnspid", Path(name).name.replace(".csv", ".parquet"))
+        if path.exists() and not args.refresh:
+            log.info("fnspid: %s already filtered", name)
+            continue
+        url = fnspid.BASE_URL + name
+        log.info("fnspid: streaming %s", url)
+        stream = io.BufferedReader(fnspid.ResumableStream(url, session), buffer_size=1 << 20)
+        frame, seen = fnspid.filter_csv(stream, tickers)
+        store.write_parquet(path, frame, source="FNSPID (Hugging Face, Zihan1004/FNSPID)", url=url,
+                            licence="CC BY-NC 4.0", rows_read=seen, tickers=sorted(tickers))
+        log.info("fnspid: %s: kept %d of %d rows", name, len(frame), seen)
+    return 0
