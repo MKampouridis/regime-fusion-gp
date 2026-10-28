@@ -4,6 +4,7 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 
 | Date | Decision | Decided by |
 | --- | --- | --- |
+| 2026-10-28 | Trades execute at the open of *t*+1. The take-profit is a limit order at the target price, filled on the first day whose high reaches it (at the open if the day opens above it) | MK |
 | 2026-10-28 | ActTrade's "COKE" is The Coca-Cola Company (KO) | MK |
 | 2026-10-28 | Fundamental (FA) indicators are ActTrade's twelve: net profit ratio, return on equity, quick ratio, P/E, P/B and P/S ratios, debt to equity, total revenues, EBITDA, levered free cash flow, diluted EPS and R&D expenses | MK |
 | 2026-10-28 | The VIX enters the features of day *t* with its close of *t*−1, because its close is set at 16:15, after the stock close | MK |
@@ -28,5 +29,4 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 
 | Raised | Question | Proposal |
 | --- | --- | --- |
-| 2026-10-28 | Trade execution price on day t+1 (open or close) | To be settled when the backtester is designed (Phase 4) |
 | 2026-10-28 | Free headline source for 2024–25 (FNSPID ends in 2023) | Check whether GDELT records carry page titles; otherwise limit the FinBERT check to 2019–2023. Checked: titles are present in March 2024 and absent in March 2015; when they start is still to be found |

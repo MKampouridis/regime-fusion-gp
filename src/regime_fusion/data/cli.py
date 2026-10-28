@@ -11,6 +11,7 @@ Commands (each has --help):
   gdelt         stream GDELT's GKG files and keep hourly news sums for the universe
   fnspid        stream FNSPID's news files and keep the universe's headlines
   fa            ActTrade's twelve fundamental indicators, daily, from the steps above
+  ta            ActTrade's twelve technical indicators, daily, from the prices
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
 cached: a raw file already there is not fetched again unless --refresh is given.
@@ -35,7 +36,7 @@ import pandas as pd
 from regime_fusion import __version__
 from regime_fusion.config import StudyConfig, load_config
 from regime_fusion.data import (
-    constituents, draw, fa, fnspid, fundamentals, gdelt, market, prices, sec, store,
+    constituents, draw, fa, fnspid, fundamentals, gdelt, market, prices, sec, store, ta,
 )
 from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.settings import DataSettings, load_settings
@@ -94,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = commands.add_parser("fa", help="ActTrade's twelve fundamental indicators, daily")
     add_stock_options(sub, refresh=False)
     sub.set_defaults(run=run_fa)
+
+    sub = commands.add_parser("ta", help="ActTrade's twelve technical indicators, daily")
+    add_stock_options(sub, refresh=False)
+    sub.set_defaults(run=run_ta)
 
     sub = commands.add_parser("fnspid", help="stream FNSPID's news files; keep the universe's headlines")
     sub.add_argument("--files", nargs="+", default=list(fnspid.FILES), help="files in the dataset")
@@ -647,5 +652,26 @@ def run_fa(args: argparse.Namespace) -> int:
                             "missing": sorted(k for k, v in share.items() if v < 0.9)}
     write_report("fa_coverage.json", report)
     log.info("fa: %d stocks; indicators on fewer than 90%% of days: %s", len(report),
+             {k: v["missing"] for k, v in report.items() if v["missing"]})
+    return 1 if missing else 0
+
+
+def run_ta(args: argparse.Namespace) -> int:
+    config = load_config()
+    study = study_calendar().between(config.period.data_start, config.period.data_end)
+    report, missing = {}, []
+    for stock in selected_stocks(args):
+        source = store.layer("interim", "prices", f"{stock.id}.parquet")
+        if not source.exists():
+            log.error("%s: run the prices command first", stock.id)
+            missing.append(stock.id)
+            continue
+        table = ta.indicators(pd.read_parquet(source))
+        store.write_parquet(store.layer("processed", "ta", f"{stock.id}.parquet"), table, stock=stock.id)
+        share = table.reindex(study).notna().mean().round(4).to_dict()
+        report[stock.id] = {"share_of_days": share,
+                            "missing": sorted(k for k, v in share.items() if v < 0.99)}
+    write_report("ta_coverage.json", report)
+    log.info("ta: %d stocks; indicators on fewer than 99%% of days: %s", len(report),
              {k: v["missing"] for k, v in report.items() if v["missing"]})
     return 1 if missing else 0

@@ -29,6 +29,7 @@ python -m regime_fusion.data market                       # S&P 500 index, SPY, 
 python -m regime_fusion.data sec --include-holdout        # SEC company facts, about 2 minutes
 python -m regime_fusion.data fundamentals --include-holdout  # point-in-time accounting values
 python -m regime_fusion.data fa --include-holdout         # ActTrade's twelve fundamental indicators
+python -m regime_fusion.data ta --include-holdout         # ActTrade's twelve technical indicators
 python -m regime_fusion.data fnspid                       # FNSPID headlines, about an hour of streaming
 python -m regime_fusion.data gdelt --workers 12           # GDELT news, about 3 days of streaming
 ```
@@ -111,6 +112,14 @@ The VIX is calculated until 16:15 New York time, a quarter of an hour after the 
 - **Splits.** Reports filed after a stock split restate their share counts, so a count is multiplied only by the true splits after its filing date. Spin-offs that Yahoo records as fractional splits are left out, and DowDuPont's 1-for-3 reverse split, which Yahoo merged with the Corteva spin-off, comes from the corrections file. Market values run on smoothly across splits: Apple $2.17tn to $2.34tn over its 2020 4-for-1 split, Alphabet $1.54tn to $1.57tn over its 2022 20-for-1 split and $1.58tn after the restated 10-Q. Diluted EPS is net income over the same share count, which avoids adding up quarterly EPS figures across splits.
 - **Fallbacks,** each using only what is known on the day: EBITDA from pre-tax income plus interest expense when a firm has no operating-income line (oil majors, large drug makers, IBM), and R&D of zero for a firm that has filed no R&D figure so far.
 - **Coverage over 2015–2025.** Each indicator has values on at least 90% of days for 84–100 of the 100 stocks. The gaps are structural. The quick ratio is missing for 16 firms, mostly financial firms with unclassified balance sheets (also Ford and GE). Debt to equity is missing for Ford and GM, which report their debt in their own tags. EBITDA is missing for a few firms with neither an operating-income line nor the standard pre-tax tags.
+
+## Technical indicators
+
+`python -m regime_fusion.data ta` computes ActTrade's twelve technical indicators for each session (`regime_fusion.data.ta`, `processed/ta/<id>.parquet`): moving average, momentum, rate of change, volatility, Williams %R and midprice, over 5 and 10 sessions (equations 8–13 of the ActTrade paper), from total-return prices with highs and lows adjusted by the same factor as closes.
+
+- **Levels in the prices of the day.** Moving average, momentum and midprice are price levels. Yahoo's adjusted prices are scaled by every later dividend and split, so on day *t* these are expressed in the prices of day *t* (past prices adjusted for the events up to *t* only). A later dividend therefore never changes an earlier value.
+- **Two readings of the paper:** the moving average averages *n* sessions (equation 8 sums *n*+1 prices but divides by *n*), and the midprice is the midpoint (high + low)/2, as its text says (equation 13 prints (high − low)/2).
+- Values are raw; ActTrade's scaling to [−1, 1] is fitted on training windows later. All 100 stocks have every indicator on at least 99% of study days.
 
 ## News
 
