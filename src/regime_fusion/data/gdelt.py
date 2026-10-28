@@ -159,10 +159,7 @@ def fetch(url: str, md5: str, session, *, attempts: int = 4, pause: float = 2.0,
 def process_day(day: str, files: list[tuple[str, str]], matcher: Matcher,
                 session=None) -> tuple[str, pd.DataFrame, pd.DataFrame, dict]:
     """Hourly sums and titled records of one UTC day, and a summary of what was fetched."""
-    if session is None:
-        import requests
-
-        session = requests.Session()
+    session = session if session is not None else new_session()
     sums: dict = {}
     titles: list = []
     failed, fetched, used = [], 0, 0
@@ -185,6 +182,13 @@ def process_day(day: str, files: list[tuple[str, str]], matcher: Matcher,
                "hourly_rows": len(hourly), "titled_records": len(titled), "bytes": fetched,
                "anchors_digest": matcher.digest}
     return day, hourly.reset_index(drop=True), titled, summary
+
+
+def new_session():
+    """HTTP session for GDELT's server (requests is needed only for downloads)."""
+    import requests
+
+    return requests.Session()
 
 
 def _words(alternatives: list[str]) -> re.Pattern:

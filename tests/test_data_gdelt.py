@@ -142,6 +142,7 @@ def test_gdelt_command_resumes_and_guards_the_disk(monkeypatch, tmp_path):
         return contents[url]
 
     monkeypatch.setattr(gdelt, "fetch", fake_fetch)
+    monkeypatch.setattr(gdelt, "new_session", lambda: None)  # no network, no requests needed
     args = ["gdelt", "--start", "2015-03-01", "--end", "2015-03-02", "--workers", "0"]
     assert cli.main(args) == 0
     hourly = pd.read_parquet(cli.gdelt_path("20150302", "hourly"))
