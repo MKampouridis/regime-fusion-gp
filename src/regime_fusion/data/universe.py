@@ -6,7 +6,7 @@ which identifies it everywhere in the study (file names, seeds). Each entry give
 * ``ciks``: every SEC CIK that filed the firm's accounts from 2014 to 2025; a
   holding-company reorganisation (Google into Alphabet, for example) adds one;
 * ``yahoo``: the Yahoo Finance symbol of its price history today, or null when
-  Yahoo no longer has it;
+  Yahoo no longer has it (such a stock is excluded);
 * ``role``: ``main`` (development and test years), ``holdout`` (final campaign
   only), ``candidate`` (not yet assigned) or ``excluded`` (unusable; ``notes``
   give the reason);
@@ -109,8 +109,8 @@ def _validate(stock: Stock) -> None:
         raise ConfigError(f"{stock.id}: role must be one of {ROLES}")
     if not stock.ciks or any(cik <= 0 for cik in stock.ciks):
         raise ConfigError(f"{stock.id}: needs at least one positive CIK")
-    if stock.role in ("main", "holdout") and not stock.yahoo:
-        raise ConfigError(f"{stock.id}: a {stock.role} stock needs a Yahoo symbol")
+    if stock.role != "excluded" and not stock.yahoo:
+        raise ConfigError(f"{stock.id}: needs a Yahoo symbol unless it is excluded")
     if stock.acttrade not in (None, True, False):
         raise ConfigError(f"{stock.id}: acttrade must be true, false or null")
     if stock.role == "excluded" and not stock.notes:

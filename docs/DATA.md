@@ -53,3 +53,17 @@ The universe is fixed as of January 2015, so firms later acquired or delisted st
 `python -m regime_fusion.data market` downloads the S&P 500 index (`^GSPC`, a price index, for market regimes) and SPY (whose adjusted close is a total-return benchmark) from Yahoo and processes them like stocks. The VIX comes from Cboe's own history file (`raw/cboe/VIX_History.csv`). Since mid-2022 that file also has values on US exchange holidays, from Cboe's extended trading hours; alignment drops them.
 
 The VIX is calculated until 16:15 New York time, a quarter of an hour after the stock close, so its close on day *t* is not strictly available by the close of *t*. The interim table keeps each value on its own day; whether features use the close of *t* or of *t*−1 is an open question.
+
+## Fundamentals
+
+`python -m regime_fusion.data sec` downloads, for every CIK of each stock, the XBRL company facts and the filer details from SEC EDGAR (`raw/sec/companyfacts/`, `raw/sec/submissions/`, gzip-compressed JSON). It keeps the facts from 10-K and 10-Q reports and their amendments (`interim/sec/<id>.parquet`), and checks the SEC filer names against the universe and the number of reports per year (`reports/sec_checks.json`). Requests name the contact in `configs/data_sources.yaml` and are paced at five a second (the SEC allows ten).
+
+`python -m regime_fusion.data fundamentals` turns the facts into daily point-in-time values (`interim/fundamentals/<id>.parquet`) for the concepts in [`configs/fundamentals.yaml`](../configs/fundamentals.yaml), and reports their coverage (`reports/fundamentals_coverage.json`).
+
+- **Availability.** A fact is used from the first session after its filing date. A period's value on day *t* comes from the latest filing available by *t*, so a restatement replaces the original only once it is filed. Apple's 2008 net income, for example, was first filed as $4.83bn and restated to $6.12bn in January 2010.
+- **Balance-sheet items** take the value at the latest period end known. **Income and cash-flow items** take the trailing twelve months (TTM), and the TTM a year earlier for growth rates. 10-Qs report years to date, so TTM = previous fiscal year + year to date − the same span a year earlier. Fiscal years of 52 or 53 weeks and 12-week quarters (PepsiCo, Costco) are handled.
+- **Earnings releases** (8-K facts) are dropped, because few firms file them in XBRL. The data are therefore conservative: the market usually learns earnings from the press release a few weeks before the 10-Q.
+- **Period ends.** Each value comes with the end of the period it describes (`<concept>_end`), so the feature layer can drop stale values, such as those left by a tag a firm stopped using.
+- **Check on real filings.** For eight firms with different fiscal calendars (Microsoft, Walmart, PepsiCo, Costco, Alphabet, Medtronic, Disney, JPMorgan), FY2019 revenue and net income in the panel equal the published figures, each first used on the session after its filing.
+- **Draft concepts.** The concept list is a draft until it is matched to ActTrade's fundamental indicators. The coverage report shows what remains to be done: banks have no operating income or current assets; several firms (Walmart, Disney) never report total liabilities, so it must be derived; some tags fall out of use.
+- **Valuation ratios.** Filed per-share values and share counts are not split-adjusted, so they must be combined with `traded_close`. Yahoo records some spin-offs as splits, so its split column cannot be used to adjust share counts.
