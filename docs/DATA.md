@@ -19,18 +19,32 @@ Download settings live in [`configs/data_sources.yaml`](../configs/data_sources.
 
 ## Running the pipeline
 
-Run on a machine that can reach the sources (Michael's Mac), from the repository, with the `download` extra installed (README):
+Run on a machine that can reach the sources (Michael's Mac), with the `download` extra installed (README):
 
 ```bash
 source ~/.venvs/rfgp/bin/activate
-export RFGP_DATA_DIR=~/rfgp-data           # outside Box
-python -m regime_fusion.data prices --include-holdout   # Yahoo prices, a few minutes
-python -m regime_fusion.data market        # S&P 500 index, SPY, VIX
-python -m regime_fusion.data sec --include-holdout      # SEC company facts, a few minutes
-python -m regime_fusion.data fundamentals --include-holdout  # daily point-in-time values, no downloads
+export RFGP_DATA_DIR=~/rfgp-data                          # outside Box
+python -m regime_fusion.data prices --include-holdout     # Yahoo prices, about 2 minutes
+python -m regime_fusion.data market                       # S&P 500 index, SPY, VIX
+python -m regime_fusion.data sec --include-holdout        # SEC company facts, about 2 minutes
+python -m regime_fusion.data fundamentals --include-holdout  # point-in-time accounting values
+python -m regime_fusion.data fa --include-holdout         # ActTrade's twelve fundamental indicators
+python -m regime_fusion.data fnspid                       # FNSPID headlines, about an hour of streaming
+python -m regime_fusion.data gdelt --workers 12           # GDELT news, about 3 days of streaming
 ```
 
-Each step caches its downloads (`--refresh` fetches again), prints what needs a look, and writes its checks to `reports/`. `--stocks AAPL MSFT` limits a step to some stocks (ids are January 2015 tickers). `python -m regime_fusion.data constituents` rebuilds the committed constituents list and is needed only if the pinned Wikipedia revisions change.
+Each step caches its downloads (`--refresh` fetches again), prints what needs a look, and writes its checks to `reports/`. `--stocks AAPL MSFT` limits a step to some stocks (ids are January 2015 tickers). `python -m regime_fusion.data constituents` and `draw` rebuilt the committed constituents list and universe; they are needed again only if those change.
+
+The GDELT step is meant to run in the background, kept awake with `caffeinate`, with its log in `~/rfgp-data/logs/`:
+
+```bash
+cd ~ && RFGP_DATA_DIR=~/rfgp-data nohup caffeinate -ims ~/.venvs/rfgp/bin/python \
+    -m regime_fusion.data gdelt --workers 12 >> ~/rfgp-data/logs/gdelt.log 2>&1 &
+tail -f ~/rfgp-data/logs/gdelt.log           # progress: days done and hours left
+pkill -f "regime_fusion.data gdelt"          # stop; the same start command resumes
+```
+
+"Days" in its log are days of news data (3,952 from February 2015 to December 2025), not days of running time. It was started on 28 October 2026.
 
 ## When information may be used
 
@@ -104,7 +118,7 @@ Sentiment and news attention come from GDELT (main source) and FNSPID (robustnes
 
 - **Timing.** A GDELT record counts from the time of the 15-minute update that first carried it, which is never before publication. An FNSPID item counts from its publication time. Both go to the first session whose close is strictly later. FNSPID items stamped exactly at midnight UTC carry only a date, so they count for the first session after it. News sums are kept per UTC hour; the NYSE closes on the hour, so this loses nothing at the cut-off.
 - **GDELT access** (decided on 28 October 2026). The Loughran–McDonald word counts are in the GKG's GCAM field, about 8.5 KB per record, at roughly 200,000–320,000 records a day: reading it in BigQuery for 2015–2025 would take 8–11 months of the sandbox's free quota. Instead, `python -m regime_fusion.data gdelt` (`regime_fusion.data.gdelt`) streams GDELT's raw GKG files: 373,743 files from 18 February 2015 (the first) to 31 December 2025, 2.75 TB compressed. Each file is checked against the MD5 in GDELT's master list, read in memory and discarded, so the 2.75 TB pass over the network but are never stored. On Michael's connection (about 12 MB/s with parallel downloads) a full pass takes about 2.7 days. The run can be stopped and resumed at any time, and it stops by itself if the data disk has less than 5 GB free.
-- **What is kept.** Only records whose organisations match a firm's anchors ([`configs/news_aliases.yaml`](../configs/news_aliases.yaml)), summed per UTC hour, stock and *variant set* (the organisation names that matched, such as "apple inc" or "apple daily"). The sums cover article counts, first mentions (the firm is the first organisation named), title mentions, GDELT's tone fields, and the GCAM word count with the six Loughran–McDonald counts, plus per-article shares. Keeping variant sets apart lets the exact matching be decided later without downloading GDELT again. Records whose page title names the firm are also kept whole (time, source, URL, title, tone and Loughran–McDonald counts), for hand checks and for the FinBERT check. One trial day (11 March 2024) took 2 minutes and 0.4 MB on disk: 9,781 records became 2,115 hourly rows and 1,556 titled records. The whole period should need about 1–1.5 GB.
+- **What is kept.** Only records whose organisations match a firm's anchors ([`configs/news_aliases.yaml`](../configs/news_aliases.yaml)), summed per UTC hour, stock and *variant set* (the organisation names that matched, such as "apple inc" or "apple daily"). The sums cover article counts, first mentions (the firm is the first organisation named), title mentions, GDELT's tone fields, and the GCAM word count with the six Loughran–McDonald counts, plus per-article shares. Keeping variant sets apart lets the exact matching be decided later without downloading GDELT again. Records whose page title names the firm are also kept whole (time, source, URL, title, tone and Loughran–McDonald counts), for hand checks and for the FinBERT check. One trial day (11 March 2024) took 2 minutes and 0.4 MB on disk: 9,781 records became 2,115 hourly rows and 1,556 titled records. The whole period should need about 1–1.5 GB. GDELT's own archive lacks a few listed files (two on 19 February 2015 return 404); each day's provenance record lists any file that could not be fetched.
 - **Company matching.** GDELT lists organisations in lower case without punctuation ("jpmorgan chase co", "exxonmobil corp", "alphabet inc"), with noise ("ford foundation", "apple daily"). Anchors are therefore broad, and the variant sets are screened by hand before the daily features are built. Many records name a firm only in passing, such as JPMorgan as the analyst in a story about another company; first mentions and title mentions help to separate articles about a firm from passing mentions.
 - **Page titles.** GDELT records carry the page title in March 2024 (on every record) but not in March 2015; when titles start is still to be checked. If early enough, they could supply the 2024–25 headlines for the FinBERT check.
 - **FNSPID** is on Hugging Face as two files, `All_external.csv` (5.7 GB) and `nasdaq_exteral_data.csv` (23 GB, with article text). Both are larger than the free disk on Michael's Mac, so they will be streamed and filtered to our tickers.
