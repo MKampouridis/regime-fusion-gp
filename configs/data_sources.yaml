@@ -1,0 +1,10 @@
+# Settings for the data download scripts (Phase 2).
+
+sec:
+  # The SEC asks automated requests to identify themselves with a name and contact email.
+  user_agent: "Michael Kampouridis Kampouridis.michael@gmail.com"
+  max_requests_per_second: 5   # the SEC allows up to 10
+
+gdelt:
+  # Google account used for the BigQuery sandbox (free, no billing account).
+  google_account: "Kampouridis.michael@gmail.com"

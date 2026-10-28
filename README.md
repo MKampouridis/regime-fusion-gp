@@ -6,7 +6,7 @@ The project evolves strongly-typed genetic programming (GP) trading strategies w
 
 ## Status
 
-Phase 1: set-up. Decisions to date are in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+Set-up and the directional-change module are done; the data pipeline (Phase 2) is next. The plan is in [`docs/RESEARCH_PLAN.md`](docs/RESEARCH_PLAN.md) and decisions to date in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Layout
 
@@ -15,7 +15,8 @@ Phase 1: set-up. Decisions to date are in [`docs/DECISIONS.md`](docs/DECISIONS.m
 | `src/regime_fusion/` | Python package |
 | `src/regime_fusion/dc/` | Directional-change events and causal DC indicators |
 | `configs/study.yaml` | Settled study design: periods, walk-forward windows, runs, costs, base seed |
-| `docs/` | Decision log; the analysis protocol once it is frozen |
+| `configs/data_sources.yaml` | Settings for the download scripts |
+| `docs/` | Research plan, decision log, and the analysis protocol once it is frozen |
 | `tests/` | Automated tests, including look-ahead checks and a cross-check against the group's earlier Java DC code |
 
 ## Set-up

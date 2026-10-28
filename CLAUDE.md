@@ -12,7 +12,8 @@ Research code for Michael Kampouridis's paper on regime-conditioned strongly-typ
 - Never commit data or results. Data live under `$RFGP_DATA_DIR`.
 - Log decisions in `docs/DECISIONS.md` with the date and who decided.
 - British English in documentation and comments.
-- Work on a branch and open a pull request for Michael to review, unless he says otherwise.
+- Push straight to `main` (Michael's preference) and summarise each change for him in plain English.
+- The plan is in `docs/RESEARCH_PLAN.md`; decisions in `docs/DECISIONS.md` take precedence over it.
 
 ## Environment
 
