@@ -14,8 +14,8 @@ venv/
 htmlcov/
 
 # Data and results are never committed (licences and size); see README
-data/
-results/
+/data/
+/results/
 *.parquet
 *.feather
 
