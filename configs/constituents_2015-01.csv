@@ -1,0 +1,503 @@
+ticker,name,sector,sub_industry,cik,sp100
+A,Agilent Technologies Inc,Health Care,Health Care Equipment & Services,1090872,False
+AA,Alcoa Inc,Materials,Aluminum,4281,False
+AAPL,Apple Inc.,Information Technology,Computer Hardware,320193,True
+ABBV,AbbVie,Health Care,Pharmaceuticals,1551152,True
+ABC,AmerisourceBergen Corp,Health Care,Health Care Distribution & Services,1140859,False
+ABT,Abbott Laboratories,Health Care,Health Care Equipment & Services,1800,True
+ACE,ACE Limited,Financials,Property & Casualty Insurance,896159,False
+ACN,Accenture plc,Information Technology,IT Consulting & Services,1467373,True
+ACT,Actavis plc,Health Care,Pharmaceuticals,884629,False
+ADBE,Adobe Systems Inc,Information Technology,Application Software,796343,False
+ADI,"Analog Devices, Inc.",Information Technology,Semiconductors,6281,False
+ADM,Archer-Daniels-Midland Co,Consumer Staples,Agricultural Products,7084,False
+ADP,Automatic Data Processing,Information Technology,Internet Software & Services,8670,False
+ADS,Alliance Data Systems,Information Technology,Data Processing & Outsourced Services,1101215,False
+ADSK,Autodesk Inc,Information Technology,Application Software,769397,False
+ADT,ADT Corp,Industrials,Diversified Commercial Services,1546640,False
+AEE,Ameren Corp,Utilities,Multi-Utilities & Unregulated Power,1002910,False
+AEP,American Electric Power,Utilities,Electric Utilities,4904,False
+AES,AES Corp,Utilities,Electric Utilities,874761,False
+AET,Aetna Inc,Health Care,Managed Health Care,1122304,False
+AFL,AFLAC Inc,Financials,Life & Health Insurance,4977,False
+AGN,Allergan Inc,Health Care,Pharmaceuticals,850693,False
+AIG,"American International Group, Inc.",Financials,Property & Casualty Insurance,5272,True
+AIV,Apartment Investment & Mgmt,Financials,REITs,922864,False
+AIZ,Assurant Inc,Financials,Multi-line Insurance,1267238,False
+AKAM,Akamai Technologies Inc,Information Technology,Internet Software & Services,1086222,False
+ALL,Allstate Corp,Financials,Property & Casualty Insurance,899051,True
+ALLE,Allegion,Industrials,Building Products,1579241,False
+ALTR,Altera Corp,Information Technology,Semiconductors,768251,False
+ALXN,Alexion Pharmaceuticals,Health Care,Biotechnology,899866,False
+AMAT,Applied Materials Inc,Information Technology,Semiconductor Equipment,6951,False
+AME,Ametek,Industrials,| Electrical Components and Equipment,1037868,False
+AMG,Affiliated Managers Group Inc,Financials,Asset Management & Custody Banks,1004434,False
+AMGN,Amgen Inc,Health Care,Biotechnology,318154,True
+AMP,Ameriprise Financial,Financials,Diversified Financial Services,820027,False
+AMT,American Tower Corp A,Financials,REITs,1053507,False
+AMZN,Amazon.com Inc,Consumer Discretionary,Internet Retail,1018724,True
+AN,AutoNation Inc,Consumer Discretionary,Specialty Stores,350698,False
+ANTM,Anthem Inc.,Health Care,Managed Health Care,1156039,False
+AON,Aon plc,Financials,Insurance Brokers,315293,False
+APA,Apache Corporation,Energy,Oil & Gas Exploration & Production,6769,True
+APC,Anadarko Petroleum Corp,Energy,Oil & Gas Exploration & Production,773910,True
+APD,Air Products & Chemicals Inc,Materials,Industrial Gases,2969,False
+APH,Amphenol Corp A,Industrials,Electrical Components & Equipment,820313,False
+ARG,Airgas Inc,Materials,Industrial Gases,804212,False
+ATI,Allegheny Technologies Inc,Materials,Diversified Metals & Mining,1018963,False
+AVB,"AvalonBay Communities, Inc.",Financials,REITs,915912,False
+AVGO,Avago Technologies,Information Technology,Semiconductors,1441634,False
+AVP,<sup><sup><sup><sup><sup><sup><sup></sup></sup></sup></sup></sup></sup></sup> Avon Products,Consumer Staples,Personal Products,8868,False
+AVY,Avery Dennison Corp,Materials,Paper Packaging,8818,False
+AXP,American Express Co,Financials,Consumer Finance,4962,True
+AZO,AutoZone Inc,Consumer Discretionary,Specialty Stores,866787,False
+BA,Boeing Company,Industrials,Aerospace & Defense,12927,True
+BAC,Bank of America Corp,Financials,Banks,70858,True
+BAX,Baxter International Inc.,Health Care,Health Care Equipment & Services,10456,True
+BBBY,Bed Bath & Beyond,Consumer Discretionary,Specialty Stores,886158,False
+BBT,BB&T Corporation,Financials,Banks,92230,False
+BBY,Best Buy Co. Inc.,Consumer Discretionary,Computer & Electronics Retail,764478,False
+BCR,Bard (C.R.) Inc.,Health Care,Health Care Equipment & Services,9892,False
+BDX,Becton Dickinson,Health Care,Health Care Equipment & Services,10795,False
+BEN,Franklin Resources,Financials,Diversified Financial Services,38777,False
+BF.B,Brown-Forman Corporation,Consumer Staples,Distillers & Vintners,14693,False
+BHI,Baker Hughes Inc,Energy,Oil & Gas Equipment & Services,808362,False
+BIIB,BIOGEN IDEC Inc.,Health Care,Biotechnology,875045,True
+BK,The Bank of New York Mellon Corp.,Financials,Banks,1390777,True
+BLK,BlackRock,Financials,Diversified Financial Services,1364742,False
+BLL,Ball Corp,Materials,Metal & Glass Containers,9389,False
+BMY,Bristol-Myers Squibb,Health Care,Health Care Distributors & Services,14272,True
+BRCM,Broadcom Corporation,Information Technology,Semiconductors,1054374,False
+BRK.B,Berkshire Hathaway,Financials,Multi-Sector Holdings,1067983,True
+BSX,Boston Scientific,Health Care,Health Care Equipment & Services,885725,False
+BWA,BorgWarner,Consumer Discretionary,Auto Parts & Equipment,908255,False
+BXP,Boston Properties,Financials,REITs,1037540,False
+C,Citigroup Inc.,Financials,Banks,831001,True
+CA,"CA, Inc.",Information Technology,Systems Software,356028,False
+CAG,ConAgra Foods Inc.,Consumer Staples,Packaged Foods & Meats,23217,False
+CAH,Cardinal Health Inc.,Health Care,Health Care Distributors & Services,721371,False
+CAM,Cameron International Corp.,Energy,Oil & Gas Equipment & Services,941548,False
+CAT,Caterpillar Inc.,Industrials,Construction & Farm Machinery & Heavy Trucks,18230,True
+CB,Chubb Corp.,Financials,Property & Casualty Insurance,20171,False
+CBG,CBRE Group,Financials,Real Estate Management & Development,1138118,False
+CBS,CBS Corp.,Consumer Discretionary,Broadcasting & Cable TV,813828,False
+CCE,Coca-Cola Enterprises,Consumer Staples,Soft Drinks,1491675,False
+CCI,Crown Castle International Corp.,Financials,REITs,1051470,False
+CCL,Carnival Corp.,Consumer Discretionary,"Hotels, Resorts & Cruise Lines",815097,False
+CELG,Celgene Corp.,Health Care,Biotechnology,816284,False
+CERN,Cerner,Health Care,Health Care Distributors & Services,804753,False
+CF,CF Industries Holdings Inc,Materials,Fertilizers & Agricultural Chemicals,1324404,False
+CFN,Carefusion,Health Care,Health Care Equipment & Services,1457543,False
+CHK,Chesapeake Energy,Energy,Integrated Oil & Gas,895126,False
+CHRW,C. H. Robinson Worldwide,Industrials,Air Freight & Logistics,1043277,False
+CI,CIGNA Corp.,Health Care,Managed Health Care,701221,False
+CINF,Cincinnati Financial,Financials,Property & Casualty Insurance,20286,False
+CL,Colgate-Palmolive,Consumer Staples,Household Products,21665,True
+CLX,The Clorox Company,Consumer Staples,Household Products,21076,False
+CMA,Comerica Inc.,Financials,Banks,28412,False
+CMCSA,Comcast Corp.,Consumer Discretionary,Broadcasting & Cable TV,1166691,True
+CME,CME Group Inc.,Financials,Diversified Financial Services,1156375,False
+CMG,Chipotle Mexican Grill,Consumer Discretionary,Restaurants,1058090,False
+CMI,Cummins Inc.,Industrials,Industrial Machinery,26172,False
+CMS,CMS Energy,Utilities,Multi-Utilities & Unregulated Power,811156,False
+CNP,CenterPoint Energy,Utilities,Multi-Utilities & Unregulated Power,1130310,False
+CNX,CONSOL Energy Inc.,Energy,Coal & Consumable Fuels,1070412,False
+COF,Capital One Financial,Financials,Consumer Finance,927628,True
+COG,Cabot Oil & Gas,Energy,Oil & Gas Exploration & Production,858470,False
+COH,Coach Inc.,Consumer Discretionary,"Apparel, Accessories & Luxury Goods",1116132,False
+COL,Rockwell Collins,Industrials,Industrial Conglomerates,1137411,False
+COP,ConocoPhillips,Energy,Oil & Gas Exploration & Production,1163165,True
+COST,Costco Co.,Consumer Staples,Hypermarkets & Super Centers,909832,True
+CPB,Campbell Soup,Consumer Staples,Packaged Foods & Meats,16732,False
+CRM,Salesforce.com,Information Technology,Internet Software & Services,1108524,False
+CSC,Computer Sciences Corp.,Information Technology,IT Consulting & Services,23082,False
+CSCO,Cisco Systems,Information Technology,Networking Equipment,858877,True
+CSX,CSX Corp.,Industrials,Railroads,277948,False
+CTAS,Cintas Corporation,Industrials,Diversified Commercial Services,723254,False
+CTL,CenturyLink Inc,Telecommunications Services,Integrated Telecommunications Services,18926,False
+CTSH,Cognizant Technology Solutions,Information Technology,IT Consulting & Services,1058290,False
+CTXS,Citrix Systems,Information Technology,Internet Software & Services,877890,False
+CVC,Cablevision Systems Corp.,Consumer Discretionary,Broadcasting & Cable TV,1053112,False
+CVS,CVS Caremark Corp.,Consumer Staples,Drug Retail,64803,True
+CVX,Chevron Corp.,Energy,Integrated Oil & Gas,93410,True
+D,Dominion Resources,Utilities,Multi-Utilities & Unregulated Power,715957,False
+DAL,Delta Air Lines,Industrials,Airlines,27904,False
+DD,Du Pont (E.I.),Materials,Diversified Chemicals,30554,True
+DE,Deere & Co.,Industrials,Construction & Farm Machinery & Heavy Trucks,315189,False
+DFS,Discover Financial Services,Financials,Consumer Finance,1393612,False
+DG,Dollar General,Consumer Discretionary,General Merchandise Stores,29534,False
+DGX,Quest Diagnostics,Health Care,Health Care Facilities,1022079,False
+DHI,D. R. Horton,Consumer Discretionary,Construction,882184,False
+DHR,Danaher Corp.,Industrials,Industrial Machinery,313616,False
+DIS,The Walt Disney Company,Consumer Discretionary,Broadcasting & Cable TV,1001039,True
+DISCA,Discovery Communications-A,Consumer Discretionary,Broadcasting & Cable TV,1437107,False
+DISCK,Discovery Communications-C,Consumer Discretionary,Broadcasting & Cable TV,1437107,False
+DLPH,Delphi Automotive,Consumer Discretionary,Auto Parts & Equipment,1521332,False
+DLTR,Dollar Tree,Consumer Discretionary,General Merchandise Stores,935703,False
+DNB,Dun & Bradstreet,Industrials,Data Processing Services,1115222,False
+DNR,Denbury Resources Inc.,Energy,Oil & Gas Exploration & Production,945764,False
+DO,Diamond Offshore Drilling,Energy,Oil & Gas Drilling,949039,False
+DOV,Dover Corp.,Industrials,Industrial Machinery,29905,False
+DOW,Dow Chemical,Materials,Diversified Chemicals,29915,True
+DPS,Dr Pepper Snapple Group,Consumer Staples,Soft Drinks,1418135,False
+DRI,Darden Restaurants,Consumer Discretionary,Restaurants,940944,False
+DTE,DTE Energy Co.,Utilities,Multi-Utilities & Unregulated Power,936340,False
+DTV,DirecTV,Consumer Discretionary,Broadcasting & Cable TV,1465112,False
+DUK,Duke Energy,Utilities,Electric Utilities,1326160,False
+DVA,DaVita Inc.,Health Care,Health Care Facilities,927066,False
+DVN,Devon Energy Corp.,Energy,Oil & Gas Exploration & Production,1090012,True
+EA,Electronic Arts,Information Technology,Application Software,712515,False
+EBAY,eBay Inc.,Information Technology,Internet Software & Services,1065088,True
+ECL,Ecolab Inc.,Materials,Specialty Chemicals,31462,False
+ED,Consolidated Edison,Utilities,Multi-Utilities & Unregulated Power,1047862,False
+EFX,Equifax Inc.,Financials,Diversified Financial Services,33185,False
+EIX,Edison Int'l,Utilities,Multi-Utilities & Unregulated Power,827052,False
+EL,Estee Lauder Cos.,Consumer Staples,Personal Products,1001250,False
+EMC,EMC Corp.,Information Technology,IT Consulting & Services,790070,True
+EMN,Eastman Chemical,Materials,Diversified Chemicals,915389,False
+EMR,Emerson Electric,Industrials,Industrial Conglomerates,32604,True
+ENDP,Endo International,Health Care,Pharmaceuticals,1100962,False
+EOG,EOG Resources,Energy,Oil & Gas Exploration & Production,821189,False
+EQR,Equity Residential,Financials,REITs,906107,False
+EQT,EQT Corporation,Energy,Oil & Gas Exploration & Production,33213,False
+ESRX,Express Scripts,Health Care,Health Care Distributors & Services,1532063,False
+ESS,Essex Property Trust Inc,Financials,Residential REITs,920522,False
+ESV,Ensco plc,Energy,Oil & Gas Drilling,314808,False
+ETFC,E-Trade,Financials,Diversified Financial Services,1015780,False
+ETN,Eaton Corporation,Industrials,Industrial Conglomerates,1551182,False
+ETR,Entergy Corp.,Utilities,Electric Utilities,65984,False
+EW,Edwards Lifesciences,Health Care,Health Care Equipment & Services,1099800,False
+EXC,Exelon Corp.,Utilities,Multi-Utilities & Unregulated Power,1109357,True
+EXPD,Expeditors Int'l,Industrials,Air Freight & Logistics,746515,False
+EXPE,Expedia Inc.,Consumer Discretionary,"Hotels, Resorts & Cruise Lines",1324424,False
+F,Ford Motor,Consumer Discretionary,Automobile Manufacturers,37996,True
+FAST,Fastenal Co,Industrials,Building Products,815556,False
+FB,Facebook,Information Technology,Internet Software & Services,1326801,True
+FCX,Freeport-McMoran Cp & Gld,Materials,Diversified Metals & Mining,831259,True
+FDO,Family Dollar Stores,Consumer Discretionary,General Merchandise Stores,34408,False
+FDX,FedEx Corporation,Industrials,Air Freight & Logistics,1048911,True
+FE,FirstEnergy Corp,Utilities,Multi-Utilities & Unregulated Power,1031296,False
+FFIV,F5 Networks,Information Technology,Networking Equipment,1048695,False
+FIS,Fidelity National Information Services,Information Technology,Internet Software & Services,1136893,False
+FISV,Fiserv Inc,Information Technology,Internet Software & Services,798354,False
+FITB,Fifth Third Bancorp,Financials,Banks,35527,False
+FLIR,FLIR Systems,Industrials,Aerospace & Defense,354908,False
+FLR,Fluor Corp.,Industrials,Diversified Commercial Services,1124198,False
+FLS,Flowserve Corporation,Industrials,Industrial Machinery,30625,False
+FMC,FMC Corporation,Materials,Diversified Chemicals,37785,False
+FOSL,"Fossil, Inc.",Consumer Discretionary,"Apparel, Accessories & Luxury Goods",883569,False
+FOXA,Twenty-First Century Fox,Consumer Discretionary,Publishing,1308161,True
+FSLR,First Solar Inc,Information Technology,Semiconductors,1274494,False
+FTI,FMC Technologies Inc.,Energy,Oil & Gas Equipment & Services,1135152,False
+FTR,Frontier Communications,Telecommunications Services,Integrated Telecommunications Services,20520,False
+GAS,AGL Resources Inc.,Utilities,Gas Utilities,1004155,False
+GCI,Gannett Co.,Consumer Discretionary,Publishing,39899,False
+GD,General Dynamics,Industrials,Aerospace & Defense,40533,True
+GE,General Electric,Industrials,Industrial Conglomerates,40545,True
+GGP,General Growth Properties Inc.,Financials,REITs,895648,False
+GILD,Gilead Sciences,Health Care,Biotechnology,882095,True
+GIS,General Mills,Consumer Staples,Packaged Foods & Meats,40704,False
+GLW,Corning Inc.,Industrials,Construction & Engineering,24741,False
+GM,General Motors,Consumer Discretionary,Automobile Manufacturers,1467858,True
+GMCR,Keurig Green Mountain,Consumer Staples,Packaged Foods & Meats,909954,False
+GME,GameStop Corp.,Consumer Discretionary,Specialty Stores,1326380,False
+GNW,Genworth Financial Inc.,Financials,Life & Health Insurance,1276520,False
+GOOG,Google Inc Class C,Information Technology,Internet Software & Services,1288776,True
+GOOGL,Google Inc Class A,Information Technology,Internet Software & Services,1288776,False
+GPC,Genuine Parts,Consumer Discretionary,Specialty Stores,40987,False
+GPS,Gap (The),Consumer Discretionary,Apparel Retail,39911,False
+GRMN,Garmin Ltd.,Consumer Discretionary,Consumer Electronics,1121788,False
+GS,Goldman Sachs Group,Financials,Diversified Financial Services,886982,True
+GT,Goodyear Tire & Rubber,Consumer Discretionary,Tires & Rubber,42582,False
+GWW,Grainger (W.W.) Inc.,Industrials,Industrial Materials,277135,False
+HAL,Halliburton Co.,Energy,Oil & Gas Equipment & Services,45012,True
+HAR,Harman Int'l Industries,Consumer Discretionary,Consumer Electronics,800459,False
+HAS,Hasbro Inc.,Consumer Discretionary,Leisure Products,46080,False
+HBAN,Huntington Bancshares,Financials,Banks,49196,False
+HCA,HCA Holdings,Health Care,Health Care Facilities,860730,False
+HCBK,Hudson City Bancorp,Financials,Banks,921847,False
+HCN,"Health Care REIT, Inc.",Financials,REITs,766704,False
+HCP,HCP Inc.,Financials,REITs,765880,False
+HD,Home Depot,Consumer Discretionary,Home Improvement Retail,354950,True
+HES,Hess Corporation,Energy,Integrated Oil & Gas,4447,False
+HIG,Hartford Financial Svc.Gp.,Financials,Property & Casualty Insurance,874766,False
+HOG,Harley-Davidson,Consumer Discretionary,Motorcycle Manufacturers,793952,False
+HON,Honeywell Int'l Inc.,Industrials,Industrial Conglomerates,773840,True
+HOT,Starwood Hotels & Resorts,Consumer Discretionary,"Hotels, Resorts & Cruise Lines",316206,False
+HP,Helmerich & Payne,Energy,Oil & Gas Drilling,46765,False
+HPQ,Hewlett-Packard,Information Technology,Computer Hardware,47217,True
+HRB,Block H&R,Financials,Consumer Finance,12659,False
+HRL,Hormel Foods Corp.,Consumer Staples,Packaged Foods & Meats,48465,False
+HRS,Harris Corporation,Information Technology,Telecommunications Equipment,202058,False
+HSP,Hospira Inc.,Health Care,Health Care Equipment & Services,1274057,False
+HST,Host Hotels & Resorts,Financials,REITs,1070750,False
+HSY,The Hershey Company,Consumer Staples,Packaged Foods & Meats,47111,False
+HUM,Humana Inc.,Health Care,Managed Health Care,49071,False
+IBM,International Bus. Machines,Information Technology,IT Consulting & Services,51143,True
+ICE,Intercontinental Exchange,Financials,Diversified Financial Services,1571949,False
+IFF,Intl Flavors & Fragrances,Materials,Specialty Chemicals,51253,False
+INTC,Intel Corp.,Information Technology,Semiconductors,50863,True
+INTU,Intuit Inc.,Information Technology,Internet Software & Services,896878,False
+IP,International Paper,Materials,Paper Products,51434,False
+IPG,Interpublic Group,Consumer Discretionary,Advertising,51644,False
+IR,Ingersoll-Rand PLC,Industrials,Industrial Conglomerates,1466258,False
+IRM,Iron Mountain Incorporated,Industrials,Data Processing Services,1020569,False
+ISRG,Intuitive Surgical Inc.,Health Care,Health Care Equipment & Services,1035267,False
+ITW,Illinois Tool Works,Industrials,Industrial Machinery,49826,False
+IVZ,Invesco Ltd.,Financials,Diversified Financial Services,914208,False
+JCI,Johnson Controls,Consumer Discretionary,Auto Parts & Equipment,53669,False
+JEC,Jacobs Engineering Group,Industrials,Industrial Conglomerates,52988,False
+JNJ,Johnson & Johnson,Health Care,Health Care Equipment & Services,200406,True
+JNPR,Juniper Networks,Information Technology,Networking Equipment,1043604,False
+JOY,Joy Global Inc.,Industrials,Industrial Machinery,801898,False
+JPM,JPMorgan Chase & Co.,Financials,Banks,19617,True
+JWN,Nordstrom,Consumer Discretionary,Department Stores,72333,False
+K,Kellogg Co.,Consumer Staples,Packaged Foods & Meats,55067,False
+KEY,KeyCorp,Financials,Banks,91576,False
+KIM,Kimco Realty,Financials,REITs,879101,False
+KLAC,KLA-Tencor Corp.,Information Technology,Semiconductor Equipment,319201,False
+KMB,Kimberly-Clark,Consumer Staples,Household Products,55785,False
+KMI,Kinder Morgan,Energy,Oil & Gas Refining & Marketing & Transportation,1506307,False
+KMX,Carmax Inc,Consumer Discretionary,Specialty Stores,1170010,False
+KO,The Coca Cola Company,Consumer Staples,Soft Drinks,21344,True
+KORS,Michael Kors Holdings,Consumer Discretionary,"Apparel, Accessories & Luxury Goods",1530721,False
+KR,Kroger Co.,Consumer Staples,Food Retail,56873,False
+KRFT,Kraft Foods Group,Consumer Staples,Packaged Foods & Meats,1545158,False
+KSS,Kohl's Corp.,Consumer Discretionary,General Merchandise Stores,885639,False
+KSU,Kansas City Southern,Industrials,Railroads,54480,False
+L,Loews Corp.,Financials,Multi-Sector Holdings,60086,False
+LB,L Brands Inc.,Consumer Discretionary,Apparel Retail,701985,False
+LEG,Leggett & Platt,Industrials,Industrial Conglomerates,58492,False
+LEN,Lennar Corp.,Consumer Discretionary,Homebuilding,920760,False
+LH,Laboratory Corp. of America Holding,Health Care,Health Care Facilities,920148,False
+LLL,L-3 Communications Holdings,Industrials,Industrial Conglomerates,1056239,False
+LLTC,Linear Technology Corp.,Information Technology,Semiconductors,791907,False
+LLY,Lilly (Eli) & Co.,Health Care,Pharmaceuticals,59478,True
+LM,Legg Mason,Financials,Diversified Financial Services,704051,False
+LMT,Lockheed Martin Corp.,Industrials,Aerospace & Defense,936468,True
+LNC,Lincoln National,Financials,Multi-line Insurance,59558,False
+LO,Lorillard Inc.,Consumer Staples,Tobacco,1424847,False
+LOW,Lowe's Cos.,Consumer Discretionary,Home Improvement Retail,60667,True
+LRCX,Lam Research,Information Technology,Semiconductor Equipment,707549,False
+LUK,Leucadia National Corp.,Financials,Multi-Sector Holdings,96223,False
+LUV,Southwest Airlines,Industrials,Airlines,92380,False
+LVLT,Level 3 Communications,Telecommunications Services,Alternative Carriers,794323,False
+LYB,LyondellBasell,Materials,Diversified Chemicals,1489393,False
+M,Macy's Inc.,Consumer Discretionary,Department Stores,794367,False
+MA,Mastercard Inc.,Information Technology,Internet Software & Services,1141391,True
+MAC,Macerich,Financials,Retail REITs,912242,False
+MAR,Marriott Int'l.,Consumer Discretionary,"Hotels, Resorts & Cruise Lines",1048286,False
+MAS,Masco Corp.,Industrials,Building Products,62996,False
+MAT,Mattel Inc.,Consumer Discretionary,Leisure Products,63276,False
+MCD,McDonald's Corp.,Consumer Discretionary,Restaurants,63908,True
+MCHP,Microchip Technology,Information Technology,Semiconductors,827054,False
+MCK,McKesson Corp.,Health Care,Health Care Distributors & Services,927653,False
+MCO,Moody's Corp,Financials,Diversified Financial Services,1059556,False
+MDLZ,Mondelez International,Consumer Staples,Packaged Foods & Meats,1103982,True
+MDT,Medtronic Inc.,Health Care,Health Care Equipment & Services,64670,True
+MET,MetLife Inc.,Financials,Life & Health Insurance,1099219,True
+MHFI,McGraw Hill Financial,Financials,Diversified Financial Services,64040,False
+MHK,Mohawk Industries,Consumer Discretionary,Home Furnishings,851968,False
+MJN,Mead Johnson,Consumer Staples,Packaged Foods & Meats,1452575,False
+MKC,McCormick & Co.,Consumer Staples,Packaged Foods & Meats,63754,False
+MLM,Martin Marietta Materials,Materials,Construction Materials,916076,False
+MMC,Marsh & McLennan,Financials,Insurance Brokers,62709,False
+MMM,3M Company,Industrials,Industrial Conglomerates,66740,True
+MNK,Mallinckrodt Plc,Health Care,Pharmaceuticals,1567892,False
+MNST,Monster Beverage,Consumer Staples,Soft Drinks,865752,False
+MO,Altria Group Inc,Consumer Staples,Tobacco,764180,True
+MON,Monsanto Co.,Materials,Fertilizers & Agricultural Chemicals,1110783,True
+MOS,The Mosaic Company,Materials,Fertilizers & Agricultural Chemicals,1285785,False
+MPC,Marathon Petroleum,Energy,Oil & Gas Refining & Marketing & Transportation,1510295,False
+MRK,Merck & Co.,Health Care,Pharmaceuticals,310158,True
+MRO,Marathon Oil Corp.,Energy,Oil & Gas Exploration & Production,101778,False
+MS,Morgan Stanley,Financials,Diversified Financial Services,895421,True
+MSFT,Microsoft Corp.,Information Technology,Systems Software,789019,True
+MSI,Motorola Solutions Inc.,Information Technology,Telecommunications Equipment,68505,False
+MTB,M&T Bank Corp.,Financials,Banks,36270,False
+MU,Micron Technology,Information Technology,Semiconductors,723125,False
+MUR,Murphy Oil,Energy,Integrated Oil & Gas,717423,False
+MWV,MeadWestvaco Corporation,Materials,Paper Packaging,1159297,False
+MYL,Mylan Inc.,Health Care,Pharmaceuticals,69499,False
+NAVI,Navient,Financials,Consumer Finance,1084750,False
+NBL,Noble Energy Inc,Energy,Oil & Gas Exploration & Production,72207,False
+NBR,Nabors Industries Ltd.,Energy,Oil & Gas Drilling,1163739,False
+NDAQ,NASDAQ OMX Group,Financials,Diversified Financial Services,1120193,False
+NE,Noble Corp,Energy,Oil & Gas Drilling,1458891,False
+NEE,NextEra Energy,Utilities,Multi-Utilities & Unregulated Power,753308,False
+NEM,Newmont Mining Corp. (Hldg. Co.),Materials,Gold,1164727,False
+NFLX,Netflix Inc.,Information Technology,Internet Software & Services,1065280,False
+NFX,Newfield Exploration Co,Energy,Oil & Gas Exploration & Production,912750,False
+NI,NiSource Inc.,Utilities,Multi-Utilities & Unregulated Power,1111711,False
+NKE,NIKE Inc.,Consumer Discretionary,"Apparel, Accessories & Luxury Goods",320187,True
+NLSN,Nielsen Holdings,Industrials,Research & Consulting Services,1492633,False
+NOC,Northrop Grumman Corp.,Industrials,Aerospace & Defense,1133421,False
+NOV,National Oilwell Varco Inc.,Energy,Oil & Gas Equipment & Services,1021860,True
+NRG,NRG Energy,Utilities,Multi-Utilities & Unregulated Power,1013871,False
+NSC,Norfolk Southern Corp.,Industrials,Railroads,702165,True
+NTAP,NetApp,Information Technology,Internet Software & Services,1002047,False
+NTRS,Northern Trust Corp.,Financials,Diversified Financial Services,73124,False
+NU,Northeast Utilities,Utilities,Multi-Utilities & Unregulated Power,72741,False
+NUE,Nucor Corp.,Materials,Steel,73309,False
+NVDA,Nvidia Corporation,Information Technology,Semiconductors,1045810,False
+NWL,Newell Rubbermaid Co.,Consumer Discretionary,Housewares & Specialties,814453,False
+NWSA,News Corporation,Consumer Discretionary,Publishing,1564708,False
+OI,Owens-Illinois Inc,Materials,Metal & Glass Containers,812074,False
+OKE,ONEOK,Energy,Oil & Gas Exploration & Production,1039684,False
+OMC,Omnicom Group,Consumer Discretionary,Advertising,29989,False
+ORCL,Oracle Corp.,Information Technology,Application Software,1341439,True
+ORLY,O'Reilly Automotive,Consumer Discretionary,Specialty Stores,898173,False
+OXY,Occidental Petroleum,Energy,Oil & Gas Exploration & Production,797468,True
+PAYX,Paychex Inc.,Information Technology,Internet Software & Services,723531,False
+PBCT,People's United Bank,Financials,Banks,1378946,False
+PBI,Pitney-Bowes,Industrials,Office Services & Supplies,78814,False
+PCAR,PACCAR Inc.,Industrials,Construction & Farm Machinery & Heavy Trucks,75362,False
+PCG,P G & E Corp.,Utilities,Multi-Utilities & Unregulated Power,1004980,False
+PCL,Plum Creek Timber Co.,Financials,REITs,849213,False
+PCLN,Priceline.com Inc,Consumer Discretionary,"Hotels, Resorts & Cruise Lines",1075531,False
+PCP,Precision Castparts,Industrials,Industrial Conglomerates,79958,False
+PDCO,Patterson Companies,Health Care,Health Care Supplies,891024,False
+PEG,Public Serv. Enterprise Inc.,Utilities,Multi-Utilities & Unregulated Power,788784,False
+PEP,PepsiCo Inc.,Consumer Staples,Soft Drinks,77476,True
+PETM,"PetSmart, Inc.",Consumer Discretionary,Specialty Stores,863157,False
+PFE,Pfizer Inc.,Health Care,Pharmaceuticals,78003,True
+PFG,Principal Financial Group,Financials,Diversified Financial Services,1126328,False
+PG,Procter & Gamble,Consumer Staples,Personal Products,80424,True
+PGR,Progressive Corp.,Financials,Property & Casualty Insurance,80661,False
+PH,Parker-Hannifin,Industrials,Industrial Conglomerates,76334,False
+PHM,Pulte Homes Inc.,Consumer Discretionary,Homebuilding,822416,False
+PKI,PerkinElmer,Health Care,Health Care Equipment & Services,31791,False
+PLD,Prologis,Financials,Diversified Financial Services,1045609,False
+PLL,Pall Corp.,Industrials,Industrial Conglomerates,75829,False
+PM,Philip Morris International,Consumer Staples,Tobacco,1413329,True
+PNC,PNC Financial Services,Financials,Banks,713676,False
+PNR,Pentair Ltd.,Industrials,Industrial Conglomerates,77360,False
+PNW,Pinnacle West Capital,Utilities,Multi-Utilities & Unregulated Power,764622,False
+POM,Pepco Holdings Inc.,Utilities,Multi-Utilities & Unregulated Power,1135971,False
+PPG,PPG Industries,Materials,Diversified Chemicals,79879,False
+PPL,PPL Corp.,Utilities,Multi-Utilities & Unregulated Power,922224,False
+PRGO,Perrigo,Health Care,Pharmaceuticals,1585364,False
+PRU,Prudential Financial,Financials,Diversified Financial Services,1137774,False
+PSA,Public Storage,Financials,REITs,1393311,False
+PSX,Phillips 66,Energy,Oil & Gas Refining & Marketing & Transportation,1534701,False
+PVH,PVH Corp.,Consumer Discretionary,"Apparel, Accessories & Luxury Goods",78239,False
+PWR,Quanta Services Inc.,Industrials,Industrial Conglomerates,1050915,False
+PX,Praxair Inc.,Materials,Industrial Gases,884905,False
+PXD,Pioneer Natural Resources,Energy,Oil & Gas Exploration & Production,1038357,False
+QCOM,QUALCOMM Inc.,Information Technology,Semiconductors,804328,True
+QEP,QEP Resources,Energy,Oil & Gas Exploration & Production,1108827,False
+R,Ryder System,Industrials,Industrial Conglomerates,85961,False
+RAI,Reynolds American Inc.,Consumer Staples,Tobacco,1275283,False
+RCL,Royal Caribbean Cruises Ltd,Consumer Discretionary,"Hotel, Resorts and Cruise Lines",884887,False
+REGN,Regeneron,Health Care,Biotechnology,872589,False
+RF,Regions Financial Corp.,Financials,Diversified Financial Services,1281761,False
+RHI,Robert Half International,Industrials,Industrial Conglomerates,315213,False
+RHT,Red Hat Inc.,Information Technology,Systems Software,1087423,False
+RIG,Transocean,Energy,Oil & Gas Drilling,1451505,False
+RL,Polo Ralph Lauren Corp.,Consumer Discretionary,"Apparel, Accessories & Luxury Goods",1037038,False
+ROK,Rockwell Automation Inc.,Industrials,Industrial Conglomerates,1024478,False
+ROP,Roper Industries,Industrials,Industrial Conglomerates,882835,False
+ROST,Ross Stores,Consumer Discretionary,Apparel Retail,745732,False
+RRC,Range Resources Corp.,Energy,Oil & Gas Exploration & Production,315852,False
+RSG,Republic Services Inc,Industrials,Industrial Conglomerates,1060391,False
+RTN,Raytheon Co.,Industrials,Aerospace & Defense,1047122,True
+SBUX,Starbucks Corp.,Consumer Discretionary,Restaurants,829224,True
+SCG,SCANA Corp,Utilities,Multi-Utilities & Unregulated Power,754737,False
+SCHW,Charles Schwab Corporation,Financials,Diversified Financial Services,316709,False
+SE,Spectra Energy Corp.,Energy,Oil & Gas Refining & Marketing & Transportation,1373835,False
+SEE,Sealed Air Corp.(New),Materials,Paper Packaging,1012100,False
+SHW,Sherwin-Williams,Materials,Specialty Chemicals,89800,False
+SIAL,Sigma-Aldrich,Materials,Diversified Chemicals,90185,False
+SJM,Smucker (J.M.),Consumer Staples,Packaged Foods & Meats,91419,False
+SLB,Schlumberger Ltd.,Energy,Oil & Gas Equipment & Services,87347,True
+SNA,Snap-On Inc.,Consumer Discretionary,Household Appliances,91440,False
+SNDK,SanDisk Corporation,Information Technology,Computer Storage & Peripherals,1000180,False
+SNI,Scripps Networks Interactive Inc.,Consumer Discretionary,Broadcasting & Cable TV,1430602,False
+SO,Southern Co.,Utilities,Multi-Utilities & Unregulated Power,92122,True
+SPG,Simon Property Group Inc,Financials,REITs,1063761,True
+SPLS,Staples Inc.,Consumer Discretionary,Specialty Stores,791519,False
+SRCL,Stericycle Inc,Industrials,Industrial Conglomerates,861878,False
+SRE,Sempra Energy,Utilities,Multi-Utilities & Unregulated Power,1032208,False
+STI,SunTrust Banks,Financials,Banks,750556,False
+STJ,St Jude Medical,Health Care,Health Care Equipment & Services,203077,False
+STT,State Street Corp.,Financials,Diversified Financial Services,93751,False
+STX,Seagate Technology,Information Technology,Computer Storage & Peripherals,1137789,False
+STZ,Constellation Brands,Consumer Staples,Distillers & Vintners,16918,False
+SWK,Stanley Black & Decker,Consumer Discretionary,Household Appliances,93556,False
+SWN,Southwestern Energy,Energy,Oil & Gas Exploration & Production,7332,False
+SYK,Stryker Corp.,Health Care,Health Care Equipment & Services,310764,False
+SYMC,Symantec Corp.,Information Technology,Application Software,849399,False
+SYY,Sysco Corp.,Consumer Staples,Food Distributors,96021,False
+T,AT&T Inc,Telecommunications Services,Integrated Telecommunications Services,732717,True
+TAP,Molson Coors Brewing Company,Consumer Staples,Brewers,24545,False
+TDC,Teradata Corp.,Information Technology,Application Software,816761,False
+TE,TECO Energy,Utilities,Multi-Utilities & Unregulated Power,350563,False
+TEG,Integrys Energy Group Inc.,Utilities,Gas Utilities,916863,False
+TEL,TE Connectivity Ltd.,Information Technology,Electronic Equipment & Instruments,1385157,False
+TGT,Target Corp.,Consumer Discretionary,General Merchandise Stores,27419,True
+THC,Tenet Healthcare Corp.,Health Care,Health Care Facilities,70318,False
+TIF,Tiffany & Co.,Consumer Discretionary,"Apparel, Accessories & Luxury Goods",98246,False
+TJX,TJX Companies Inc.,Consumer Discretionary,Apparel Retail,109198,False
+TMK,Torchmark Corp.,Financials,Life & Health Insurance,320335,False
+TMO,Thermo Fisher Scientific,Health Care,Health Care Equipment & Services,97745,False
+TRIP,TripAdvisor,Consumer Discretionary,Internet Retail,1526520,False
+TROW,T. Rowe Price Group,Financials,Diversified Financial Services,1113169,False
+TRV,The Travelers Companies Inc.,Financials,Property & Casualty Insurance,86312,False
+TSCO,Tractor Supply Company,Consumer Discretionary,Specialty Retail,916365,False
+TSN,Tyson Foods,Consumer Staples,Packaged Foods & Meats,100493,False
+TSO,Tesoro Petroleum Co.,Energy,Oil & Gas Refining & Marketing & Transportation,50104,False
+TSS,Total System Services,Information Technology,Internet Software & Services,721683,False
+TWC,Time Warner Cable Inc.,Consumer Discretionary,Broadcasting & Cable TV,1377013,False
+TWX,Time Warner Inc.,Consumer Discretionary,Broadcasting & Cable TV,1105705,True
+TXN,Texas Instruments,Information Technology,Semiconductors,97476,True
+TXT,Textron Inc.,Industrials,Industrial Conglomerates,217346,False
+TYC,Tyco International,Industrials,Industrial Conglomerates,833444,False
+UA,Under Armour,Consumer Discretionary,"Apparel, Accessories & Luxury Goods",1336917,False
+UHS,"Universal Health Services, Inc.",Health Care,Health Care Facilities,352915,False
+UNH,United Health Group Inc.,Health Care,Managed Health Care,731766,True
+UNM,Unum Group,Financials,Diversified Financial Services,5513,False
+UNP,Union Pacific,Industrials,Railroads,100885,True
+UPS,United Parcel Service,Industrials,Air Freight & Logistics,1090727,True
+URBN,Urban Outfitters,Consumer Discretionary,Apparel Retail,912615,False
+URI,"United Rentals, Inc.",Industrials,Trading Companies & Distributors,1215583,False
+USB,U.S. Bancorp,Financials,Banks,36104,True
+UTX,United Technologies,Industrials,Industrial Conglomerates,101829,True
+V,Visa Inc.,Information Technology,Internet Software & Services,1403161,True
+VAR,Varian Medical Systems,Health Care,Health Care Equipment & Services,203527,False
+VFC,V.F. Corp.,Consumer Discretionary,"Apparel, Accessories & Luxury Goods",103379,False
+VIAB,Viacom Inc.,Consumer Discretionary,Broadcasting & Cable TV,1339947,False
+VLO,Valero Energy,Energy,Oil & Gas Refining & Marketing & Transportation,1035002,False
+VMC,Vulcan Materials,Materials,Construction Materials,1396009,False
+VNO,Vornado Realty Trust,Financials,REITs,899689,False
+VRSN,Verisign Inc.,Information Technology,Internet Software & Services,1014473,False
+VRTX,Vertex Pharmaceuticals Inc,Health Care,Biotechnology,875320,False
+VTR,Ventas Inc,Financials,Diversified Financial Services,740260,False
+VZ,Verizon Communications,Telecommunications Services,Integrated Telecommunications Services,732712,True
+WAT,Waters Corporation,Health Care,Health Care Distributors & Services,1000697,False
+WBA,Walgreens Boots Alliance,Consumer Staples,Drug Retail,104207,True
+WDC,Western Digital,Information Technology,Computer Storage & Peripherals,106040,False
+WEC,Wisconsin Energy Corporation,Utilities,Multi-Utilities & Unregulated Power,783325,False
+WFC,Wells Fargo,Financials,Banks,72971,True
+WFM,Whole Foods Market,Consumer Staples,Food Retail,865436,False
+WHR,Whirlpool Corp.,Consumer Discretionary,Household Appliances,106640,False
+WIN,Windstream Communications,Telecommunications Services,Integrated Telecommunications Services,1282266,False
+WM,Waste Management Inc.,Industrials,Environmental Services,823768,False
+WMB,Williams Cos.,Energy,Oil & Gas Exploration & Production,107263,False
+WMT,Wal-Mart Stores,Consumer Staples,Hypermarkets & Super Centers,104169,True
+WU,Western Union Co,Information Technology,Internet Software & Services,1365135,False
+WY,Weyerhaeuser Corp.,Financials,REITs,106535,False
+WYN,Wyndham Worldwide,Consumer Discretionary,"Hotels, Resorts & Cruise Lines",1361658,False
+WYNN,Wynn Resorts Ltd,Consumer Discretionary,Casinos & Gaming,1174922,False
+XEC,Cimarex Energy,Energy,Oil & Gas Exploration & Production,1168054,False
+XEL,Xcel Energy Inc,Utilities,Multi-Utilities & Unregulated Power,72903,False
+XL,XL Capital,Financials,Property & Casualty Insurance,875159,False
+XLNX,Xilinx Inc,Information Technology,Semiconductors,743988,False
+XOM,Exxon Mobil Corp.,Energy,Integrated Oil & Gas,34088,True
+XRAY,Dentsply International,Health Care,Health Care Supplies,818479,False
+XRX,Xerox Corp.,Information Technology,IT Consulting & Services,108772,False
+XYL,Xylem Inc.,Industrials,Industrial Conglomerates,1524472,False
+YHOO,Yahoo Inc.,Information Technology,Internet Software & Services,1011006,False
+YUM,Yum! Brands Inc,Consumer Discretionary,Restaurants,1041061,False
+ZION,Zions Bancorp,Financials,Banks,109380,False
+ZMH,Zimmer Holdings,Health Care,Health Care Equipment & Services,1136869,False
+ZTS,Zoetis,Health Care,Pharmaceuticals,1555280,False

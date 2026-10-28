@@ -1,0 +1,728 @@
+# Stock universe. Field meanings are documented in src/regime_fusion/data/universe.py.
+#
+# Candidates are the S&P 100 members in January 2015 (configs/constituents_2015-01.csv),
+# with names, sectors and CIKs as listed then. Later corporate events (see notes) were
+# checked against SEC EDGAR and Yahoo Finance in October 2026; the downloads check every
+# entry again (docs/DATA.md).
+# Still to be decided (docs/DECISIONS.md): which candidates join ActTrade's 18 US stocks
+# in the main universe, and the 50 hold-out stocks.
+
+stocks:
+  - id: AAPL
+    name: "Apple Inc."
+    sector: "Information Technology"
+    ciks: [320193]
+    yahoo: "AAPL"
+    role: candidate
+    acttrade: null
+  - id: ABBV
+    name: "AbbVie"
+    sector: "Health Care"
+    ciks: [1551152]
+    yahoo: "ABBV"
+    role: candidate
+    acttrade: null
+  - id: ABT
+    name: "Abbott Laboratories"
+    sector: "Health Care"
+    ciks: [1800]
+    yahoo: "ABT"
+    role: candidate
+    acttrade: null
+  - id: ACN
+    name: "Accenture plc"
+    sector: "Information Technology"
+    ciks: [1467373]
+    yahoo: "ACN"
+    role: candidate
+    acttrade: null
+  - id: AIG
+    name: "American International Group, Inc."
+    sector: "Financials"
+    ciks: [5272]
+    yahoo: "AIG"
+    role: candidate
+    acttrade: null
+  - id: ALL
+    name: "Allstate Corp"
+    sector: "Financials"
+    ciks: [899051]
+    yahoo: "ALL"
+    role: candidate
+    acttrade: null
+  - id: AMGN
+    name: "Amgen Inc"
+    sector: "Health Care"
+    ciks: [318154]
+    yahoo: "AMGN"
+    role: candidate
+    acttrade: null
+  - id: AMZN
+    name: "Amazon.com Inc"
+    sector: "Consumer Discretionary"
+    ciks: [1018724]
+    yahoo: "AMZN"
+    role: candidate
+    acttrade: null
+  - id: APA
+    name: "Apache Corporation"
+    sector: "Energy"
+    ciks: [6769, 1841666]
+    yahoo: "APA"
+    role: candidate
+    acttrade: null
+    notes: "Reorganised under the holding company APA Corp (new CIK) in March 2021."
+  - id: APC
+    name: "Anadarko Petroleum Corp"
+    sector: "Energy"
+    ciks: [773910]
+    yahoo: null
+    role: excluded
+    acttrade: null
+    notes: "Acquired by Occidental Petroleum in August 2019. Yahoo Finance no longer has its prices."
+  - id: AXP
+    name: "American Express Co"
+    sector: "Financials"
+    ciks: [4962]
+    yahoo: "AXP"
+    role: candidate
+    acttrade: null
+  - id: BA
+    name: "Boeing Company"
+    sector: "Industrials"
+    ciks: [12927]
+    yahoo: "BA"
+    role: candidate
+    acttrade: null
+  - id: BAC
+    name: "Bank of America Corp"
+    sector: "Financials"
+    ciks: [70858]
+    yahoo: "BAC"
+    role: candidate
+    acttrade: null
+  - id: BAX
+    name: "Baxter International Inc."
+    sector: "Health Care"
+    ciks: [10456]
+    yahoo: "BAX"
+    role: candidate
+    acttrade: null
+  - id: BIIB
+    name: "BIOGEN IDEC Inc."
+    sector: "Health Care"
+    ciks: [875045]
+    yahoo: "BIIB"
+    role: candidate
+    acttrade: null
+  - id: BK
+    name: "The Bank of New York Mellon Corp."
+    sector: "Financials"
+    ciks: [1390777]
+    yahoo: "BNY"
+    role: candidate
+    acttrade: null
+    notes: "Now trades as BNY; Yahoo keeps the full price history under that symbol."
+  - id: BMY
+    name: "Bristol-Myers Squibb"
+    sector: "Health Care"
+    ciks: [14272]
+    yahoo: "BMY"
+    role: candidate
+    acttrade: null
+  - id: BRK.B
+    name: "Berkshire Hathaway"
+    sector: "Financials"
+    ciks: [1067983]
+    yahoo: "BRK-B"
+    role: candidate
+    acttrade: null
+  - id: C
+    name: "Citigroup Inc."
+    sector: "Financials"
+    ciks: [831001]
+    yahoo: "C"
+    role: candidate
+    acttrade: null
+  - id: CAT
+    name: "Caterpillar Inc."
+    sector: "Industrials"
+    ciks: [18230]
+    yahoo: "CAT"
+    role: candidate
+    acttrade: null
+  - id: CL
+    name: "Colgate-Palmolive"
+    sector: "Consumer Staples"
+    ciks: [21665]
+    yahoo: "CL"
+    role: candidate
+    acttrade: null
+  - id: CMCSA
+    name: "Comcast Corp."
+    sector: "Consumer Discretionary"
+    ciks: [1166691]
+    yahoo: "CMCSA"
+    role: candidate
+    acttrade: null
+  - id: COF
+    name: "Capital One Financial"
+    sector: "Financials"
+    ciks: [927628]
+    yahoo: "COF"
+    role: candidate
+    acttrade: null
+  - id: COP
+    name: "ConocoPhillips"
+    sector: "Energy"
+    ciks: [1163165]
+    yahoo: "COP"
+    role: candidate
+    acttrade: null
+  - id: COST
+    name: "Costco Co."
+    sector: "Consumer Staples"
+    ciks: [909832]
+    yahoo: "COST"
+    role: candidate
+    acttrade: null
+  - id: CSCO
+    name: "Cisco Systems"
+    sector: "Information Technology"
+    ciks: [858877]
+    yahoo: "CSCO"
+    role: candidate
+    acttrade: null
+  - id: CVS
+    name: "CVS Caremark Corp."
+    sector: "Consumer Staples"
+    ciks: [64803]
+    yahoo: "CVS"
+    role: candidate
+    acttrade: null
+  - id: CVX
+    name: "Chevron Corp."
+    sector: "Energy"
+    ciks: [93410]
+    yahoo: "CVX"
+    role: candidate
+    acttrade: null
+  - id: DD
+    name: "Du Pont (E.I.)"
+    sector: "Materials"
+    ciks: [30554, 1666700]
+    yahoo: "DD"
+    role: candidate
+    acttrade: null
+    notes: "E. I. du Pont de Nemours. Merged with Dow Chemical into DowDuPont (CIK 1666700) in August 2017, which spun off Dow (April 2019) and Corteva (June 2019) and was renamed DuPont de Nemours. Yahoo's DD series chains these; check its spin-off adjustments (an 18% one-day move on 3 June 2019)."
+  - id: DIS
+    name: "The Walt Disney Company"
+    sector: "Consumer Discretionary"
+    ciks: [1001039, 1744489]
+    yahoo: "DIS"
+    role: candidate
+    acttrade: null
+    notes: "New holding company (new CIK) after acquiring Twenty-First Century Fox in March 2019."
+  - id: DOW
+    name: "Dow Chemical"
+    sector: "Materials"
+    ciks: [29915]
+    yahoo: null
+    role: excluded
+    acttrade: null
+    notes: "Dow Chemical merged into DowDuPont in August 2017. Yahoo's DOW is Dow Inc., listed in March 2019."
+  - id: DVN
+    name: "Devon Energy Corp."
+    sector: "Energy"
+    ciks: [1090012]
+    yahoo: "DVN"
+    role: candidate
+    acttrade: null
+  - id: EBAY
+    name: "eBay Inc."
+    sector: "Information Technology"
+    ciks: [1065088]
+    yahoo: "EBAY"
+    role: candidate
+    acttrade: null
+  - id: EMC
+    name: "EMC Corp."
+    sector: "Information Technology"
+    ciks: [790070]
+    yahoo: null
+    role: excluded
+    acttrade: null
+    notes: "Acquired by Dell in September 2016. Yahoo's EMC is a different security, listed in 2023."
+  - id: EMR
+    name: "Emerson Electric"
+    sector: "Industrials"
+    ciks: [32604]
+    yahoo: "EMR"
+    role: candidate
+    acttrade: null
+  - id: EXC
+    name: "Exelon Corp."
+    sector: "Utilities"
+    ciks: [1109357]
+    yahoo: "EXC"
+    role: candidate
+    acttrade: null
+  - id: F
+    name: "Ford Motor"
+    sector: "Consumer Discretionary"
+    ciks: [37996]
+    yahoo: "F"
+    role: candidate
+    acttrade: null
+  - id: FB
+    name: "Facebook"
+    sector: "Information Technology"
+    ciks: [1326801]
+    yahoo: "META"
+    role: candidate
+    acttrade: null
+    notes: "Renamed Meta Platforms in October 2021; ticker META since June 2022."
+  - id: FCX
+    name: "Freeport-McMoran Cp & Gld"
+    sector: "Materials"
+    ciks: [831259]
+    yahoo: "FCX"
+    role: candidate
+    acttrade: null
+  - id: FDX
+    name: "FedEx Corporation"
+    sector: "Industrials"
+    ciks: [1048911]
+    yahoo: "FDX"
+    role: candidate
+    acttrade: null
+  - id: FOXA
+    name: "Twenty-First Century Fox"
+    sector: "Consumer Discretionary"
+    ciks: [1308161]
+    yahoo: null
+    role: excluded
+    acttrade: null
+    notes: "Twenty-First Century Fox, acquired by Disney in March 2019. Yahoo's FOXA is Fox Corporation, listed in March 2019."
+  - id: GD
+    name: "General Dynamics"
+    sector: "Industrials"
+    ciks: [40533]
+    yahoo: "GD"
+    role: candidate
+    acttrade: null
+  - id: GE
+    name: "General Electric"
+    sector: "Industrials"
+    ciks: [40545]
+    yahoo: "GE"
+    role: candidate
+    acttrade: null
+  - id: GILD
+    name: "Gilead Sciences"
+    sector: "Health Care"
+    ciks: [882095]
+    yahoo: "GILD"
+    role: candidate
+    acttrade: null
+  - id: GM
+    name: "General Motors"
+    sector: "Consumer Discretionary"
+    ciks: [1467858]
+    yahoo: "GM"
+    role: candidate
+    acttrade: null
+  - id: GOOG
+    name: "Google Inc Class C"
+    sector: "Information Technology"
+    ciks: [1288776, 1652044]
+    yahoo: "GOOG"
+    role: candidate
+    acttrade: null
+    notes: "Class C shares. Google became a subsidiary of Alphabet Inc. (new CIK) in October 2015."
+  - id: GS
+    name: "Goldman Sachs Group"
+    sector: "Financials"
+    ciks: [886982]
+    yahoo: "GS"
+    role: candidate
+    acttrade: null
+  - id: HAL
+    name: "Halliburton Co."
+    sector: "Energy"
+    ciks: [45012]
+    yahoo: "HAL"
+    role: candidate
+    acttrade: null
+  - id: HD
+    name: "Home Depot"
+    sector: "Consumer Discretionary"
+    ciks: [354950]
+    yahoo: "HD"
+    role: candidate
+    acttrade: null
+  - id: HON
+    name: "Honeywell Int'l Inc."
+    sector: "Industrials"
+    ciks: [773840]
+    yahoo: "HON"
+    role: candidate
+    acttrade: null
+  - id: HPQ
+    name: "Hewlett-Packard"
+    sector: "Information Technology"
+    ciks: [47217]
+    yahoo: "HPQ"
+    role: candidate
+    acttrade: null
+    notes: "Hewlett Packard Enterprise was spun off on 1 November 2015; HP Inc. kept the CIK and ticker. Yahoo records the spin-off as a 2.202 split."
+  - id: IBM
+    name: "International Bus. Machines"
+    sector: "Information Technology"
+    ciks: [51143]
+    yahoo: "IBM"
+    role: candidate
+    acttrade: null
+  - id: INTC
+    name: "Intel Corp."
+    sector: "Information Technology"
+    ciks: [50863]
+    yahoo: "INTC"
+    role: candidate
+    acttrade: null
+  - id: JNJ
+    name: "Johnson & Johnson"
+    sector: "Health Care"
+    ciks: [200406]
+    yahoo: "JNJ"
+    role: candidate
+    acttrade: null
+  - id: JPM
+    name: "JPMorgan Chase & Co."
+    sector: "Financials"
+    ciks: [19617]
+    yahoo: "JPM"
+    role: candidate
+    acttrade: null
+  - id: KO
+    name: "The Coca Cola Company"
+    sector: "Consumer Staples"
+    ciks: [21344]
+    yahoo: "KO"
+    role: candidate
+    acttrade: null
+  - id: LLY
+    name: "Lilly (Eli) & Co."
+    sector: "Health Care"
+    ciks: [59478]
+    yahoo: "LLY"
+    role: candidate
+    acttrade: null
+  - id: LMT
+    name: "Lockheed Martin Corp."
+    sector: "Industrials"
+    ciks: [936468]
+    yahoo: "LMT"
+    role: candidate
+    acttrade: null
+  - id: LOW
+    name: "Lowe's Cos."
+    sector: "Consumer Discretionary"
+    ciks: [60667]
+    yahoo: "LOW"
+    role: candidate
+    acttrade: null
+  - id: MA
+    name: "Mastercard Inc."
+    sector: "Information Technology"
+    ciks: [1141391]
+    yahoo: "MA"
+    role: candidate
+    acttrade: null
+  - id: MCD
+    name: "McDonald's Corp."
+    sector: "Consumer Discretionary"
+    ciks: [63908]
+    yahoo: "MCD"
+    role: candidate
+    acttrade: null
+  - id: MDLZ
+    name: "Mondelez International"
+    sector: "Consumer Staples"
+    ciks: [1103982]
+    yahoo: "MDLZ"
+    role: candidate
+    acttrade: null
+  - id: MDT
+    name: "Medtronic Inc."
+    sector: "Health Care"
+    ciks: [64670, 1613103]
+    yahoo: "MDT"
+    role: candidate
+    acttrade: null
+    notes: "Medtronic plc (new CIK) replaced Medtronic Inc. on 26 January 2015, after acquiring Covidien."
+  - id: MET
+    name: "MetLife Inc."
+    sector: "Financials"
+    ciks: [1099219]
+    yahoo: "MET"
+    role: candidate
+    acttrade: null
+  - id: MMM
+    name: "3M Company"
+    sector: "Industrials"
+    ciks: [66740]
+    yahoo: "MMM"
+    role: candidate
+    acttrade: null
+  - id: MO
+    name: "Altria Group Inc"
+    sector: "Consumer Staples"
+    ciks: [764180]
+    yahoo: "MO"
+    role: candidate
+    acttrade: null
+  - id: MON
+    name: "Monsanto Co."
+    sector: "Materials"
+    ciks: [1110783]
+    yahoo: null
+    role: excluded
+    acttrade: null
+    notes: "Acquired by Bayer in June 2018. Yahoo Finance no longer has its prices."
+  - id: MRK
+    name: "Merck & Co."
+    sector: "Health Care"
+    ciks: [310158]
+    yahoo: "MRK"
+    role: candidate
+    acttrade: null
+  - id: MS
+    name: "Morgan Stanley"
+    sector: "Financials"
+    ciks: [895421]
+    yahoo: "MS"
+    role: candidate
+    acttrade: null
+  - id: MSFT
+    name: "Microsoft Corp."
+    sector: "Information Technology"
+    ciks: [789019]
+    yahoo: "MSFT"
+    role: candidate
+    acttrade: null
+  - id: NKE
+    name: "NIKE Inc."
+    sector: "Consumer Discretionary"
+    ciks: [320187]
+    yahoo: "NKE"
+    role: candidate
+    acttrade: null
+  - id: NOV
+    name: "National Oilwell Varco Inc."
+    sector: "Energy"
+    ciks: [1021860]
+    yahoo: "NOV"
+    role: candidate
+    acttrade: null
+  - id: NSC
+    name: "Norfolk Southern Corp."
+    sector: "Industrials"
+    ciks: [702165]
+    yahoo: "NSC"
+    role: candidate
+    acttrade: null
+  - id: ORCL
+    name: "Oracle Corp."
+    sector: "Information Technology"
+    ciks: [1341439]
+    yahoo: "ORCL"
+    role: candidate
+    acttrade: null
+  - id: OXY
+    name: "Occidental Petroleum"
+    sector: "Energy"
+    ciks: [797468]
+    yahoo: "OXY"
+    role: candidate
+    acttrade: null
+  - id: PEP
+    name: "PepsiCo Inc."
+    sector: "Consumer Staples"
+    ciks: [77476]
+    yahoo: "PEP"
+    role: candidate
+    acttrade: null
+  - id: PFE
+    name: "Pfizer Inc."
+    sector: "Health Care"
+    ciks: [78003]
+    yahoo: "PFE"
+    role: candidate
+    acttrade: null
+  - id: PG
+    name: "Procter & Gamble"
+    sector: "Consumer Staples"
+    ciks: [80424]
+    yahoo: "PG"
+    role: candidate
+    acttrade: null
+  - id: PM
+    name: "Philip Morris International"
+    sector: "Consumer Staples"
+    ciks: [1413329]
+    yahoo: "PM"
+    role: candidate
+    acttrade: null
+  - id: QCOM
+    name: "QUALCOMM Inc."
+    sector: "Information Technology"
+    ciks: [804328]
+    yahoo: "QCOM"
+    role: candidate
+    acttrade: null
+  - id: RTN
+    name: "Raytheon Co."
+    sector: "Industrials"
+    ciks: [1047122]
+    yahoo: null
+    role: excluded
+    acttrade: null
+    notes: "Merged with United Technologies in April 2020. Yahoo Finance no longer has its prices."
+  - id: SBUX
+    name: "Starbucks Corp."
+    sector: "Consumer Discretionary"
+    ciks: [829224]
+    yahoo: "SBUX"
+    role: candidate
+    acttrade: null
+  - id: SLB
+    name: "Schlumberger Ltd."
+    sector: "Energy"
+    ciks: [87347]
+    yahoo: "SLB"
+    role: candidate
+    acttrade: null
+  - id: SO
+    name: "Southern Co."
+    sector: "Utilities"
+    ciks: [92122]
+    yahoo: "SO"
+    role: candidate
+    acttrade: null
+  - id: SPG
+    name: "Simon Property Group Inc"
+    sector: "Financials"
+    ciks: [1063761]
+    yahoo: "SPG"
+    role: candidate
+    acttrade: null
+  - id: T
+    name: "AT&T Inc"
+    sector: "Telecommunications Services"
+    ciks: [732717]
+    yahoo: "T"
+    role: candidate
+    acttrade: null
+  - id: TGT
+    name: "Target Corp."
+    sector: "Consumer Discretionary"
+    ciks: [27419]
+    yahoo: "TGT"
+    role: candidate
+    acttrade: null
+  - id: TWX
+    name: "Time Warner Inc."
+    sector: "Consumer Discretionary"
+    ciks: [1105705]
+    yahoo: null
+    role: excluded
+    acttrade: null
+    notes: "Acquired by AT&T in June 2018. Yahoo Finance no longer has its prices."
+  - id: TXN
+    name: "Texas Instruments"
+    sector: "Information Technology"
+    ciks: [97476]
+    yahoo: "TXN"
+    role: candidate
+    acttrade: null
+  - id: UNH
+    name: "United Health Group Inc."
+    sector: "Health Care"
+    ciks: [731766]
+    yahoo: "UNH"
+    role: candidate
+    acttrade: null
+  - id: UNP
+    name: "Union Pacific"
+    sector: "Industrials"
+    ciks: [100885]
+    yahoo: "UNP"
+    role: candidate
+    acttrade: null
+  - id: UPS
+    name: "United Parcel Service"
+    sector: "Industrials"
+    ciks: [1090727]
+    yahoo: "UPS"
+    role: candidate
+    acttrade: null
+  - id: USB
+    name: "U.S. Bancorp"
+    sector: "Financials"
+    ciks: [36104]
+    yahoo: "USB"
+    role: candidate
+    acttrade: null
+  - id: UTX
+    name: "United Technologies"
+    sector: "Industrials"
+    ciks: [101829]
+    yahoo: "RTX"
+    role: candidate
+    acttrade: null
+    notes: "Spun off Carrier and Otis and merged with Raytheon in April 2020, becoming Raytheon Technologies (now RTX Corp, same CIK). Yahoo records the spin-offs as a 1.589 split."
+  - id: V
+    name: "Visa Inc."
+    sector: "Information Technology"
+    ciks: [1403161]
+    yahoo: "V"
+    role: candidate
+    acttrade: null
+  - id: VZ
+    name: "Verizon Communications"
+    sector: "Telecommunications Services"
+    ciks: [732712]
+    yahoo: "VZ"
+    role: candidate
+    acttrade: null
+  - id: WBA
+    name: "Walgreens Boots Alliance"
+    sector: "Consumer Staples"
+    ciks: [104207, 1618921]
+    yahoo: null
+    role: excluded
+    acttrade: null
+    notes: "Walgreens Boots Alliance (CIK 1618921) became the holding company of Walgreen Co. on 31 December 2014. Taken private in August 2025, after which Yahoo removed its prices."
+  - id: WFC
+    name: "Wells Fargo"
+    sector: "Financials"
+    ciks: [72971]
+    yahoo: "WFC"
+    role: candidate
+    acttrade: null
+  - id: WMT
+    name: "Wal-Mart Stores"
+    sector: "Consumer Staples"
+    ciks: [104169]
+    yahoo: "WMT"
+    role: candidate
+    acttrade: null
+  - id: XOM
+    name: "Exxon Mobil Corp."
+    sector: "Energy"
+    ciks: [34088]
+    yahoo: "XOM"
+    role: candidate
+    acttrade: null
+    notes: "ExxonMobil Holdings Corp (CIK 2115436) became the holding company in July 2026, after the study period."

@@ -27,3 +27,13 @@ The clock is the New York Stock Exchange (calendar `XNYS` of the `exchange_calen
 | Has a date but no time (SEC filing date, news stamped only with a date) | The first session strictly after the date | A 10-Q filed on Monday is first used on Tuesday |
 
 Feature code built on daily rows is tested with `regime_fusion.testing.check_no_lookahead`. Daily tables built from dated items (news, filed values) are tested with `regime_fusion.testing.check_point_in_time`: withholding every item not yet available on day *t* must leave row *t* unchanged.
+
+## Universe
+
+The universe is fixed as of January 2015, so firms later acquired or delisted stay in it.
+
+- [`configs/constituents_2015-01.csv`](../configs/constituents_2015-01.csv) lists the S&P 500 members at the end of January 2015 (502 share classes of 500 firms), with GICS sector and sub-industry, SEC CIK, and S&P 100 membership. It is rebuilt from pinned Wikipedia revisions with `python -m regime_fusion.data constituents`: the S&P 100 page as of 16 January 2015 (revision 642684730) and the S&P 500 list as of 27 January 2015 (revision 644366768). Wikipedia is a secondary source (CC BY-SA); an official list would be a welcome check.
+- [`configs/universe.yaml`](../configs/universe.yaml) holds the stocks of the study. It currently lists the 100 S&P 100 members as candidates. Eight are excluded because Yahoo Finance no longer has their prices: Anadarko, Dow Chemical, EMC, Twenty-First Century Fox, Monsanto, Raytheon, Time Warner and Walgreens Boots Alliance. This is the survivorship bias of free price data that the paper states.
+- Each stock keeps its January 2015 ticker as its identifier, in file names and seeds. The entry records every CIK that filed its accounts from 2014 to 2025 (six firms changed CIK through holding-company reorganisations, e.g. Google into Alphabet) and the Yahoo symbol of its price history today (FB is now META, UTX is RTX, BK is BNY).
+- Tickers are reused: Yahoo's EMC, FOXA and DOW are now other securities. Price downloads are therefore checked to cover the study period from its start.
+- Hold-out stocks are returned only by `Universe.select("holdout", include_holdout=True)`, which only the downloads and the final campaign use.
