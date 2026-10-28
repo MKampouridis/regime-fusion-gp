@@ -25,7 +25,7 @@ stocks:
     notes: "Acquired by Microsoft in October 2023, after which Yahoo removed its prices; joined the S&P 500 in August 2015."
   - label: COKE
     id: KO
-    notes: "The paper prints COKE; taken to be The Coca-Cola Company (KO) rather than the bottler Coca-Cola Consolidated (ticker COKE), to be confirmed."
+    notes: "The paper prints COKE: The Coca-Cola Company (KO), not the bottler Coca-Cola Consolidated (ticker COKE), as MK confirmed."
   - {label: EBAY, id: EBAY}
   - {label: ESTEE, id: EL}
   - {label: FORD, id: F}
