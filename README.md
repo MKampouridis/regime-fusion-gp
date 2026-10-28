@@ -15,6 +15,7 @@ Set-up and the directional-change module are done. The data pipeline (Phase 2) i
 | `src/regime_fusion/` | Python package |
 | `src/regime_fusion/dc/` | Directional-change events and causal DC indicators |
 | `src/regime_fusion/data/` | Data pipeline: downloads, trading calendar, point-in-time alignment, checks |
+| `src/regime_fusion/engine/` | Backtester (numba) and performance measures; the typed GP will follow |
 | `configs/study.yaml` | Settled study design: periods, walk-forward windows, runs, costs, base seed |
 | `configs/data_sources.yaml` | Settings for the data pipeline (download range, rate limits, contacts) |
 | `docs/` | Research plan, decision log, data pipeline (`DATA.md`), and the analysis protocol once it is frozen |
