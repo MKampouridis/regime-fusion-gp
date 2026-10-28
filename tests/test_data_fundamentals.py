@@ -143,7 +143,23 @@ def test_instants_take_the_latest_period_end_and_later_restatements():
 def test_panel_without_facts_is_empty_but_indexed():
     panel = fundamentals.daily_panel(CALENDAR_YEAR.iloc[:0], [REVENUE, ASSETS], CAL.sessions)
     assert panel.index.equals(CAL.sessions) and panel.isna().all().all()
-    assert list(panel.columns) == ["revenue_ttm", "revenue_ttm_prev", "revenue_end", "assets", "assets_end"]
+    assert list(panel.columns) == ["revenue_ttm", "revenue_ttm_prev", "revenue_end",
+                                   "assets", "assets_end", "assets_filed"]
+
+
+def test_latest_kind_takes_the_quarter_and_reports_its_filing():
+    shares = Concept("diluted_shares", "latest", ("us-gaap:Shares",))
+    frame = facts([
+        ("us-gaap:Shares", "2015-01-01", "2015-12-31", 1000, "2016-02-19", "10-K"),  # year
+        ("us-gaap:Shares", "2015-10-01", "2015-12-31", 990, "2016-02-19", "10-K"),   # fourth quarter
+        ("us-gaap:Shares", "2015-07-01", "2015-09-30", 1010, "2015-11-02"),
+    ])
+    panel = fundamentals.asof(frame, shares, CAL.sessions)
+    assert row(panel, "2015-11-03")["diluted_shares"] == 1010
+    assert row(panel, "2016-02-22")["diluted_shares"] == 990
+    assert row(panel, "2016-02-22")["diluted_shares_filed"] == pd.Timestamp("2016-02-19")
+    check_point_in_time(lambda items: fundamentals.asof(items, shares, CAL.sessions),
+                        frame, "available", CAL.between("2015-10-01", "2016-06-30"))
 
 
 def test_repository_concepts_load(tmp_path):

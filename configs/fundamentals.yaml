@@ -1,11 +1,15 @@
-# Accounting concepts taken point-in-time from SEC filings (src/regime_fusion/data/fundamentals.py).
+# Accounting inputs taken point-in-time from SEC filings (src/regime_fusion/data/fundamentals.py).
 #
-# DRAFT: the fundamental (FA) indicators are built from these concepts, and the list
-# is to be matched to ActTrade's FA indicators before the recipe is frozen.
+# They feed ActTrade's twelve fundamental indicators (docs/DECISIONS.md;
+# src/regime_fusion/data/fa.py): net profit ratio, return on equity, quick ratio,
+# P/E, P/B and P/S ratios, debt to equity, total revenues, EBITDA, levered free
+# cash flow, diluted EPS and R&D expenses.
 #
-# Each concept lists XBRL tags in order of preference ("taxonomy:concept"). Flows
-# (income and cash-flow items) become trailing-twelve-month values; instants
-# (balance-sheet items) are the values at the latest period end. Units default to USD.
+# Each concept lists XBRL tags in order of preference ("taxonomy:concept").
+# flow:    income and cash-flow items, as trailing-twelve-month values
+# instant: balance-sheet items, at the latest period end
+# latest:  period averages (the diluted share count), from the latest, shortest period
+# Units default to USD.
 
 concepts:
   revenue:
@@ -26,11 +30,42 @@ concepts:
       - us-gaap:NetIncomeLoss
       - us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic
       - us-gaap:ProfitLoss
+  pretax_income:   # EBITDA's fallback when a firm has no operating-income line
+    kind: flow
+    tags:
+      - us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest
+      - us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments
+  interest_expense:
+    kind: flow
+    tags: [us-gaap:InterestExpense, us-gaap:InterestExpenseDebt, us-gaap:InterestExpenseNonoperating]
+  net_interest_income:   # with non-interest income, banks' revenue
+    kind: flow
+    tags: [us-gaap:InterestIncomeExpenseNet]
+  noninterest_income:
+    kind: flow
+    tags: [us-gaap:NoninterestIncome]
+  depreciation_amortization:
+    kind: flow
+    tags:
+      - us-gaap:DepreciationDepletionAndAmortization
+      - us-gaap:DepreciationAndAmortization
+      - us-gaap:DepreciationAmortizationAndAccretionNet
+      - us-gaap:Depreciation
   operating_cash_flow:
     kind: flow
     tags:
       - us-gaap:NetCashProvidedByUsedInOperatingActivities
       - us-gaap:NetCashProvidedByUsedInOperatingActivitiesContinuingOperations
+  capital_expenditure:
+    kind: flow
+    tags:
+      - us-gaap:PaymentsToAcquirePropertyPlantAndEquipment
+      - us-gaap:PaymentsToAcquireProductiveAssets
+  research_development:
+    kind: flow
+    tags:
+      - us-gaap:ResearchAndDevelopmentExpense
+      - us-gaap:ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost
   assets:
     kind: instant
     tags: [us-gaap:Assets]
@@ -45,6 +80,9 @@ concepts:
   current_assets:
     kind: instant
     tags: [us-gaap:AssetsCurrent]
+  inventory:
+    kind: instant
+    tags: [us-gaap:InventoryNet]
   current_liabilities:
     kind: instant
     tags: [us-gaap:LiabilitiesCurrent]
@@ -55,7 +93,20 @@ concepts:
       - us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents
   long_term_debt:
     kind: instant
-    tags: [us-gaap:LongTermDebtNoncurrent, us-gaap:LongTermDebt]
+    tags:
+      - us-gaap:LongTermDebtNoncurrent
+      - us-gaap:LongTermDebt
+      - us-gaap:LongTermDebtAndCapitalLeaseObligations
+  current_debt:
+    kind: instant
+    tags:
+      - us-gaap:DebtCurrent
+      - us-gaap:LongTermDebtCurrent
+      - us-gaap:ShortTermBorrowings
+  diluted_shares:
+    kind: latest
+    unit: shares
+    tags: [us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding]
   shares_outstanding:
     kind: instant
     unit: shares

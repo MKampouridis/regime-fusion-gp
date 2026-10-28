@@ -10,6 +10,7 @@ Commands (each has --help):
   draw          draw the main universe and the hold-out stocks (once; see draw.py)
   gdelt         stream GDELT's GKG files and keep hourly news sums for the universe
   fnspid        stream FNSPID's news files and keep the universe's headlines
+  fa            ActTrade's twelve fundamental indicators, daily, from the steps above
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
 cached: a raw file already there is not fetched again unless --refresh is given.
@@ -34,7 +35,7 @@ import pandas as pd
 from regime_fusion import __version__
 from regime_fusion.config import StudyConfig, load_config
 from regime_fusion.data import (
-    constituents, draw, fnspid, fundamentals, gdelt, market, prices, sec, store,
+    constituents, draw, fa, fnspid, fundamentals, gdelt, market, prices, sec, store,
 )
 from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.settings import DataSettings, load_settings
@@ -89,6 +90,10 @@ def main(argv: list[str] | None = None) -> int:
                      help="stop when the data disk has less free space than this")
     sub.add_argument("--retry-failed", action="store_true", help="redo days with failed files")
     sub.set_defaults(run=run_gdelt)
+
+    sub = commands.add_parser("fa", help="ActTrade's twelve fundamental indicators, daily")
+    add_stock_options(sub, refresh=False)
+    sub.set_defaults(run=run_fa)
 
     sub = commands.add_parser("fnspid", help="stream FNSPID's news files; keep the universe's headlines")
     sub.add_argument("--files", nargs="+", default=list(fnspid.FILES), help="files in the dataset")
@@ -617,3 +622,30 @@ def run_fnspid(args: argparse.Namespace) -> int:
                             licence="CC BY-NC 4.0", rows_read=seen, tickers=sorted(tickers))
         log.info("fnspid: %s: kept %d of %d rows", name, len(frame), seen)
     return 0
+
+
+def run_fa(args: argparse.Namespace) -> int:
+    config = load_config()
+    corrections = prices.load_corrections()
+    calendar = study_calendar()
+    study = calendar.between(config.period.data_start, config.period.data_end)
+    report, missing = {}, []
+    for stock in selected_stocks(args):
+        panel_path = store.layer("interim", "fundamentals", f"{stock.id}.parquet")
+        price_path = store.layer("interim", "prices", f"{stock.id}.parquet")
+        if not (panel_path.exists() and price_path.exists()):
+            log.error("%s: run the prices and fundamentals commands first", stock.id)
+            missing.append(stock.id)
+            continue
+        panel, aligned = pd.read_parquet(panel_path), pd.read_parquet(price_path)
+        splits = fa.true_splits(aligned["split"], [c for c in corrections if c.stock == stock.id])
+        table = fa.indicators(panel, aligned["traded_close"], splits)
+        store.write_parquet(store.layer("processed", "fa", f"{stock.id}.parquet"), table,
+                            stock=stock.id, splits={str(d.date()): r for d, r in splits.items()})
+        share = table.reindex(study)[list(fa.INDICATORS)].notna().mean().round(4).to_dict()
+        report[stock.id] = {"share_of_days": share,
+                            "missing": sorted(k for k, v in share.items() if v < 0.9)}
+    write_report("fa_coverage.json", report)
+    log.info("fa: %d stocks; indicators on fewer than 90%% of days: %s", len(report),
+             {k: v["missing"] for k, v in report.items() if v["missing"]})
+    return 1 if missing else 0
