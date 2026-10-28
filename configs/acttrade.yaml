@@ -1,0 +1,68 @@
+# ActTrade's 18 US stocks, which open the main universe (docs/DECISIONS.md).
+#
+# Source: Christodoulaki and Kampouridis, "Strongly-typed genetic programming with an
+# active trading operator for algorithmic trading using fundamental, sentiment, and
+# technical analysis", Applied Soft Computing (accepted manuscript,
+# https://kampouridis.net/papers/ASOC_accepted.pdf), and Table 4.3 of Christodoulaki's
+# PhD thesis (University of Essex, 2024), which list the same 42 companies. The other
+# 24 are not US firms: ADIDAS, ALIBABA, ASUS, BLACKB (BlackBerry, Canada), FUJIFILM,
+# FUJITSU, HITACHI, HONDA, HSBC, HYUNDAI, KERING, NESTLE, NINTENDO, PANASONIC,
+# SAINSBURY, SHISEIDO, SUBARU, SUZUKI, TENCENT, TESCO, TOYOTA, UBISOFT, YAMAHACO, YAMAHAMO.
+#
+# label: as printed in the paper; id: the January 2015 ticker, our identifier.
+# Firms outside the January 2015 S&P 100 carry the details the universe needs; names,
+# sectors and CIKs of S&P 500 members come from configs/constituents_2015-01.csv.
+
+stocks:
+  - {label: AAPL, id: AAPL}
+  - {label: AMAZON, id: AMZN}
+  - label: ATVI
+    id: ATVI
+    name: "Activision Blizzard, Inc."
+    sector: "Information Technology"
+    ciks: [718877]
+    yahoo: null
+    notes: "Acquired by Microsoft in October 2023, after which Yahoo removed its prices; joined the S&P 500 in August 2015."
+  - label: COKE
+    id: KO
+    notes: "The paper prints COKE; taken to be The Coca-Cola Company (KO) rather than the bottler Coca-Cola Consolidated (ticker COKE), to be confirmed."
+  - {label: EBAY, id: EBAY}
+  - {label: ESTEE, id: EL}
+  - {label: FORD, id: F}
+  - {label: GM, id: GM}
+  - label: GOOGL
+    id: GOOGL
+    ciks: [1288776, 1652044]
+    notes: "Class A shares, as in ActTrade (the S&P 100 list of January 2015 shows class C, GOOG). Google became a subsidiary of Alphabet Inc. (new CIK) in October 2015."
+  - {label: IBM, id: IBM}
+  - {label: INTC, id: INTC}
+  - label: KODAK
+    id: KODK
+    name: "Eastman Kodak Company"
+    sector: "Information Technology"
+    ciks: [31235]
+    yahoo: KODK
+    notes: "Not in the S&P 500 in January 2015. Sector as given by data vendors (Information Technology, technology hardware); one source says Industrials."
+  - {label: MCDON, id: MCD}
+  - label: NFLX
+    id: NFLX
+    notes: "Splits of 7-for-1 (July 2015) and 10-for-1 (November 2025)."
+  - label: NYT
+    id: NYT
+    name: "The New York Times Company"
+    sector: "Consumer Discretionary"
+    ciks: [71691]
+    yahoo: NYT
+    notes: "Not in the S&P 500 in January 2015; media firms were then in Consumer Discretionary."
+  - label: TESLA
+    id: TSLA
+    name: "Tesla Motors, Inc."
+    sector: "Consumer Discretionary"
+    ciks: [1318605]
+    yahoo: TSLA
+    notes: "Not in the S&P 500 until December 2020; renamed Tesla, Inc. in 2017."
+  - {label: WALMART, id: WMT}
+  - label: XEROX
+    id: XRX
+    ciks: [108772, 1770450]
+    notes: "Xerox Holdings Corporation (new CIK) became the holding company in 2019. Yahoo records the Conduent spin-off (January 2017) as a 1.518 split, followed by a 1-for-4 reverse split in June 2017."

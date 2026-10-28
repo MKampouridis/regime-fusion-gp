@@ -2,9 +2,11 @@ import pandas as pd
 import pytest
 import yaml
 
-from regime_fusion.config import ConfigError
+from regime_fusion.config import ConfigError, load_config
+from regime_fusion.data import draw
 from regime_fusion.data.cli import CONSTITUENTS_FILE
 from regime_fusion.data.universe import DEFAULT_UNIVERSE, load_universe
+from regime_fusion.seeds import make_rng
 
 
 def write_universe(tmp_path, entries):
@@ -19,25 +21,57 @@ def entry(**changes):
     return {**base, **changes}
 
 
-def test_repository_universe_holds_the_january_2015_sp100():
+def test_repository_universe_is_drawn():
     universe = load_universe()
-    assert len(universe.stocks) == 100
-    google = universe.get("GOOG")
-    assert google.ciks == (1288776, 1652044) and google.yahoo == "GOOG"
-    assert universe.get("BRK.B").yahoo == "BRK-B"
-    assert universe.get("FB").yahoo == "META"
+    main = universe.select("main")
+    holdout = universe.select("holdout", include_holdout=True)
+    assert len(main) == 50 and len(holdout) == 50
+    assert sum(bool(s.acttrade) for s in main) == 17
+    assert universe.get("ATVI").role == "excluded" and universe.get("ATVI").acttrade
+    google = universe.get("GOOGL")
+    assert google.role == "main" and google.ciks == (1288776, 1652044)
+    assert universe.get("BRK.B").yahoo == "BRK-B" and universe.get("FB").yahoo == "META"
+    assert not {c for s in main for c in s.ciks} & {c for s in holdout for c in s.ciks}
     for stock in universe.select("excluded"):
         assert stock.yahoo is None and stock.notes
+
+
+def test_main_universe_mirrors_the_sector_mix_of_the_sp100():
+    table = pd.read_csv(CONSTITUENTS_FILE)
+    members = table[table["sp100"]]
+    shares = members["sector"].value_counts() / len(members)
+    counts = pd.Series([s.sector for s in load_universe().select("main")]).value_counts()
+    for sector, share in shares.items():
+        assert abs(counts.get(sector, 0) - 50 * share) <= 1, sector
+
+
+def test_main_draw_is_reproduced_by_its_seed():
+    universe = load_universe()
+    table = pd.read_csv(CONSTITUENTS_FILE)
+    members = table[table["sp100"]]
+    shares = (members["sector"].value_counts() / len(members)).to_dict()
+    fixed = {s.id: s.sector for s in universe.select("main") if s.acttrade}
+    candidates = {s.id: s.sector for s in universe.select("main", "unused") if not s.acttrade}
+    drawn, _ = draw.draw_main(candidates, fixed, shares, 50,
+                              make_rng(load_config().base_seed, "universe", "main"), lambda i: True)
+    assert sorted(drawn) == sorted(s.id for s in universe.select("main") if not s.acttrade)
 
 
 def test_universe_agrees_with_the_constituents_list():
     table = pd.read_csv(CONSTITUENTS_FILE).set_index("ticker")
     universe = load_universe()
-    assert {s.id for s in universe.stocks} == set(table.index[table["sp100"]])
+    acttrade_extras = {"ATVI", "KODK", "NYT", "TSLA"}  # not in the S&P 500 in January 2015
+    ids = {s.id for s in universe.stocks}
+    assert set(table.index[table["sp100"]]) - {"GOOG"} <= ids  # GOOG: the same firm as GOOGL
     for stock in universe.stocks:
+        if stock.id in acttrade_extras:
+            assert stock.acttrade
+            continue
         row = table.loc[stock.id]
         assert stock.name == row["name"] and stock.sector == row["sector"]
         assert int(row["cik"]) in stock.ciks  # the January 2015 CIK is always kept
+    for stock in universe.select("holdout", include_holdout=True):
+        assert not table.loc[stock.id, "sp100"]
 
 
 def test_holdout_stocks_need_an_explicit_request(tmp_path):

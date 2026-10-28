@@ -4,6 +4,11 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 
 | Date | Decision | Decided by |
 | --- | --- | --- |
+| 2026-10-28 | Fundamental (FA) indicators are ActTrade's twelve: net profit ratio, return on equity, quick ratio, P/E, P/B and P/S ratios, debt to equity, total revenues, EBITDA, levered free cash flow, diluted EPS and R&D expenses | MK |
+| 2026-10-28 | The VIX enters the features of day *t* with its close of *t*−1, because its close is set at 16:15, after the stock close | MK |
+| 2026-10-28 | GDELT news comes from GDELT's raw GKG files, streamed and filtered to records that name our firms, instead of the BigQuery sandbox, whose free quota would cover the Loughran–McDonald counts only after 8–11 months | MK |
+| 2026-10-28 | Hold-out stocks: 50 taken in a seeded random order from the January 2015 S&P 500 members outside the S&P 100 and the main universe, one share class per firm; firms without Yahoo prices from the study start are passed over (15 of the first 65 were) | MK |
+| 2026-10-28 | Main universe: ActTrade's 18 US stocks (Table 4.3 of Christodoulaki's thesis and the ActTrade paper; Activision is excluded because Yahoo no longer has its prices), topped up to 50 by a seeded draw from the other usable January 2015 S&P 100 members, so that the sector mix matches the S&P 100's. Seeds come from `regime_fusion.seeds` | MK |
 | 2026-10-28 | FinBERT headline sentiment is a robustness check only (option B): A0, A1 and the best rung are re-run with FinBERT scores added to the sentiment branch | MK |
 | 2026-10-28 | Main results use rolling 4-year training windows; expanding windows (all data since 2015) are a robustness check | MK |
 | 2026-10-28 | Changes are pushed straight to `main` and summarised in chat; no pull requests | MK |
@@ -23,8 +28,5 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 | Raised | Question | Proposal |
 | --- | --- | --- |
 | 2026-10-28 | Trade execution price on day t+1 (open or close) | To be settled when the backtester is designed (Phase 4) |
+| 2026-10-28 | ActTrade's "COKE": The Coca-Cola Company (KO) or the bottler Coca-Cola Consolidated (ticker COKE)? Neither the paper nor the thesis says | KO is assumed in the universe; MK or Eva Christodoulaki to confirm |
 | 2026-10-28 | Free headline source for 2024–25 (FNSPID ends in 2023) | Check whether GDELT records carry page titles; otherwise limit the FinBERT check to 2019–2023. Checked: titles are present in March 2024 and absent in March 2015; when they start is still to be found |
-| 2026-10-28 | GDELT access: the Loughran–McDonald shares are in GDELT's GCAM field, and reading it in BigQuery for 2015–2025 would take 8–11 months of the sandbox's free 1 TB a month (`docs/DATA.md`) | Stream GDELT's raw GKG files instead (2.75 TB compressed, free, one to two days of downloading on MK's Mac or CERES), keeping only records that name our firms; use BigQuery only for spot checks |
-| 2026-10-28 | Universe: which candidates join ActTrade's 18 US stocks in the main universe of about 50, and how the 50 hold-out stocks are drawn | MK to supply ActTrade's 18 US tickers. Draw the rest at random with a seed from `regime_fusion.seeds`: about 32 from the other usable January 2015 S&P 100 members, stratified by GICS sector; the 50 hold-out stocks from the January 2015 S&P 500 members outside the S&P 100, one share class per firm, replacing firms without Yahoo prices by the next draw |
-| 2026-10-28 | Fundamental (FA) indicators: which ratios and growth rates the FA branch uses | Match ActTrade's FA indicators. `configs/fundamentals.yaml` holds a draft list of accounting inputs (revenue, operating and net income, operating cash flow, assets, liabilities, equity, current items, cash, long-term debt, shares outstanding) |
-| 2026-10-28 | The VIX is calculated until 16:15 New York time, after the 16:00 stock close, so its close on day *t* is not strictly available by the close of *t* | Use the VIX close of *t*−1 on day *t*; if trades execute at the *t*+1 open, the close of *t* would also be safe |

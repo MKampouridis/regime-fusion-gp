@@ -8,23 +8,30 @@ which identifies it everywhere in the study (file names, seeds). Each entry give
 * ``yahoo``: the Yahoo Finance symbol of its price history today, or null when
   Yahoo no longer has it (such a stock is excluded);
 * ``role``: ``main`` (development and test years), ``holdout`` (final campaign
-  only), ``candidate`` (not yet assigned) or ``excluded`` (unusable; ``notes``
-  give the reason);
-* ``acttrade``: whether it is one of ActTrade's 18 US stocks (null until known).
+  only), ``candidate`` (eligible, before the draw), ``unused`` (eligible but not
+  drawn) or ``excluded`` (unusable; ``notes`` give the reason);
+* ``acttrade``: whether it is one of ActTrade's 18 US stocks
+  (``configs/acttrade.yaml``).
+
+The draw (``regime_fusion.data.draw``) rewrites the file with ``write_universe``.
 """
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from regime_fusion.config import ConfigError
 
 DEFAULT_UNIVERSE = Path(__file__).resolve().parents[3] / "configs" / "universe.yaml"
-ROLES = ("main", "holdout", "candidate", "excluded")
+DEFAULT_ACTTRADE = Path(__file__).resolve().parents[3] / "configs" / "acttrade.yaml"
+ROLES = ("main", "holdout", "candidate", "unused", "excluded")
 _ID = re.compile(r"[A-Z][A-Z.\-]{0,6}")
 
 
@@ -100,6 +107,37 @@ def load_universe(path: str | Path = DEFAULT_UNIVERSE) -> Universe:
         except (KeyError, TypeError) as problem:
             raise ConfigError(f"{path}: bad stock entry {entry!r} ({problem})") from None
     return Universe(tuple(stocks))
+
+
+def write_universe(path: str | Path, stocks: Iterable[Stock], header: str) -> None:
+    """Write the universe file: ``header`` as comments, then one block per stock."""
+    def text(value: str | None) -> str:
+        return "null" if value is None else json.dumps(value, ensure_ascii=False)
+
+    stocks = list(stocks)
+    Universe(tuple(stocks))  # validate before writing
+    lines = [f"# {line}".rstrip() for line in header.strip().splitlines()] + ["", "stocks:"]
+    for stock in stocks:
+        lines += [
+            f"  - id: {stock.id}",
+            f"    name: {text(stock.name)}",
+            f"    sector: {text(stock.sector)}",
+            f"    ciks: [{', '.join(str(cik) for cik in stock.ciks)}]",
+            f"    yahoo: {text(stock.yahoo)}",
+            f"    role: {stock.role}",
+            f"    acttrade: {'null' if stock.acttrade is None else str(stock.acttrade).lower()}",
+        ]
+        if stock.notes:
+            lines.append(f"    notes: {text(stock.notes)}")
+    Path(path).write_text("\n".join(lines) + "\n")
+
+
+def load_acttrade(path: str | Path = DEFAULT_ACTTRADE) -> list[dict[str, Any]]:
+    """ActTrade's US stocks: paper label, our id, and details for firms outside the S&P 100."""
+    entries = yaml.safe_load(Path(path).read_text())["stocks"]
+    if len(entries) != 18 or len({e["id"] for e in entries}) != 18:
+        raise ConfigError(f"{path}: expected ActTrade's 18 US stocks, each once")
+    return entries
 
 
 def _validate(stock: Stock) -> None:

@@ -7,6 +7,7 @@ Commands (each has --help):
   market        download the S&P 500 index, SPY and the VIX, and align them
   sec           download SEC company facts and filer details; keep report facts
   fundamentals  build daily point-in-time accounting values from the report facts
+  draw          draw the main universe and the hold-out stocks (once; see draw.py)
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
 cached: a raw file already there is not fetched again unless --refresh is given.
@@ -26,12 +27,17 @@ import pandas as pd
 
 from regime_fusion import __version__
 from regime_fusion.config import StudyConfig, load_config
-from regime_fusion.data import constituents, fundamentals, market, prices, sec, store
+from regime_fusion.data import constituents, draw, fundamentals, market, prices, sec, store
 from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.settings import DataSettings, load_settings
-from regime_fusion.data.universe import Stock, load_universe
+from regime_fusion.data.universe import (
+    DEFAULT_UNIVERSE, Stock, load_acttrade, load_universe, write_universe,
+)
+from regime_fusion.seeds import make_rng
 
 CONSTITUENTS_FILE = Path(__file__).resolve().parents[3] / "configs" / "constituents_2015-01.csv"
+UNIVERSE_FILE = DEFAULT_UNIVERSE
+SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 
 log = logging.getLogger("regime_fusion.data")
 
@@ -62,6 +68,10 @@ def main(argv: list[str] | None = None) -> int:
     add_stock_options(sub, refresh=False)
     sub.set_defaults(run=run_fundamentals)
 
+    sub = commands.add_parser("draw", help="draw the main universe and the hold-out stocks")
+    sub.add_argument("--redraw", action="store_true", help="draw again although a draw exists")
+    sub.set_defaults(run=run_draw)
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     return args.run(args) or 0
@@ -77,7 +87,7 @@ def add_stock_options(sub: argparse.ArgumentParser, *, refresh: bool) -> None:
 
 def selected_stocks(args: argparse.Namespace) -> list[Stock]:
     """Stocks named on the command line, or every main and candidate stock; excluded ones are skipped."""
-    universe = load_universe()
+    universe = load_universe(UNIVERSE_FILE)
     if args.stocks:
         unknown = sorted(set(args.stocks) - {stock.id for stock in universe.stocks})
         if unknown:
@@ -279,3 +289,174 @@ def write_report(filename: str, entries: dict[str, Any]) -> None:
     }
     content = json.dumps(report, indent=2, default=str).encode()
     store.write_bytes(store.layer("reports", filename), content, kind=filename.removesuffix(".json"))
+
+
+UNIVERSE_HEADER = """\
+Stock universe, written by `python -m regime_fusion.data draw` (src/regime_fusion/data/draw.py);
+field meanings are in src/regime_fusion/data/universe.py.
+
+main      ActTrade's usable US stocks (configs/acttrade.yaml) and a seeded draw from the other
+          usable January 2015 S&P 100 members, topping the sector mix up to the S&P 100's
+holdout   a seeded draw from the January 2015 S&P 500 members outside the S&P 100, used
+          only in the final campaign
+unused    eligible S&P 100 members that were not drawn
+excluded  unusable firms, with the reason in notes
+
+Names, sectors and CIKs as listed in January 2015 (configs/constituents_2015-01.csv). Later
+corporate events of the S&P 100 members were checked against SEC EDGAR and Yahoo Finance
+in October 2026; the downloads check every entry again (docs/DATA.md).
+"""
+
+
+def run_draw(args: argparse.Namespace) -> int:
+    settings, config = load_settings(), load_config()
+    calendar = study_calendar(settings)
+    start = calendar.between(config.period.data_start, config.period.data_end)[0]
+    universe = load_universe(UNIVERSE_FILE)
+    if any(stock.role in ("main", "holdout") for stock in universe.stocks) and not args.redraw:
+        raise SystemExit("the universe has been drawn already; pass --redraw to draw it again")
+    table = pd.read_csv(CONSTITUENTS_FILE)
+    rows = table.set_index("ticker")
+    existing = {stock.id: stock for stock in universe.stocks}
+    client = sec.Client(settings.sec_user_agent, settings.sec_max_requests_per_second)
+    tickers_by_cik, cik_by_ticker = current_sec_tickers(client)
+    checked: dict[str, bool] = {}
+
+    def has_prices(symbol: str) -> bool:
+        """Whether Yahoo has prices for a symbol from the study's first session."""
+        if symbol not in checked:
+            path = store.layer("raw", "yahoo", "draw", f"{symbol}.parquet")
+            try:
+                raw = cached_prices(symbol, path, settings, False, purpose="universe draw")
+                checked[symbol] = prices.first_bar(raw) <= start
+            except prices.MissingPrices:
+                checked[symbol] = False
+        return checked[symbol]
+
+    # ActTrade's US stocks open the main universe.
+    acttrade = [acttrade_stock(entry, rows, existing) for entry in load_acttrade()]
+    fixed, final = {}, {}
+    for stock in acttrade:
+        if stock.yahoo and has_prices(stock.yahoo):
+            fixed[stock.id] = stock.sector
+            final[stock.id] = dataclasses.replace(stock, role="main")
+        else:
+            final[stock.id] = dataclasses.replace(stock, role="excluded", notes=stock.notes or
+                                                  "Yahoo has no prices from the study start.")
+    taken_ciks = {cik for stock in acttrade for cik in stock.ciks}
+
+    # The other usable S&P 100 members top the sector mix up.
+    members = table[table["sp100"]]
+    sp100 = [existing[i] for i in sorted(members["ticker"])
+             if i in existing and i not in final and not taken_ciks & set(existing[i].ciks)]
+    candidates = {s.id: s.sector for s in sp100 if s.role != "excluded"}
+    shares = (members["sector"].value_counts() / len(members)).to_dict()
+    drawn, skipped = draw.draw_main(
+        candidates, fixed, shares, draw.MAIN_SIZE, make_rng(config.base_seed, "universe", "main"),
+        usable=lambda stock_id: has_prices(existing[stock_id].yahoo),
+    )
+    for stock in sp100:
+        role = "main" if stock.id in drawn else "excluded" if stock.role == "excluded" else "unused"
+        notes = stock.notes or ("No Yahoo prices from the study start." if stock.id in skipped else "")
+        final[stock.id] = dataclasses.replace(stock, role="excluded" if stock.id in skipped else role,
+                                              acttrade=False, notes=notes)
+
+    # Hold-out stocks: the other January 2015 S&P 500 members, in a random order.
+    taken_ciks |= {cik for stock in final.values() for cik in stock.ciks}
+    pool = table[~table["sp100"] & ~table["cik"].isin(list(taken_ciks)) & ~table["ticker"].isin(list(final))]
+    pool = pool.sort_values("ticker").drop_duplicates("cik")
+    order = draw.shuffled(pool["ticker"], make_rng(config.base_seed, "universe", "holdout"))
+    firms_2015 = dict(zip(table["cik"].astype(int), table["ticker"]))
+    report = {"main": {"acttrade": sorted(fixed), "drawn": sorted(drawn), "skipped": skipped,
+                       "sector_shares": shares},
+              "holdout": {"order": order, "accepted": [], "skipped": {}}}
+    for ticker in order:
+        if len(report["holdout"]["accepted"]) == draw.HOLDOUT_SIZE:
+            break
+        row = rows.loc[ticker]
+        symbol, ciks, how = resolve_holdout(ticker, row, tickers_by_cik, cik_by_ticker, has_prices,
+                                            firms_2015)
+        stock = Stock(id=ticker, name=str(row["name"]), sector=str(row["sector"]), ciks=ciks,
+                      yahoo=symbol, role="holdout" if symbol else "excluded", acttrade=False,
+                      notes=how)
+        final[ticker] = stock
+        if symbol:
+            report["holdout"]["accepted"].append(ticker)
+        else:
+            report["holdout"]["skipped"][ticker] = how
+    if len(report["holdout"]["accepted"]) < draw.HOLDOUT_SIZE:
+        raise SystemExit("not enough usable hold-out stocks")
+
+    rank = {"main": 0, "holdout": 1, "unused": 2, "excluded": 3}
+    stocks = sorted(final.values(), key=lambda s: (rank[s.role], s.id))
+    write_universe(UNIVERSE_FILE, stocks, UNIVERSE_HEADER)
+    write_report("universe_draw.json", report)
+    counts = {role: sum(s.role == role for s in stocks) for role in rank}
+    log.info("universe drawn: %s; written to %s", counts, UNIVERSE_FILE)
+    return 0
+
+
+def acttrade_stock(entry: dict[str, Any], rows: pd.DataFrame, existing: dict[str, Stock]) -> Stock:
+    """One of ActTrade's stocks, from its entry, the S&P 100 universe or the constituents list."""
+    known = existing.get(entry["id"])
+    row = rows.loc[entry["id"]] if entry["id"] in rows.index else None
+
+    def pick(field: str, from_row: str):
+        if field in entry:
+            return entry[field]
+        if known is not None:
+            return getattr(known, field)
+        if row is not None and from_row:
+            return row[from_row]
+        raise ValueError(f"ActTrade stock {entry['id']}: no {field} given")
+
+    ciks = entry.get("ciks") or (list(known.ciks) if known else [int(row["cik"])])
+    yahoo = entry["yahoo"] if "yahoo" in entry else (known.yahoo if known else entry["id"].replace(".", "-"))
+    earlier = known.notes if known and not known.acttrade else ""  # not from an earlier draw
+    notes = " ".join(n for n in (entry.get("notes", ""), earlier) if n)
+    return Stock(id=entry["id"], name=str(pick("name", "name")), sector=str(pick("sector", "sector")),
+                 ciks=tuple(int(c) for c in ciks), yahoo=yahoo, role="main", acttrade=True,
+                 notes=f"ActTrade label {entry['label']}. {notes}".strip())
+
+
+def resolve_holdout(ticker: str, row: pd.Series, tickers_by_cik: dict[int, list[str]],
+                    cik_by_ticker: dict[str, int], has_prices,
+                    firms_2015: dict[int, str]) -> tuple[str | None, tuple[int, ...], str]:
+    """Yahoo symbol, CIKs and an explanation for a firm drawn into the hold-out set.
+
+    A firm whose January 2015 CIK no longer files keeps its old ticker only if Yahoo's
+    name for it matches and the ticker has not passed to another January 2015 firm
+    (ACE took Chubb's ticker, CB, when it bought Chubb in 2016).
+    """
+    cik = int(row["cik"])
+    current = tickers_by_cik.get(cik, [])
+    if current:
+        for symbol in draw.ticker_candidates(ticker, current):
+            if has_prices(symbol):
+                return symbol, (cik,), f"Yahoo symbol {symbol}: SEC's current ticker for the January 2015 CIK."
+        return None, (cik,), "No Yahoo prices from the study start under the CIK's current tickers."
+    symbol = ticker.replace(".", "-")
+    if not has_prices(symbol):
+        return None, (cik,), "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
+    new = cik_by_ticker.get(symbol)
+    if new and new != cik and new in firms_2015:
+        return None, (cik,), (f"The January 2015 ticker now belongs to another January 2015 firm "
+                              f"({firms_2015[new]}, CIK {new}).")
+    name = prices.yahoo_name(symbol)
+    if name and sec.names_match(str(row["name"]), [name]):
+        ciks = (cik,) + ((new,) if new and new != cik else ())
+        return symbol, ciks, f"January 2015 ticker; Yahoo's name {name!r} matches."
+    return None, (cik,), f"The January 2015 ticker is now {name!r} on Yahoo (the CIK no longer files)."
+
+
+def current_sec_tickers(client: sec.Client) -> tuple[dict[int, list[str]], dict[str, int]]:
+    """Today's SEC tickers by CIK, and CIK by ticker (Yahoo spelling: '-' for '.')."""
+    path = store.layer("raw", "sec", "company_tickers.json.gz")
+    data = cached_edgar(client, SEC_TICKERS_URL, path, refresh=False)
+    by_cik: dict[int, list[str]] = {}
+    by_ticker: dict[str, int] = {}
+    for entry in data.values():
+        symbol = str(entry["ticker"]).replace(".", "-")
+        by_cik.setdefault(int(entry["cik_str"]), []).append(symbol)
+        by_ticker[symbol] = int(entry["cik_str"])
+    return by_cik, by_ticker

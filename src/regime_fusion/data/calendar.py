@@ -81,7 +81,7 @@ class TradingCalendar:
 
     def _sessions_at(self, positions: np.ndarray, missing: np.ndarray) -> pd.DatetimeIndex:
         found = (positions < len(self.sessions)) & ~np.asarray(missing)
-        out = np.full(len(positions), np.datetime64("NaT"), dtype="datetime64[ns]")
+        out = np.full(len(positions), np.datetime64("NaT", "ns"), dtype="datetime64[ns]")
         out[found] = self.sessions.to_numpy()[positions[found]]
         return pd.DatetimeIndex(out)
 

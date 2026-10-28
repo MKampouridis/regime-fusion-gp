@@ -35,6 +35,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import time
+import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -61,9 +62,12 @@ def download(
 
     for attempt in range(1, max_retries + 1):
         try:
-            frame = yf.Ticker(symbol).history(
-                start=start.isoformat(), interval="1d", auto_adjust=False, actions=True
-            )
+            with warnings.catch_warnings():  # yfinance's own deprecation warnings
+                warnings.simplefilter("ignore", DeprecationWarning)
+                warnings.simplefilter("ignore", FutureWarning)
+                frame = yf.Ticker(symbol).history(
+                    start=start.isoformat(), interval="1d", auto_adjust=False, actions=True
+                )
         except Exception as problem:  # rate limits and network errors: wait and retry
             if attempt == max_retries:
                 raise
@@ -78,6 +82,24 @@ def download(
             raise ValueError(f"{symbol}: Yahoo response lacks columns {missing}")
         return frame.loc[:, list(RAW_COLUMNS)]
     raise AssertionError("unreachable")
+
+
+def yahoo_name(symbol: str) -> str | None:
+    """The company name Yahoo gives for a symbol, or None if it cannot be had."""
+    import yfinance as yf
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            info = yf.Ticker(symbol).info
+    except Exception:  # Yahoo refuses or rate-limits such requests now and then
+        return None
+    return info.get("longName") or info.get("shortName")
+
+
+def first_bar(raw: pd.DataFrame) -> pd.Timestamp:
+    """Date of the first bar of a raw Yahoo file."""
+    return _new_york_dates(raw.index).min()
 
 
 def align(raw: pd.DataFrame, calendar: TradingCalendar) -> pd.DataFrame:

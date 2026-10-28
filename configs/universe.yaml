@@ -1,11 +1,16 @@
-# Stock universe. Field meanings are documented in src/regime_fusion/data/universe.py.
+# Stock universe, written by `python -m regime_fusion.data draw` (src/regime_fusion/data/draw.py);
+# field meanings are in src/regime_fusion/data/universe.py.
 #
-# Candidates are the S&P 100 members in January 2015 (configs/constituents_2015-01.csv),
-# with names, sectors and CIKs as listed then. Later corporate events (see notes) were
-# checked against SEC EDGAR and Yahoo Finance in October 2026; the downloads check every
-# entry again (docs/DATA.md).
-# Still to be decided (docs/DECISIONS.md): which candidates join ActTrade's 18 US stocks
-# in the main universe, and the 50 hold-out stocks.
+# main      ActTrade's usable US stocks (configs/acttrade.yaml) and a seeded draw from the other
+#           usable January 2015 S&P 100 members, topping the sector mix up to the S&P 100's
+# holdout   a seeded draw from the January 2015 S&P 500 members outside the S&P 100, used
+#           only in the final campaign
+# unused    eligible S&P 100 members that were not drawn
+# excluded  unusable firms, with the reason in notes
+#
+# Names, sectors and CIKs as listed in January 2015 (configs/constituents_2015-01.csv). Later
+# corporate events of the S&P 100 members were checked against SEC EDGAR and Yahoo Finance
+# in October 2026; the downloads check every entry again (docs/DATA.md).
 
 stocks:
   - id: AAPL
@@ -13,716 +18,1302 @@ stocks:
     sector: "Information Technology"
     ciks: [320193]
     yahoo: "AAPL"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: true
+    notes: "ActTrade label AAPL."
   - id: ABBV
     name: "AbbVie"
     sector: "Health Care"
     ciks: [1551152]
     yahoo: "ABBV"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
   - id: ABT
     name: "Abbott Laboratories"
     sector: "Health Care"
     ciks: [1800]
     yahoo: "ABT"
-    role: candidate
-    acttrade: null
-  - id: ACN
-    name: "Accenture plc"
-    sector: "Information Technology"
-    ciks: [1467373]
-    yahoo: "ACN"
-    role: candidate
-    acttrade: null
-  - id: AIG
-    name: "American International Group, Inc."
-    sector: "Financials"
-    ciks: [5272]
-    yahoo: "AIG"
-    role: candidate
-    acttrade: null
-  - id: ALL
-    name: "Allstate Corp"
-    sector: "Financials"
-    ciks: [899051]
-    yahoo: "ALL"
-    role: candidate
-    acttrade: null
-  - id: AMGN
-    name: "Amgen Inc"
-    sector: "Health Care"
-    ciks: [318154]
-    yahoo: "AMGN"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
   - id: AMZN
     name: "Amazon.com Inc"
     sector: "Consumer Discretionary"
     ciks: [1018724]
     yahoo: "AMZN"
-    role: candidate
-    acttrade: null
-  - id: APA
-    name: "Apache Corporation"
-    sector: "Energy"
-    ciks: [6769, 1841666]
-    yahoo: "APA"
-    role: candidate
-    acttrade: null
-    notes: "Reorganised under the holding company APA Corp (new CIK) in March 2021."
-  - id: APC
-    name: "Anadarko Petroleum Corp"
-    sector: "Energy"
-    ciks: [773910]
-    yahoo: null
-    role: excluded
-    acttrade: null
-    notes: "Acquired by Occidental Petroleum in August 2019. Yahoo Finance no longer has its prices."
+    role: main
+    acttrade: true
+    notes: "ActTrade label AMAZON."
   - id: AXP
     name: "American Express Co"
     sector: "Financials"
     ciks: [4962]
     yahoo: "AXP"
-    role: candidate
-    acttrade: null
-  - id: BA
-    name: "Boeing Company"
-    sector: "Industrials"
-    ciks: [12927]
-    yahoo: "BA"
-    role: candidate
-    acttrade: null
-  - id: BAC
-    name: "Bank of America Corp"
-    sector: "Financials"
-    ciks: [70858]
-    yahoo: "BAC"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
   - id: BAX
     name: "Baxter International Inc."
     sector: "Health Care"
     ciks: [10456]
     yahoo: "BAX"
-    role: candidate
-    acttrade: null
-  - id: BIIB
-    name: "BIOGEN IDEC Inc."
-    sector: "Health Care"
-    ciks: [875045]
-    yahoo: "BIIB"
-    role: candidate
-    acttrade: null
-  - id: BK
-    name: "The Bank of New York Mellon Corp."
-    sector: "Financials"
-    ciks: [1390777]
-    yahoo: "BNY"
-    role: candidate
-    acttrade: null
-    notes: "Now trades as BNY; Yahoo keeps the full price history under that symbol."
+    role: main
+    acttrade: false
   - id: BMY
     name: "Bristol-Myers Squibb"
     sector: "Health Care"
     ciks: [14272]
     yahoo: "BMY"
-    role: candidate
-    acttrade: null
-  - id: BRK.B
-    name: "Berkshire Hathaway"
-    sector: "Financials"
-    ciks: [1067983]
-    yahoo: "BRK-B"
-    role: candidate
-    acttrade: null
-  - id: C
-    name: "Citigroup Inc."
-    sector: "Financials"
-    ciks: [831001]
-    yahoo: "C"
-    role: candidate
-    acttrade: null
-  - id: CAT
-    name: "Caterpillar Inc."
-    sector: "Industrials"
-    ciks: [18230]
-    yahoo: "CAT"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
   - id: CL
     name: "Colgate-Palmolive"
     sector: "Consumer Staples"
     ciks: [21665]
     yahoo: "CL"
-    role: candidate
-    acttrade: null
-  - id: CMCSA
-    name: "Comcast Corp."
-    sector: "Consumer Discretionary"
-    ciks: [1166691]
-    yahoo: "CMCSA"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
   - id: COF
     name: "Capital One Financial"
     sector: "Financials"
     ciks: [927628]
     yahoo: "COF"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
   - id: COP
     name: "ConocoPhillips"
     sector: "Energy"
     ciks: [1163165]
     yahoo: "COP"
-    role: candidate
-    acttrade: null
-  - id: COST
-    name: "Costco Co."
-    sector: "Consumer Staples"
-    ciks: [909832]
-    yahoo: "COST"
-    role: candidate
-    acttrade: null
-  - id: CSCO
-    name: "Cisco Systems"
-    sector: "Information Technology"
-    ciks: [858877]
-    yahoo: "CSCO"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
   - id: CVS
     name: "CVS Caremark Corp."
     sector: "Consumer Staples"
     ciks: [64803]
     yahoo: "CVS"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
   - id: CVX
     name: "Chevron Corp."
     sector: "Energy"
     ciks: [93410]
     yahoo: "CVX"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
   - id: DD
     name: "Du Pont (E.I.)"
     sector: "Materials"
     ciks: [30554, 1666700]
     yahoo: "DD"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
     notes: "E. I. du Pont de Nemours. Merged with Dow Chemical into DowDuPont (CIK 1666700) in August 2017, which spun off Dow (April 2019) and Corteva (June 2019) and was renamed DuPont de Nemours. Yahoo's DD series chains these; check its spin-off adjustments (an 18% one-day move on 3 June 2019)."
   - id: DIS
     name: "The Walt Disney Company"
     sector: "Consumer Discretionary"
     ciks: [1001039, 1744489]
     yahoo: "DIS"
-    role: candidate
-    acttrade: null
+    role: main
+    acttrade: false
     notes: "New holding company (new CIK) after acquiring Twenty-First Century Fox in March 2019."
+  - id: EBAY
+    name: "eBay Inc."
+    sector: "Information Technology"
+    ciks: [1065088]
+    yahoo: "EBAY"
+    role: main
+    acttrade: true
+    notes: "ActTrade label EBAY."
+  - id: EL
+    name: "Estee Lauder Cos."
+    sector: "Consumer Staples"
+    ciks: [1001250]
+    yahoo: "EL"
+    role: main
+    acttrade: true
+    notes: "ActTrade label ESTEE."
+  - id: F
+    name: "Ford Motor"
+    sector: "Consumer Discretionary"
+    ciks: [37996]
+    yahoo: "F"
+    role: main
+    acttrade: true
+    notes: "ActTrade label FORD."
+  - id: FCX
+    name: "Freeport-McMoran Cp & Gld"
+    sector: "Materials"
+    ciks: [831259]
+    yahoo: "FCX"
+    role: main
+    acttrade: false
+  - id: FDX
+    name: "FedEx Corporation"
+    sector: "Industrials"
+    ciks: [1048911]
+    yahoo: "FDX"
+    role: main
+    acttrade: false
+  - id: GD
+    name: "General Dynamics"
+    sector: "Industrials"
+    ciks: [40533]
+    yahoo: "GD"
+    role: main
+    acttrade: false
+  - id: GE
+    name: "General Electric"
+    sector: "Industrials"
+    ciks: [40545]
+    yahoo: "GE"
+    role: main
+    acttrade: false
+  - id: GM
+    name: "General Motors"
+    sector: "Consumer Discretionary"
+    ciks: [1467858]
+    yahoo: "GM"
+    role: main
+    acttrade: true
+    notes: "ActTrade label GM."
+  - id: GOOGL
+    name: "Google Inc Class A"
+    sector: "Information Technology"
+    ciks: [1288776, 1652044]
+    yahoo: "GOOGL"
+    role: main
+    acttrade: true
+    notes: "ActTrade label GOOGL. Class A shares, as in ActTrade (the S&P 100 list of January 2015 shows class C, GOOG). Google became a subsidiary of Alphabet Inc. (new CIK) in October 2015."
+  - id: GS
+    name: "Goldman Sachs Group"
+    sector: "Financials"
+    ciks: [886982]
+    yahoo: "GS"
+    role: main
+    acttrade: false
+  - id: HAL
+    name: "Halliburton Co."
+    sector: "Energy"
+    ciks: [45012]
+    yahoo: "HAL"
+    role: main
+    acttrade: false
+  - id: IBM
+    name: "International Bus. Machines"
+    sector: "Information Technology"
+    ciks: [51143]
+    yahoo: "IBM"
+    role: main
+    acttrade: true
+    notes: "ActTrade label IBM."
+  - id: INTC
+    name: "Intel Corp."
+    sector: "Information Technology"
+    ciks: [50863]
+    yahoo: "INTC"
+    role: main
+    acttrade: true
+    notes: "ActTrade label INTC."
+  - id: KO
+    name: "The Coca Cola Company"
+    sector: "Consumer Staples"
+    ciks: [21344]
+    yahoo: "KO"
+    role: main
+    acttrade: true
+    notes: "ActTrade label COKE. The paper prints COKE; taken to be The Coca-Cola Company (KO) rather than the bottler Coca-Cola Consolidated (ticker COKE), to be confirmed."
+  - id: KODK
+    name: "Eastman Kodak Company"
+    sector: "Information Technology"
+    ciks: [31235]
+    yahoo: "KODK"
+    role: main
+    acttrade: true
+    notes: "ActTrade label KODAK. Not in the S&P 500 in January 2015. Sector as given by data vendors (Information Technology, technology hardware); one source says Industrials."
+  - id: LLY
+    name: "Lilly (Eli) & Co."
+    sector: "Health Care"
+    ciks: [59478]
+    yahoo: "LLY"
+    role: main
+    acttrade: false
+  - id: LMT
+    name: "Lockheed Martin Corp."
+    sector: "Industrials"
+    ciks: [936468]
+    yahoo: "LMT"
+    role: main
+    acttrade: false
+  - id: MCD
+    name: "McDonald's Corp."
+    sector: "Consumer Discretionary"
+    ciks: [63908]
+    yahoo: "MCD"
+    role: main
+    acttrade: true
+    notes: "ActTrade label MCDON."
+  - id: MET
+    name: "MetLife Inc."
+    sector: "Financials"
+    ciks: [1099219]
+    yahoo: "MET"
+    role: main
+    acttrade: false
+  - id: MS
+    name: "Morgan Stanley"
+    sector: "Financials"
+    ciks: [895421]
+    yahoo: "MS"
+    role: main
+    acttrade: false
+  - id: NFLX
+    name: "Netflix Inc."
+    sector: "Information Technology"
+    ciks: [1065280]
+    yahoo: "NFLX"
+    role: main
+    acttrade: true
+    notes: "ActTrade label NFLX. Splits of 7-for-1 (July 2015) and 10-for-1 (November 2025)."
+  - id: NSC
+    name: "Norfolk Southern Corp."
+    sector: "Industrials"
+    ciks: [702165]
+    yahoo: "NSC"
+    role: main
+    acttrade: false
+  - id: NYT
+    name: "The New York Times Company"
+    sector: "Consumer Discretionary"
+    ciks: [71691]
+    yahoo: "NYT"
+    role: main
+    acttrade: true
+    notes: "ActTrade label NYT. Not in the S&P 500 in January 2015; media firms were then in Consumer Discretionary."
+  - id: OXY
+    name: "Occidental Petroleum"
+    sector: "Energy"
+    ciks: [797468]
+    yahoo: "OXY"
+    role: main
+    acttrade: false
+  - id: PFE
+    name: "Pfizer Inc."
+    sector: "Health Care"
+    ciks: [78003]
+    yahoo: "PFE"
+    role: main
+    acttrade: false
+  - id: PM
+    name: "Philip Morris International"
+    sector: "Consumer Staples"
+    ciks: [1413329]
+    yahoo: "PM"
+    role: main
+    acttrade: false
+  - id: SLB
+    name: "Schlumberger Ltd."
+    sector: "Energy"
+    ciks: [87347]
+    yahoo: "SLB"
+    role: main
+    acttrade: false
+  - id: SO
+    name: "Southern Co."
+    sector: "Utilities"
+    ciks: [92122]
+    yahoo: "SO"
+    role: main
+    acttrade: false
+  - id: SPG
+    name: "Simon Property Group Inc"
+    sector: "Financials"
+    ciks: [1063761]
+    yahoo: "SPG"
+    role: main
+    acttrade: false
+  - id: TSLA
+    name: "Tesla Motors, Inc."
+    sector: "Consumer Discretionary"
+    ciks: [1318605]
+    yahoo: "TSLA"
+    role: main
+    acttrade: true
+    notes: "ActTrade label TESLA. Not in the S&P 500 until December 2020; renamed Tesla, Inc. in 2017."
+  - id: UPS
+    name: "United Parcel Service"
+    sector: "Industrials"
+    ciks: [1090727]
+    yahoo: "UPS"
+    role: main
+    acttrade: false
+  - id: UTX
+    name: "United Technologies"
+    sector: "Industrials"
+    ciks: [101829]
+    yahoo: "RTX"
+    role: main
+    acttrade: false
+    notes: "Spun off Carrier and Otis and merged with Raytheon in April 2020, becoming Raytheon Technologies (now RTX Corp, same CIK). Yahoo records the spin-offs as a 1.589 split."
+  - id: VZ
+    name: "Verizon Communications"
+    sector: "Telecommunications Services"
+    ciks: [732712]
+    yahoo: "VZ"
+    role: main
+    acttrade: false
+  - id: WFC
+    name: "Wells Fargo"
+    sector: "Financials"
+    ciks: [72971]
+    yahoo: "WFC"
+    role: main
+    acttrade: false
+  - id: WMT
+    name: "Wal-Mart Stores"
+    sector: "Consumer Staples"
+    ciks: [104169]
+    yahoo: "WMT"
+    role: main
+    acttrade: true
+    notes: "ActTrade label WALMART."
+  - id: XRX
+    name: "Xerox Corp."
+    sector: "Information Technology"
+    ciks: [108772, 1770450]
+    yahoo: "XRX"
+    role: main
+    acttrade: true
+    notes: "ActTrade label XEROX. Xerox Holdings Corporation (new CIK) became the holding company in 2019. Yahoo records the Conduent spin-off (January 2017) as a 1.518 split, followed by a 1-for-4 reverse split in June 2017."
+  - id: AMG
+    name: "Affiliated Managers Group Inc"
+    sector: "Financials"
+    ciks: [1004434]
+    yahoo: "AMG"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol AMG: SEC's current ticker for the January 2015 CIK."
+  - id: AMT
+    name: "American Tower Corp A"
+    sector: "Financials"
+    ciks: [1053507]
+    yahoo: "AMT"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol AMT: SEC's current ticker for the January 2015 CIK."
+  - id: ANTM
+    name: "Anthem Inc."
+    sector: "Health Care"
+    ciks: [1156039]
+    yahoo: "ELV"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol ELV: SEC's current ticker for the January 2015 CIK."
+  - id: AZO
+    name: "AutoZone Inc"
+    sector: "Consumer Discretionary"
+    ciks: [866787]
+    yahoo: "AZO"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol AZO: SEC's current ticker for the January 2015 CIK."
+  - id: BLK
+    name: "BlackRock"
+    sector: "Financials"
+    ciks: [1364742, 2012383]
+    yahoo: "BLK"
+    role: holdout
+    acttrade: false
+    notes: "January 2015 ticker; Yahoo's name 'BlackRock, Inc.' matches."
+  - id: BWA
+    name: "BorgWarner"
+    sector: "Consumer Discretionary"
+    ciks: [908255]
+    yahoo: "BWA"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol BWA: SEC's current ticker for the January 2015 CIK."
+  - id: CF
+    name: "CF Industries Holdings Inc"
+    sector: "Materials"
+    ciks: [1324404]
+    yahoo: "CF"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol CF: SEC's current ticker for the January 2015 CIK."
+  - id: CHRW
+    name: "C. H. Robinson Worldwide"
+    sector: "Industrials"
+    ciks: [1043277]
+    yahoo: "CHRW"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol CHRW: SEC's current ticker for the January 2015 CIK."
+  - id: CNP
+    name: "CenterPoint Energy"
+    sector: "Utilities"
+    ciks: [1130310]
+    yahoo: "CNP"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol CNP: SEC's current ticker for the January 2015 CIK."
+  - id: CRM
+    name: "Salesforce.com"
+    sector: "Information Technology"
+    ciks: [1108524]
+    yahoo: "CRM"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol CRM: SEC's current ticker for the January 2015 CIK."
+  - id: CTAS
+    name: "Cintas Corporation"
+    sector: "Industrials"
+    ciks: [723254]
+    yahoo: "CTAS"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol CTAS: SEC's current ticker for the January 2015 CIK."
+  - id: D
+    name: "Dominion Resources"
+    sector: "Utilities"
+    ciks: [715957]
+    yahoo: "D"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol D: SEC's current ticker for the January 2015 CIK."
+  - id: DOV
+    name: "Dover Corp."
+    sector: "Industrials"
+    ciks: [29905]
+    yahoo: "DOV"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol DOV: SEC's current ticker for the January 2015 CIK."
+  - id: DRI
+    name: "Darden Restaurants"
+    sector: "Consumer Discretionary"
+    ciks: [940944]
+    yahoo: "DRI"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol DRI: SEC's current ticker for the January 2015 CIK."
+  - id: ED
+    name: "Consolidated Edison"
+    sector: "Utilities"
+    ciks: [1047862]
+    yahoo: "ED"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol ED: SEC's current ticker for the January 2015 CIK."
+  - id: EIX
+    name: "Edison Int'l"
+    sector: "Utilities"
+    ciks: [827052]
+    yahoo: "EIX"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol EIX: SEC's current ticker for the January 2015 CIK."
+  - id: ESS
+    name: "Essex Property Trust Inc"
+    sector: "Financials"
+    ciks: [920522]
+    yahoo: "ESS"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol ESS: SEC's current ticker for the January 2015 CIK."
+  - id: ETN
+    name: "Eaton Corporation"
+    sector: "Industrials"
+    ciks: [1551182]
+    yahoo: "ETN"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol ETN: SEC's current ticker for the January 2015 CIK."
+  - id: ETR
+    name: "Entergy Corp."
+    sector: "Utilities"
+    ciks: [65984]
+    yahoo: "ETR"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol ETR: SEC's current ticker for the January 2015 CIK."
+  - id: FITB
+    name: "Fifth Third Bancorp"
+    sector: "Financials"
+    ciks: [35527]
+    yahoo: "FITB"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol FITB: SEC's current ticker for the January 2015 CIK."
+  - id: FSLR
+    name: "First Solar Inc"
+    sector: "Information Technology"
+    ciks: [1274494]
+    yahoo: "FSLR"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol FSLR: SEC's current ticker for the January 2015 CIK."
+  - id: GIS
+    name: "General Mills"
+    sector: "Consumer Staples"
+    ciks: [40704]
+    yahoo: "GIS"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol GIS: SEC's current ticker for the January 2015 CIK."
+  - id: GWW
+    name: "Grainger (W.W.) Inc."
+    sector: "Industrials"
+    ciks: [277135]
+    yahoo: "GWW"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol GWW: SEC's current ticker for the January 2015 CIK."
+  - id: HAS
+    name: "Hasbro Inc."
+    sector: "Consumer Discretionary"
+    ciks: [46080]
+    yahoo: "HAS"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol HAS: SEC's current ticker for the January 2015 CIK."
+  - id: HSY
+    name: "The Hershey Company"
+    sector: "Consumer Staples"
+    ciks: [47111]
+    yahoo: "HSY"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol HSY: SEC's current ticker for the January 2015 CIK."
+  - id: ISRG
+    name: "Intuitive Surgical Inc."
+    sector: "Health Care"
+    ciks: [1035267]
+    yahoo: "ISRG"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol ISRG: SEC's current ticker for the January 2015 CIK."
+  - id: KMI
+    name: "Kinder Morgan"
+    sector: "Energy"
+    ciks: [1506307]
+    yahoo: "KMI"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol KMI: SEC's current ticker for the January 2015 CIK."
+  - id: L
+    name: "Loews Corp."
+    sector: "Financials"
+    ciks: [60086]
+    yahoo: "L"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol L: SEC's current ticker for the January 2015 CIK."
+  - id: MHK
+    name: "Mohawk Industries"
+    sector: "Consumer Discretionary"
+    ciks: [851968]
+    yahoo: "MHK"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol MHK: SEC's current ticker for the January 2015 CIK."
+  - id: MMC
+    name: "Marsh & McLennan"
+    sector: "Financials"
+    ciks: [62709]
+    yahoo: "MRSH"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol MRSH: SEC's current ticker for the January 2015 CIK."
+  - id: NDAQ
+    name: "NASDAQ OMX Group"
+    sector: "Financials"
+    ciks: [1120193]
+    yahoo: "NDAQ"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol NDAQ: SEC's current ticker for the January 2015 CIK."
+  - id: PGR
+    name: "Progressive Corp."
+    sector: "Financials"
+    ciks: [80661]
+    yahoo: "PGR"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol PGR: SEC's current ticker for the January 2015 CIK."
+  - id: PH
+    name: "Parker-Hannifin"
+    sector: "Industrials"
+    ciks: [76334]
+    yahoo: "PH"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol PH: SEC's current ticker for the January 2015 CIK."
+  - id: PNW
+    name: "Pinnacle West Capital"
+    sector: "Utilities"
+    ciks: [764622]
+    yahoo: "PNW"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol PNW: SEC's current ticker for the January 2015 CIK."
+  - id: PPL
+    name: "PPL Corp."
+    sector: "Utilities"
+    ciks: [922224]
+    yahoo: "PPL"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol PPL: SEC's current ticker for the January 2015 CIK."
+  - id: PRU
+    name: "Prudential Financial"
+    sector: "Financials"
+    ciks: [1137774]
+    yahoo: "PRU"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol PRU: SEC's current ticker for the January 2015 CIK."
+  - id: RL
+    name: "Polo Ralph Lauren Corp."
+    sector: "Consumer Discretionary"
+    ciks: [1037038]
+    yahoo: "RL"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol RL: SEC's current ticker for the January 2015 CIK."
+  - id: ROK
+    name: "Rockwell Automation Inc."
+    sector: "Industrials"
+    ciks: [1024478]
+    yahoo: "ROK"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol ROK: SEC's current ticker for the January 2015 CIK."
+  - id: SYK
+    name: "Stryker Corp."
+    sector: "Health Care"
+    ciks: [310764]
+    yahoo: "SYK"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol SYK: SEC's current ticker for the January 2015 CIK."
+  - id: SYMC
+    name: "Symantec Corp."
+    sector: "Information Technology"
+    ciks: [849399]
+    yahoo: "GEN"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol GEN: SEC's current ticker for the January 2015 CIK."
+  - id: TEL
+    name: "TE Connectivity Ltd."
+    sector: "Information Technology"
+    ciks: [1385157]
+    yahoo: "TEL"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol TEL: SEC's current ticker for the January 2015 CIK."
+  - id: TMO
+    name: "Thermo Fisher Scientific"
+    sector: "Health Care"
+    ciks: [97745]
+    yahoo: "TMO"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol TMO: SEC's current ticker for the January 2015 CIK."
+  - id: UA
+    name: "Under Armour"
+    sector: "Consumer Discretionary"
+    ciks: [1336917]
+    yahoo: "UAA"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol UAA: SEC's current ticker for the January 2015 CIK."
+  - id: UHS
+    name: "Universal Health Services, Inc."
+    sector: "Health Care"
+    ciks: [352915]
+    yahoo: "UHS"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol UHS: SEC's current ticker for the January 2015 CIK."
+  - id: UNM
+    name: "Unum Group"
+    sector: "Financials"
+    ciks: [5513]
+    yahoo: "UNM"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol UNM: SEC's current ticker for the January 2015 CIK."
+  - id: VLO
+    name: "Valero Energy"
+    sector: "Energy"
+    ciks: [1035002]
+    yahoo: "VLO"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol VLO: SEC's current ticker for the January 2015 CIK."
+  - id: VMC
+    name: "Vulcan Materials"
+    sector: "Materials"
+    ciks: [1396009]
+    yahoo: "VMC"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol VMC: SEC's current ticker for the January 2015 CIK."
+  - id: VRSN
+    name: "Verisign Inc."
+    sector: "Information Technology"
+    ciks: [1014473]
+    yahoo: "VRSN"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol VRSN: SEC's current ticker for the January 2015 CIK."
+  - id: WY
+    name: "Weyerhaeuser Corp."
+    sector: "Financials"
+    ciks: [106535]
+    yahoo: "WY"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol WY: SEC's current ticker for the January 2015 CIK."
+  - id: ZTS
+    name: "Zoetis"
+    sector: "Health Care"
+    ciks: [1555280]
+    yahoo: "ZTS"
+    role: holdout
+    acttrade: false
+    notes: "Yahoo symbol ZTS: SEC's current ticker for the January 2015 CIK."
+  - id: ACN
+    name: "Accenture plc"
+    sector: "Information Technology"
+    ciks: [1467373]
+    yahoo: "ACN"
+    role: unused
+    acttrade: false
+  - id: AIG
+    name: "American International Group, Inc."
+    sector: "Financials"
+    ciks: [5272]
+    yahoo: "AIG"
+    role: unused
+    acttrade: false
+  - id: ALL
+    name: "Allstate Corp"
+    sector: "Financials"
+    ciks: [899051]
+    yahoo: "ALL"
+    role: unused
+    acttrade: false
+  - id: AMGN
+    name: "Amgen Inc"
+    sector: "Health Care"
+    ciks: [318154]
+    yahoo: "AMGN"
+    role: unused
+    acttrade: false
+  - id: APA
+    name: "Apache Corporation"
+    sector: "Energy"
+    ciks: [6769, 1841666]
+    yahoo: "APA"
+    role: unused
+    acttrade: false
+    notes: "Reorganised under the holding company APA Corp (new CIK) in March 2021."
+  - id: BA
+    name: "Boeing Company"
+    sector: "Industrials"
+    ciks: [12927]
+    yahoo: "BA"
+    role: unused
+    acttrade: false
+  - id: BAC
+    name: "Bank of America Corp"
+    sector: "Financials"
+    ciks: [70858]
+    yahoo: "BAC"
+    role: unused
+    acttrade: false
+  - id: BIIB
+    name: "BIOGEN IDEC Inc."
+    sector: "Health Care"
+    ciks: [875045]
+    yahoo: "BIIB"
+    role: unused
+    acttrade: false
+  - id: BK
+    name: "The Bank of New York Mellon Corp."
+    sector: "Financials"
+    ciks: [1390777]
+    yahoo: "BNY"
+    role: unused
+    acttrade: false
+    notes: "Now trades as BNY; Yahoo keeps the full price history under that symbol."
+  - id: BRK.B
+    name: "Berkshire Hathaway"
+    sector: "Financials"
+    ciks: [1067983]
+    yahoo: "BRK-B"
+    role: unused
+    acttrade: false
+  - id: C
+    name: "Citigroup Inc."
+    sector: "Financials"
+    ciks: [831001]
+    yahoo: "C"
+    role: unused
+    acttrade: false
+  - id: CAT
+    name: "Caterpillar Inc."
+    sector: "Industrials"
+    ciks: [18230]
+    yahoo: "CAT"
+    role: unused
+    acttrade: false
+  - id: CMCSA
+    name: "Comcast Corp."
+    sector: "Consumer Discretionary"
+    ciks: [1166691]
+    yahoo: "CMCSA"
+    role: unused
+    acttrade: false
+  - id: COST
+    name: "Costco Co."
+    sector: "Consumer Staples"
+    ciks: [909832]
+    yahoo: "COST"
+    role: unused
+    acttrade: false
+  - id: CSCO
+    name: "Cisco Systems"
+    sector: "Information Technology"
+    ciks: [858877]
+    yahoo: "CSCO"
+    role: unused
+    acttrade: false
+  - id: DVN
+    name: "Devon Energy Corp."
+    sector: "Energy"
+    ciks: [1090012]
+    yahoo: "DVN"
+    role: unused
+    acttrade: false
+  - id: EMR
+    name: "Emerson Electric"
+    sector: "Industrials"
+    ciks: [32604]
+    yahoo: "EMR"
+    role: unused
+    acttrade: false
+  - id: EXC
+    name: "Exelon Corp."
+    sector: "Utilities"
+    ciks: [1109357]
+    yahoo: "EXC"
+    role: unused
+    acttrade: false
+  - id: FB
+    name: "Facebook"
+    sector: "Information Technology"
+    ciks: [1326801]
+    yahoo: "META"
+    role: unused
+    acttrade: false
+    notes: "Renamed Meta Platforms in October 2021; ticker META since June 2022."
+  - id: GILD
+    name: "Gilead Sciences"
+    sector: "Health Care"
+    ciks: [882095]
+    yahoo: "GILD"
+    role: unused
+    acttrade: false
+  - id: HD
+    name: "Home Depot"
+    sector: "Consumer Discretionary"
+    ciks: [354950]
+    yahoo: "HD"
+    role: unused
+    acttrade: false
+  - id: HON
+    name: "Honeywell Int'l Inc."
+    sector: "Industrials"
+    ciks: [773840]
+    yahoo: "HON"
+    role: unused
+    acttrade: false
+  - id: HPQ
+    name: "Hewlett-Packard"
+    sector: "Information Technology"
+    ciks: [47217]
+    yahoo: "HPQ"
+    role: unused
+    acttrade: false
+    notes: "Hewlett Packard Enterprise was spun off on 1 November 2015; HP Inc. kept the CIK and ticker. Yahoo records the spin-off as a 2.202 split."
+  - id: JNJ
+    name: "Johnson & Johnson"
+    sector: "Health Care"
+    ciks: [200406]
+    yahoo: "JNJ"
+    role: unused
+    acttrade: false
+  - id: JPM
+    name: "JPMorgan Chase & Co."
+    sector: "Financials"
+    ciks: [19617]
+    yahoo: "JPM"
+    role: unused
+    acttrade: false
+  - id: LOW
+    name: "Lowe's Cos."
+    sector: "Consumer Discretionary"
+    ciks: [60667]
+    yahoo: "LOW"
+    role: unused
+    acttrade: false
+  - id: MA
+    name: "Mastercard Inc."
+    sector: "Information Technology"
+    ciks: [1141391]
+    yahoo: "MA"
+    role: unused
+    acttrade: false
+  - id: MDLZ
+    name: "Mondelez International"
+    sector: "Consumer Staples"
+    ciks: [1103982]
+    yahoo: "MDLZ"
+    role: unused
+    acttrade: false
+  - id: MDT
+    name: "Medtronic Inc."
+    sector: "Health Care"
+    ciks: [64670, 1613103]
+    yahoo: "MDT"
+    role: unused
+    acttrade: false
+    notes: "Medtronic plc (new CIK) replaced Medtronic Inc. on 26 January 2015, after acquiring Covidien."
+  - id: MMM
+    name: "3M Company"
+    sector: "Industrials"
+    ciks: [66740]
+    yahoo: "MMM"
+    role: unused
+    acttrade: false
+  - id: MO
+    name: "Altria Group Inc"
+    sector: "Consumer Staples"
+    ciks: [764180]
+    yahoo: "MO"
+    role: unused
+    acttrade: false
+  - id: MRK
+    name: "Merck & Co."
+    sector: "Health Care"
+    ciks: [310158]
+    yahoo: "MRK"
+    role: unused
+    acttrade: false
+  - id: MSFT
+    name: "Microsoft Corp."
+    sector: "Information Technology"
+    ciks: [789019]
+    yahoo: "MSFT"
+    role: unused
+    acttrade: false
+  - id: NKE
+    name: "NIKE Inc."
+    sector: "Consumer Discretionary"
+    ciks: [320187]
+    yahoo: "NKE"
+    role: unused
+    acttrade: false
+  - id: NOV
+    name: "National Oilwell Varco Inc."
+    sector: "Energy"
+    ciks: [1021860]
+    yahoo: "NOV"
+    role: unused
+    acttrade: false
+  - id: ORCL
+    name: "Oracle Corp."
+    sector: "Information Technology"
+    ciks: [1341439]
+    yahoo: "ORCL"
+    role: unused
+    acttrade: false
+  - id: PEP
+    name: "PepsiCo Inc."
+    sector: "Consumer Staples"
+    ciks: [77476]
+    yahoo: "PEP"
+    role: unused
+    acttrade: false
+  - id: PG
+    name: "Procter & Gamble"
+    sector: "Consumer Staples"
+    ciks: [80424]
+    yahoo: "PG"
+    role: unused
+    acttrade: false
+  - id: QCOM
+    name: "QUALCOMM Inc."
+    sector: "Information Technology"
+    ciks: [804328]
+    yahoo: "QCOM"
+    role: unused
+    acttrade: false
+  - id: SBUX
+    name: "Starbucks Corp."
+    sector: "Consumer Discretionary"
+    ciks: [829224]
+    yahoo: "SBUX"
+    role: unused
+    acttrade: false
+  - id: T
+    name: "AT&T Inc"
+    sector: "Telecommunications Services"
+    ciks: [732717]
+    yahoo: "T"
+    role: unused
+    acttrade: false
+  - id: TGT
+    name: "Target Corp."
+    sector: "Consumer Discretionary"
+    ciks: [27419]
+    yahoo: "TGT"
+    role: unused
+    acttrade: false
+  - id: TXN
+    name: "Texas Instruments"
+    sector: "Information Technology"
+    ciks: [97476]
+    yahoo: "TXN"
+    role: unused
+    acttrade: false
+  - id: UNH
+    name: "United Health Group Inc."
+    sector: "Health Care"
+    ciks: [731766]
+    yahoo: "UNH"
+    role: unused
+    acttrade: false
+  - id: UNP
+    name: "Union Pacific"
+    sector: "Industrials"
+    ciks: [100885]
+    yahoo: "UNP"
+    role: unused
+    acttrade: false
+  - id: USB
+    name: "U.S. Bancorp"
+    sector: "Financials"
+    ciks: [36104]
+    yahoo: "USB"
+    role: unused
+    acttrade: false
+  - id: V
+    name: "Visa Inc."
+    sector: "Information Technology"
+    ciks: [1403161]
+    yahoo: "V"
+    role: unused
+    acttrade: false
+  - id: XOM
+    name: "Exxon Mobil Corp."
+    sector: "Energy"
+    ciks: [34088]
+    yahoo: "XOM"
+    role: unused
+    acttrade: false
+    notes: "ExxonMobil Holdings Corp (CIK 2115436) became the holding company in July 2026, after the study period."
+  - id: APC
+    name: "Anadarko Petroleum Corp"
+    sector: "Energy"
+    ciks: [773910]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "Acquired by Occidental Petroleum in August 2019. Yahoo Finance no longer has its prices."
+  - id: ATVI
+    name: "Activision Blizzard, Inc."
+    sector: "Information Technology"
+    ciks: [718877]
+    yahoo: null
+    role: excluded
+    acttrade: true
+    notes: "ActTrade label ATVI. Acquired by Microsoft in October 2023, after which Yahoo removed its prices; joined the S&P 500 in August 2015."
+  - id: CAM
+    name: "Cameron International Corp."
+    sector: "Energy"
+    ciks: [941548]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
+  - id: CB
+    name: "Chubb Corp."
+    sector: "Financials"
+    ciks: [20171]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 ticker now belongs to another January 2015 firm (ACE, CIK 896159)."
+  - id: CELG
+    name: "Celgene Corp."
+    sector: "Health Care"
+    ciks: [816284]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
+  - id: CFN
+    name: "Carefusion"
+    sector: "Health Care"
+    ciks: [1457543]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
+  - id: CMA
+    name: "Comerica Inc."
+    sector: "Financials"
+    ciks: [28412]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
+  - id: DO
+    name: "Diamond Offshore Drilling"
+    sector: "Energy"
+    ciks: [949039]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
   - id: DOW
     name: "Dow Chemical"
     sector: "Materials"
     ciks: [29915]
     yahoo: null
     role: excluded
-    acttrade: null
+    acttrade: false
     notes: "Dow Chemical merged into DowDuPont in August 2017. Yahoo's DOW is Dow Inc., listed in March 2019."
-  - id: DVN
-    name: "Devon Energy Corp."
-    sector: "Energy"
-    ciks: [1090012]
-    yahoo: "DVN"
-    role: candidate
-    acttrade: null
-  - id: EBAY
-    name: "eBay Inc."
-    sector: "Information Technology"
-    ciks: [1065088]
-    yahoo: "EBAY"
-    role: candidate
-    acttrade: null
   - id: EMC
     name: "EMC Corp."
     sector: "Information Technology"
     ciks: [790070]
     yahoo: null
     role: excluded
-    acttrade: null
+    acttrade: false
     notes: "Acquired by Dell in September 2016. Yahoo's EMC is a different security, listed in 2023."
-  - id: EMR
-    name: "Emerson Electric"
+  - id: FLIR
+    name: "FLIR Systems"
     sector: "Industrials"
-    ciks: [32604]
-    yahoo: "EMR"
-    role: candidate
-    acttrade: null
-  - id: EXC
-    name: "Exelon Corp."
-    sector: "Utilities"
-    ciks: [1109357]
-    yahoo: "EXC"
-    role: candidate
-    acttrade: null
-  - id: F
-    name: "Ford Motor"
-    sector: "Consumer Discretionary"
-    ciks: [37996]
-    yahoo: "F"
-    role: candidate
-    acttrade: null
-  - id: FB
-    name: "Facebook"
-    sector: "Information Technology"
-    ciks: [1326801]
-    yahoo: "META"
-    role: candidate
-    acttrade: null
-    notes: "Renamed Meta Platforms in October 2021; ticker META since June 2022."
-  - id: FCX
-    name: "Freeport-McMoran Cp & Gld"
-    sector: "Materials"
-    ciks: [831259]
-    yahoo: "FCX"
-    role: candidate
-    acttrade: null
-  - id: FDX
-    name: "FedEx Corporation"
-    sector: "Industrials"
-    ciks: [1048911]
-    yahoo: "FDX"
-    role: candidate
-    acttrade: null
+    ciks: [354908]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
   - id: FOXA
     name: "Twenty-First Century Fox"
     sector: "Consumer Discretionary"
     ciks: [1308161]
     yahoo: null
     role: excluded
-    acttrade: null
+    acttrade: false
     notes: "Twenty-First Century Fox, acquired by Disney in March 2019. Yahoo's FOXA is Fox Corporation, listed in March 2019."
-  - id: GD
-    name: "General Dynamics"
+  - id: LEG
+    name: "Leggett & Platt"
     sector: "Industrials"
-    ciks: [40533]
-    yahoo: "GD"
-    role: candidate
-    acttrade: null
-  - id: GE
-    name: "General Electric"
-    sector: "Industrials"
-    ciks: [40545]
-    yahoo: "GE"
-    role: candidate
-    acttrade: null
-  - id: GILD
-    name: "Gilead Sciences"
-    sector: "Health Care"
-    ciks: [882095]
-    yahoo: "GILD"
-    role: candidate
-    acttrade: null
-  - id: GM
-    name: "General Motors"
-    sector: "Consumer Discretionary"
-    ciks: [1467858]
-    yahoo: "GM"
-    role: candidate
-    acttrade: null
-  - id: GOOG
-    name: "Google Inc Class C"
-    sector: "Information Technology"
-    ciks: [1288776, 1652044]
-    yahoo: "GOOG"
-    role: candidate
-    acttrade: null
-    notes: "Class C shares. Google became a subsidiary of Alphabet Inc. (new CIK) in October 2015."
-  - id: GS
-    name: "Goldman Sachs Group"
-    sector: "Financials"
-    ciks: [886982]
-    yahoo: "GS"
-    role: candidate
-    acttrade: null
-  - id: HAL
-    name: "Halliburton Co."
-    sector: "Energy"
-    ciks: [45012]
-    yahoo: "HAL"
-    role: candidate
-    acttrade: null
-  - id: HD
-    name: "Home Depot"
-    sector: "Consumer Discretionary"
-    ciks: [354950]
-    yahoo: "HD"
-    role: candidate
-    acttrade: null
-  - id: HON
-    name: "Honeywell Int'l Inc."
-    sector: "Industrials"
-    ciks: [773840]
-    yahoo: "HON"
-    role: candidate
-    acttrade: null
-  - id: HPQ
-    name: "Hewlett-Packard"
-    sector: "Information Technology"
-    ciks: [47217]
-    yahoo: "HPQ"
-    role: candidate
-    acttrade: null
-    notes: "Hewlett Packard Enterprise was spun off on 1 November 2015; HP Inc. kept the CIK and ticker. Yahoo records the spin-off as a 2.202 split."
-  - id: IBM
-    name: "International Bus. Machines"
-    sector: "Information Technology"
-    ciks: [51143]
-    yahoo: "IBM"
-    role: candidate
-    acttrade: null
-  - id: INTC
-    name: "Intel Corp."
-    sector: "Information Technology"
-    ciks: [50863]
-    yahoo: "INTC"
-    role: candidate
-    acttrade: null
-  - id: JNJ
-    name: "Johnson & Johnson"
-    sector: "Health Care"
-    ciks: [200406]
-    yahoo: "JNJ"
-    role: candidate
-    acttrade: null
-  - id: JPM
-    name: "JPMorgan Chase & Co."
-    sector: "Financials"
-    ciks: [19617]
-    yahoo: "JPM"
-    role: candidate
-    acttrade: null
-  - id: KO
-    name: "The Coca Cola Company"
-    sector: "Consumer Staples"
-    ciks: [21344]
-    yahoo: "KO"
-    role: candidate
-    acttrade: null
-  - id: LLY
-    name: "Lilly (Eli) & Co."
-    sector: "Health Care"
-    ciks: [59478]
-    yahoo: "LLY"
-    role: candidate
-    acttrade: null
-  - id: LMT
-    name: "Lockheed Martin Corp."
-    sector: "Industrials"
-    ciks: [936468]
-    yahoo: "LMT"
-    role: candidate
-    acttrade: null
-  - id: LOW
-    name: "Lowe's Cos."
-    sector: "Consumer Discretionary"
-    ciks: [60667]
-    yahoo: "LOW"
-    role: candidate
-    acttrade: null
-  - id: MA
-    name: "Mastercard Inc."
-    sector: "Information Technology"
-    ciks: [1141391]
-    yahoo: "MA"
-    role: candidate
-    acttrade: null
-  - id: MCD
-    name: "McDonald's Corp."
-    sector: "Consumer Discretionary"
-    ciks: [63908]
-    yahoo: "MCD"
-    role: candidate
-    acttrade: null
-  - id: MDLZ
-    name: "Mondelez International"
-    sector: "Consumer Staples"
-    ciks: [1103982]
-    yahoo: "MDLZ"
-    role: candidate
-    acttrade: null
-  - id: MDT
-    name: "Medtronic Inc."
-    sector: "Health Care"
-    ciks: [64670, 1613103]
-    yahoo: "MDT"
-    role: candidate
-    acttrade: null
-    notes: "Medtronic plc (new CIK) replaced Medtronic Inc. on 26 January 2015, after acquiring Covidien."
-  - id: MET
-    name: "MetLife Inc."
-    sector: "Financials"
-    ciks: [1099219]
-    yahoo: "MET"
-    role: candidate
-    acttrade: null
-  - id: MMM
-    name: "3M Company"
-    sector: "Industrials"
-    ciks: [66740]
-    yahoo: "MMM"
-    role: candidate
-    acttrade: null
-  - id: MO
-    name: "Altria Group Inc"
-    sector: "Consumer Staples"
-    ciks: [764180]
-    yahoo: "MO"
-    role: candidate
-    acttrade: null
+    ciks: [58492]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
   - id: MON
     name: "Monsanto Co."
     sector: "Materials"
     ciks: [1110783]
     yahoo: null
     role: excluded
-    acttrade: null
+    acttrade: false
     notes: "Acquired by Bayer in June 2018. Yahoo Finance no longer has its prices."
-  - id: MRK
-    name: "Merck & Co."
-    sector: "Health Care"
-    ciks: [310158]
-    yahoo: "MRK"
-    role: candidate
-    acttrade: null
-  - id: MS
-    name: "Morgan Stanley"
-    sector: "Financials"
-    ciks: [895421]
-    yahoo: "MS"
-    role: candidate
-    acttrade: null
-  - id: MSFT
-    name: "Microsoft Corp."
-    sector: "Information Technology"
-    ciks: [789019]
-    yahoo: "MSFT"
-    role: candidate
-    acttrade: null
-  - id: NKE
-    name: "NIKE Inc."
+  - id: MWV
+    name: "MeadWestvaco Corporation"
+    sector: "Materials"
+    ciks: [1159297]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
+  - id: PETM
+    name: "PetSmart, Inc."
     sector: "Consumer Discretionary"
-    ciks: [320187]
-    yahoo: "NKE"
-    role: candidate
-    acttrade: null
-  - id: NOV
-    name: "National Oilwell Varco Inc."
-    sector: "Energy"
-    ciks: [1021860]
-    yahoo: "NOV"
-    role: candidate
-    acttrade: null
-  - id: NSC
-    name: "Norfolk Southern Corp."
-    sector: "Industrials"
-    ciks: [702165]
-    yahoo: "NSC"
-    role: candidate
-    acttrade: null
-  - id: ORCL
-    name: "Oracle Corp."
-    sector: "Information Technology"
-    ciks: [1341439]
-    yahoo: "ORCL"
-    role: candidate
-    acttrade: null
-  - id: OXY
-    name: "Occidental Petroleum"
-    sector: "Energy"
-    ciks: [797468]
-    yahoo: "OXY"
-    role: candidate
-    acttrade: null
-  - id: PEP
-    name: "PepsiCo Inc."
-    sector: "Consumer Staples"
-    ciks: [77476]
-    yahoo: "PEP"
-    role: candidate
-    acttrade: null
-  - id: PFE
-    name: "Pfizer Inc."
-    sector: "Health Care"
-    ciks: [78003]
-    yahoo: "PFE"
-    role: candidate
-    acttrade: null
-  - id: PG
-    name: "Procter & Gamble"
-    sector: "Consumer Staples"
-    ciks: [80424]
-    yahoo: "PG"
-    role: candidate
-    acttrade: null
-  - id: PM
-    name: "Philip Morris International"
-    sector: "Consumer Staples"
-    ciks: [1413329]
-    yahoo: "PM"
-    role: candidate
-    acttrade: null
-  - id: QCOM
-    name: "QUALCOMM Inc."
-    sector: "Information Technology"
-    ciks: [804328]
-    yahoo: "QCOM"
-    role: candidate
-    acttrade: null
+    ciks: [863157]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
   - id: RTN
     name: "Raytheon Co."
     sector: "Industrials"
     ciks: [1047122]
     yahoo: null
     role: excluded
-    acttrade: null
+    acttrade: false
     notes: "Merged with United Technologies in April 2020. Yahoo Finance no longer has its prices."
-  - id: SBUX
-    name: "Starbucks Corp."
+  - id: SNI
+    name: "Scripps Networks Interactive Inc."
     sector: "Consumer Discretionary"
-    ciks: [829224]
-    yahoo: "SBUX"
-    role: candidate
-    acttrade: null
-  - id: SLB
-    name: "Schlumberger Ltd."
-    sector: "Energy"
-    ciks: [87347]
-    yahoo: "SLB"
-    role: candidate
-    acttrade: null
-  - id: SO
-    name: "Southern Co."
+    ciks: [1430602]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
+  - id: TEG
+    name: "Integrys Energy Group Inc."
     sector: "Utilities"
-    ciks: [92122]
-    yahoo: "SO"
-    role: candidate
-    acttrade: null
-  - id: SPG
-    name: "Simon Property Group Inc"
-    sector: "Financials"
-    ciks: [1063761]
-    yahoo: "SPG"
-    role: candidate
-    acttrade: null
-  - id: T
-    name: "AT&T Inc"
-    sector: "Telecommunications Services"
-    ciks: [732717]
-    yahoo: "T"
-    role: candidate
-    acttrade: null
-  - id: TGT
-    name: "Target Corp."
+    ciks: [916863]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
+  - id: TIF
+    name: "Tiffany & Co."
     sector: "Consumer Discretionary"
-    ciks: [27419]
-    yahoo: "TGT"
-    role: candidate
-    acttrade: null
+    ciks: [98246]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
   - id: TWX
     name: "Time Warner Inc."
     sector: "Consumer Discretionary"
     ciks: [1105705]
     yahoo: null
     role: excluded
-    acttrade: null
+    acttrade: false
     notes: "Acquired by AT&T in June 2018. Yahoo Finance no longer has its prices."
-  - id: TXN
-    name: "Texas Instruments"
-    sector: "Information Technology"
-    ciks: [97476]
-    yahoo: "TXN"
-    role: candidate
-    acttrade: null
-  - id: UNH
-    name: "United Health Group Inc."
-    sector: "Health Care"
-    ciks: [731766]
-    yahoo: "UNH"
-    role: candidate
-    acttrade: null
-  - id: UNP
-    name: "Union Pacific"
-    sector: "Industrials"
-    ciks: [100885]
-    yahoo: "UNP"
-    role: candidate
-    acttrade: null
-  - id: UPS
-    name: "United Parcel Service"
-    sector: "Industrials"
-    ciks: [1090727]
-    yahoo: "UPS"
-    role: candidate
-    acttrade: null
-  - id: USB
-    name: "U.S. Bancorp"
-    sector: "Financials"
-    ciks: [36104]
-    yahoo: "USB"
-    role: candidate
-    acttrade: null
-  - id: UTX
-    name: "United Technologies"
-    sector: "Industrials"
-    ciks: [101829]
-    yahoo: "RTX"
-    role: candidate
-    acttrade: null
-    notes: "Spun off Carrier and Otis and merged with Raytheon in April 2020, becoming Raytheon Technologies (now RTX Corp, same CIK). Yahoo records the spin-offs as a 1.589 split."
-  - id: V
-    name: "Visa Inc."
-    sector: "Information Technology"
-    ciks: [1403161]
-    yahoo: "V"
-    role: candidate
-    acttrade: null
-  - id: VZ
-    name: "Verizon Communications"
-    sector: "Telecommunications Services"
-    ciks: [732712]
-    yahoo: "VZ"
-    role: candidate
-    acttrade: null
   - id: WBA
     name: "Walgreens Boots Alliance"
     sector: "Consumer Staples"
     ciks: [104207, 1618921]
     yahoo: null
     role: excluded
-    acttrade: null
+    acttrade: false
     notes: "Walgreens Boots Alliance (CIK 1618921) became the holding company of Walgreen Co. on 31 December 2014. Taken private in August 2025, after which Yahoo removed its prices."
-  - id: WFC
-    name: "Wells Fargo"
-    sector: "Financials"
-    ciks: [72971]
-    yahoo: "WFC"
-    role: candidate
-    acttrade: null
-  - id: WMT
-    name: "Wal-Mart Stores"
+  - id: WFM
+    name: "Whole Foods Market"
     sector: "Consumer Staples"
-    ciks: [104169]
-    yahoo: "WMT"
-    role: candidate
-    acttrade: null
-  - id: XOM
-    name: "Exxon Mobil Corp."
+    ciks: [865436]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."
+  - id: XEC
+    name: "Cimarex Energy"
     sector: "Energy"
-    ciks: [34088]
-    yahoo: "XOM"
-    role: candidate
-    acttrade: null
-    notes: "ExxonMobil Holdings Corp (CIK 2115436) became the holding company in July 2026, after the study period."
+    ciks: [1168054]
+    yahoo: null
+    role: excluded
+    acttrade: false
+    notes: "The January 2015 CIK no longer files; Yahoo has no prices under the January 2015 ticker."

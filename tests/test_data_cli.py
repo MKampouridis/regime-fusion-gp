@@ -70,7 +70,7 @@ def test_missing_prices_make_the_command_fail(offline, monkeypatch):
         s if s.id != "AAPL" else type(stock)(**{**stock.__dict__, "yahoo": "NOPE"})
         for s in universe.stocks
     ))
-    monkeypatch.setattr(cli, "load_universe", lambda: patched)
+    monkeypatch.setattr(cli, "load_universe", lambda path=None: patched)
     assert cli.main(["prices", "--stocks", "AAPL", "MSFT"]) == 1
 
 

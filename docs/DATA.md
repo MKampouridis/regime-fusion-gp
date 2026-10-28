@@ -4,7 +4,7 @@ How the data for the study are obtained, stored and aligned. The sources and the
 
 ## Where data live
 
-Nothing under the data folder is committed. The folder is named by the environment variable `RFGP_DATA_DIR` (default `./data` in the repository, which git ignores). The repository sits in a Box-synchronised folder, so `RFGP_DATA_DIR` should point outside it: Box would otherwise upload gigabytes of licensed data.
+Nothing under the data folder is committed. The folder is named by the environment variable `RFGP_DATA_DIR` (default `./data` in the repository, which git ignores). On Michael's Mac it is `~/rfgp-data`, outside the Box-synchronised folder that holds the repository: Box would otherwise upload gigabytes of licensed data. The Python environment is `~/.venvs/rfgp`.
 
 | Layer | Contents |
 | --- | --- |
@@ -22,11 +22,12 @@ Download settings live in [`configs/data_sources.yaml`](../configs/data_sources.
 Run on a machine that can reach the sources (Michael's Mac), from the repository, with the `download` extra installed (README):
 
 ```bash
+source ~/.venvs/rfgp/bin/activate
 export RFGP_DATA_DIR=~/rfgp-data           # outside Box
-python -m regime_fusion.data prices        # Yahoo prices, about 3 minutes for the 92 usable candidates
+python -m regime_fusion.data prices --include-holdout   # Yahoo prices, a few minutes
 python -m regime_fusion.data market        # S&P 500 index, SPY, VIX
-python -m regime_fusion.data sec           # SEC company facts, about 2 minutes
-python -m regime_fusion.data fundamentals  # daily point-in-time values, about 2 minutes, no downloads
+python -m regime_fusion.data sec --include-holdout      # SEC company facts, a few minutes
+python -m regime_fusion.data fundamentals --include-holdout  # daily point-in-time values, no downloads
 ```
 
 Each step caches its downloads (`--refresh` fetches again), prints what needs a look, and writes its checks to `reports/`. `--stocks AAPL MSFT` limits a step to some stocks (ids are January 2015 tickers). `python -m regime_fusion.data constituents` rebuilds the committed constituents list and is needed only if the pinned Wikipedia revisions change.
@@ -44,17 +45,23 @@ Feature code built on daily rows is tested with `regime_fusion.testing.check_no_
 
 ## Universe
 
-The universe is fixed as of January 2015, so firms later acquired or delisted stay in it.
+The universe is fixed as of January 2015, so firms later acquired or delisted stay in it where prices exist.
 
 - [`configs/constituents_2015-01.csv`](../configs/constituents_2015-01.csv) lists the S&P 500 members at the end of January 2015 (502 share classes of 500 firms), with GICS sector and sub-industry, SEC CIK, and S&P 100 membership. It is rebuilt from pinned Wikipedia revisions with `python -m regime_fusion.data constituents`: the S&P 100 page as of 16 January 2015 (revision 642684730) and the S&P 500 list as of 27 January 2015 (revision 644366768). Wikipedia is a secondary source (CC BY-SA); an official list would be a welcome check.
-- [`configs/universe.yaml`](../configs/universe.yaml) holds the stocks of the study. It currently lists the 100 S&P 100 members as candidates. Eight are excluded because Yahoo Finance no longer has their prices: Anadarko, Dow Chemical, EMC, Twenty-First Century Fox, Monsanto, Raytheon, Time Warner and Walgreens Boots Alliance. This is the survivorship bias of free price data that the paper states.
-- Each stock keeps its January 2015 ticker as its identifier, in file names and seeds. The entry records every CIK that filed its accounts from 2014 to 2025 (six firms have two, mostly after holding-company reorganisations such as Google into Alphabet) and the Yahoo symbol of its price history today (FB is now META, UTX is RTX, BK is BNY).
-- Tickers are reused: Yahoo's EMC, FOXA and DOW are now other securities. Price downloads are therefore checked to cover the study period from its start.
-- Hold-out stocks are returned only by `Universe.select("holdout", include_holdout=True)`, which only the downloads and the final campaign use.
+- [`configs/acttrade.yaml`](../configs/acttrade.yaml) holds ActTrade's 18 US stocks, taken from the ActTrade paper and Table 4.3 of Christodoulaki's thesis (the same 42 companies). The paper's "COKE" is taken to be The Coca-Cola Company (KO), which is still to be confirmed. Four of the 18 were not in the S&P 500 in January 2015 (Kodak, the New York Times, Tesla, Activision).
+- [`configs/universe.yaml`](../configs/universe.yaml) is written by `python -m regime_fusion.data draw` (`regime_fusion.data.draw`), which refuses to run again once a draw exists unless given `--redraw`. Both draws use generators from `regime_fusion.seeds`, keyed by the draw's name only.
+  - **Main (50):** ActTrade's 17 usable US stocks, plus 33 drawn from the other usable S&P 100 members. Each GICS sector's target is its share of the S&P 100 times 50, and the draws go to the sectors short of their targets, so the 50 stocks match the S&P 100's sector mix to within one stock per sector.
+  - **Hold-out (50):** January 2015 S&P 500 members outside the S&P 100 and the main universe, one share class per firm, taken in a seeded random order. Firms without Yahoo prices from the study start were passed over: 15 of the first 65, all acquired or merged since 2015.
+  - **Unused (48):** usable S&P 100 members that were not drawn.
+  - **Excluded (24):** with the reason in `notes`. Yahoo no longer has the prices of acquired firms (Activision, Anadarko, Monsanto, Time Warner, Walgreens Boots Alliance and others): this is the survivorship bias of free price data that the paper states.
+- Each stock keeps its January 2015 ticker as its identifier, in file names and seeds. Its entry records every CIK that filed its accounts from 2014 to 2025 (holding-company reorganisations such as Google into Alphabet add one) and the Yahoo symbol of its price history today (FB is now META, UTX is RTX, BK is BNY, ANTM is ELV).
+- **Symbols for hold-out firms** come from SEC's current tickers for the firm's January 2015 CIK. When that CIK no longer files, the old ticker is kept only if Yahoo's name for it matches the firm and the ticker has not passed to another January 2015 firm: ACE took Chubb's ticker, CB, when it bought Chubb in 2016.
+- **Reused tickers:** Yahoo's EMC, FOXA and DOW are now other securities, and every price series is checked to start before the study does.
+- **Hold-out guard:** hold-out stocks are returned only by `Universe.select("holdout", include_holdout=True)`, which only the downloads and the final campaign use.
 
 ## Prices
 
-`python -m regime_fusion.data prices` downloads daily bars from Yahoo Finance for every main and candidate stock (`--include-holdout` adds the hold-out stocks) into `raw/yahoo/stocks/<id>.parquet`. It then writes one row per session to `interim/prices/<id>.parquet` and the checks to `reports/price_checks.json`.
+`python -m regime_fusion.data prices` downloads daily bars from Yahoo Finance for every main stock (`--include-holdout` adds the hold-out stocks) into `raw/yahoo/stocks/<id>.parquet`. It then writes one row per session to `interim/prices/<id>.parquet` and the checks to `reports/price_checks.json`.
 
 - **Raw files** keep the output of `yfinance` (`auto_adjust=False, actions=True`) from January 2014 to the download date. Yahoo adjusts the whole history for later splits, so splits after 2025 are needed to recover traded prices.
 - **Interim tables** hold split-adjusted open, high, low and close (as Yahoo gives them), total-return prices (`adj_*`) from which returns are computed, volume, dividends, splits, and `traded_close`, the price actually paid that day. Valuation ratios need `traded_close`, because filed per-share values are not split-adjusted. Apple's traded close on 28 August 2020 comes out as $499.23, its actual close before the 4-for-1 split.
@@ -66,7 +73,7 @@ The universe is fixed as of January 2015, so firms later acquired or delisted st
 
 `python -m regime_fusion.data market` downloads the S&P 500 index (`^GSPC`, a price index, for market regimes) and SPY (whose adjusted close is a total-return benchmark) from Yahoo and processes them like stocks. The VIX comes from Cboe's own history file (`raw/cboe/VIX_History.csv`). Since mid-2022 that file also has values on US exchange holidays, from Cboe's extended trading hours; alignment drops them.
 
-The VIX is calculated until 16:15 New York time, a quarter of an hour after the stock close, so its close on day *t* is not strictly available by the close of *t*. The interim table keeps each value on its own day; whether features use the close of *t* or of *t*−1 is an open question.
+The VIX is calculated until 16:15 New York time, a quarter of an hour after the stock close, so its close on day *t* is not strictly available by the close of *t*. The interim table keeps each value on its own day, and features on day *t* use the close of *t*−1 (decided on 28 October 2026).
 
 ## Fundamentals
 
