@@ -13,10 +13,17 @@ dependencies = [
     "numpy>=1.26",
     "pandas>=2.1",
     "pyyaml>=6.0",
+    "pyarrow>=14",
+    "exchange_calendars>=4.5",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Only the download commands need these; the tests never touch the network.
+download = [
+    "requests>=2.31",
+    "yfinance>=0.2.54",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

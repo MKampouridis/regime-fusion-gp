@@ -14,23 +14,26 @@ Set-up and the directional-change module are done; the data pipeline (Phase 2) i
 | --- | --- |
 | `src/regime_fusion/` | Python package |
 | `src/regime_fusion/dc/` | Directional-change events and causal DC indicators |
+| `src/regime_fusion/data/` | Data pipeline: downloads, trading calendar, point-in-time alignment, checks |
 | `configs/study.yaml` | Settled study design: periods, walk-forward windows, runs, costs, base seed |
-| `configs/data_sources.yaml` | Settings for the download scripts |
-| `docs/` | Research plan, decision log, and the analysis protocol once it is frozen |
+| `configs/data_sources.yaml` | Settings for the data pipeline (download range, rate limits, contacts) |
+| `docs/` | Research plan, decision log, data pipeline (`DATA.md`), and the analysis protocol once it is frozen |
 | `tests/` | Automated tests, including look-ahead checks and a cross-check against the group's earlier Java DC code |
 
 ## Set-up
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+python3 -m venv ~/.venvs/rfgp
+source ~/.venvs/rfgp/bin/activate
+pip install -e ".[dev,download]"   # "download" is needed only where data are downloaded
 pytest
 ```
 
+Keep the environment and the data folder outside cloud-synchronised folders such as Box, which would otherwise upload thousands of files.
+
 ## Data
 
-No data are stored in this repository. Raw and processed data live outside it, in the folder named by the environment variable `RFGP_DATA_DIR` (default `./data`, which git ignores). Licences differ by source: FNSPID is CC BY-NC 4.0 (research use, no redistribution), Yahoo Finance data are for personal research use, and SEC EDGAR and GDELT are public.
+No data are stored in this repository. Raw and processed data live outside it, in the folder named by the environment variable `RFGP_DATA_DIR` (default `./data`, which git ignores); [`docs/DATA.md`](docs/DATA.md) describes the layout and the point-in-time rules. Licences differ by source: FNSPID is CC BY-NC 4.0 (research use, no redistribution), Yahoo Finance data are for personal research use, and SEC EDGAR and GDELT are public.
 
 ## Rules the code follows
 

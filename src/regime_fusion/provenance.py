@@ -15,7 +15,10 @@ from regime_fusion import __version__
 from regime_fusion.config import StudyConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TRACKED_PACKAGES = ("numpy", "pandas", "pyyaml", "scipy", "numba", "scikit-learn", "lightgbm")
+TRACKED_PACKAGES = (
+    "numpy", "pandas", "pyyaml", "pyarrow", "exchange_calendars", "scipy", "numba",
+    "scikit-learn", "lightgbm", "requests", "yfinance",
+)
 
 
 def git_state(repo: Path = REPO_ROOT) -> dict[str, Any]:

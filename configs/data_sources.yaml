@@ -1,4 +1,18 @@
-# Settings for the data download scripts (Phase 2).
+# Settings for the data pipeline (Phase 2). See docs/DATA.md.
+
+download:
+  # Prices and filings are downloaded from about a year before the study period
+  # (period.data_start in study.yaml), so that indicators with long look-backs are
+  # defined from its first day. The earlier data serve only as this warm-up.
+  start: "2014-01-01"
+  end: "2025-12-31"
+
+yahoo:
+  pause_seconds: 1.0   # between requests; Yahoo rate-limits heavy use
+  max_retries: 4
+
+cboe:
+  vix_url: "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
 
 sec:
   # The SEC asks automated requests to identify themselves with a name and contact email.
