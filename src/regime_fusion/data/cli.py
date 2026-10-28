@@ -8,6 +8,7 @@ Commands (each has --help):
   sec           download SEC company facts and filer details; keep report facts
   fundamentals  build daily point-in-time accounting values from the report facts
   draw          draw the main universe and the hold-out stocks (once; see draw.py)
+  gdelt         stream GDELT's GKG files and keep hourly news sums for the universe
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
 cached: a raw file already there is not fetched again unless --refresh is given.
@@ -17,9 +18,12 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import gzip
 import json
 import logging
+import shutil
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +31,7 @@ import pandas as pd
 
 from regime_fusion import __version__
 from regime_fusion.config import StudyConfig, load_config
-from regime_fusion.data import constituents, draw, fundamentals, market, prices, sec, store
+from regime_fusion.data import constituents, draw, fundamentals, gdelt, market, prices, sec, store
 from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.settings import DataSettings, load_settings
 from regime_fusion.data.universe import (
@@ -71,6 +75,16 @@ def main(argv: list[str] | None = None) -> int:
     sub = commands.add_parser("draw", help="draw the main universe and the hold-out stocks")
     sub.add_argument("--redraw", action="store_true", help="draw again although a draw exists")
     sub.set_defaults(run=run_draw)
+
+    sub = commands.add_parser("gdelt", help="stream GDELT's GKG files; keep hourly news sums")
+    sub.add_argument("--start", default="2015-02-18", help="first UTC day (default: GDELT's first)")
+    sub.add_argument("--end", help="last UTC day (default: the study's last day)")
+    sub.add_argument("--workers", type=int, default=8,
+                     help="days processed in parallel; 0 runs in this process")
+    sub.add_argument("--min-free-gb", type=float, default=5.0,
+                     help="stop when the data disk has less free space than this")
+    sub.add_argument("--retry-failed", action="store_true", help="redo days with failed files")
+    sub.set_defaults(run=run_gdelt)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -489,3 +503,86 @@ def current_sec_tickers(client: sec.Client) -> tuple[dict[int, list[str]], dict[
         by_cik.setdefault(int(entry["cik_str"]), []).append(symbol)
         by_ticker[symbol] = int(entry["cik_str"])
     return by_cik, by_ticker
+
+
+def run_gdelt(args: argparse.Namespace) -> int:
+    config = load_config()
+    universe = load_universe(UNIVERSE_FILE)
+    stocks = [s.id for s in universe.select("main", "holdout", include_holdout=True)]
+    matcher = gdelt.load_matcher(stocks=stocks)
+    first = args.start.replace("-", "")
+    last = (args.end or config.period.data_end.isoformat()).replace("-", "")
+    files = gdelt.master_list(gdelt_master_text(), first, last)
+    done = {day for day in files["day"].unique() if gdelt_day_done(day, args.retry_failed)}
+    todo = files[~files["day"].isin(done)]
+    total_bytes = int(todo["size"].sum())
+    log.info("gdelt: %d days to do (%d done), %d files, %.0f GB to stream; anchors %s",
+             todo["day"].nunique(), len(done), len(todo), total_bytes / 1e9, matcher.digest)
+    jobs = [(day, list(zip(group["url"], group["md5"]))) for day, group in todo.groupby("day")]
+    started, streamed, finished = time.monotonic(), 0, 0
+    min_free = args.min_free_gb * 1e9
+
+    def save(day: str, hourly: pd.DataFrame, titled: pd.DataFrame, summary: dict) -> None:
+        nonlocal streamed, finished
+        store.write_parquet(gdelt_path(day, "titles"), titled, **summary)
+        store.write_parquet(gdelt_path(day, "hourly"), hourly, **summary)  # written last: marks the day done
+        streamed += summary["bytes"]
+        finished += 1
+        rate = streamed / max(time.monotonic() - started, 1e-9)
+        left = (total_bytes - streamed) / rate / 3600 if rate else float("nan")
+        (log.warning if summary["failed"] else log.info)(
+            "%s: %d records, %d hourly rows, %d titled, %d failed files; %d/%d days; "
+            "%.1f MB/s; about %.1f hours left", day, summary["records_used"], summary["hourly_rows"],
+            summary["titled_records"], len(summary["failed"]), finished, len(jobs), rate / 1e6, left)
+
+    def disk_full() -> bool:
+        free = shutil.disk_usage(store.data_dir()).free
+        if free < min_free:
+            log.error("gdelt: stopping, only %.1f GB free on the data disk (minimum %.1f GB); "
+                      "run the same command again to resume", free / 1e9, args.min_free_gb)
+            return True
+        return False
+
+    if args.workers == 0:
+        for day, day_files in jobs:
+            if disk_full():
+                return 1
+            save(*gdelt.process_day(day, day_files, matcher))
+        return 0
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        futures = [pool.submit(gdelt.process_day, day, day_files, matcher) for day, day_files in jobs]
+        try:
+            for future in as_completed(futures):
+                if disk_full():
+                    pool.shutdown(cancel_futures=True)
+                    return 1
+                save(*future.result())
+        except KeyboardInterrupt:
+            log.warning("gdelt: interrupted; finished days are kept, run again to resume")
+            pool.shutdown(cancel_futures=True)
+            return 1
+    return 0
+
+
+def gdelt_path(day: str, kind: str) -> Path:
+    return store.layer("raw", "gdelt", "gkg", day[:4], f"{day}.{kind}.parquet")
+
+
+def gdelt_day_done(day: str, retry_failed: bool) -> bool:
+    path = gdelt_path(day, "hourly")
+    if not path.exists():
+        return False
+    return not (retry_failed and json.loads(store.sidecar(path).read_text()).get("failed"))
+
+
+def gdelt_master_text() -> str:
+    """GDELT's master file list, downloaded once and kept compressed."""
+    path = store.layer("raw", "gdelt", "masterfilelist.txt.gz")
+    if not path.exists():
+        import requests
+
+        response = requests.get(gdelt.MASTER_URL, headers={"User-Agent": user_agent()}, timeout=600)
+        response.raise_for_status()
+        store.write_bytes(path, gzip.compress(response.content, mtime=0), source="GDELT",
+                          url=gdelt.MASTER_URL)
+    return gzip.decompress(path.read_bytes()).decode()
