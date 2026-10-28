@@ -6,7 +6,7 @@ The project evolves strongly-typed genetic programming (GP) trading strategies w
 
 ## Status
 
-Set-up and the directional-change module are done; the data pipeline (Phase 2) is next. The plan is in [`docs/RESEARCH_PLAN.md`](docs/RESEARCH_PLAN.md) and decisions to date in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+Set-up and the directional-change module are done. The data pipeline (Phase 2) is under way: trading calendar and point-in-time rules, the January 2015 universe, prices and market series, SEC fundamentals and news timing are built; the news downloads wait on open questions. The plan is in [`docs/RESEARCH_PLAN.md`](docs/RESEARCH_PLAN.md) and decisions to date in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Layout
 

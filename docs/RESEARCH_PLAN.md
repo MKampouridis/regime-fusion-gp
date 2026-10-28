@@ -120,7 +120,7 @@ The main campaign runs on CERES as job arrays, which Michael submits. Downloads 
 | Phase | Weeks | Content | Check before moving on | Status |
 | --- | --- | --- | --- | --- |
 | 1. Set-up | 1 | Repository, configuration, seeds, provenance, tests | Decisions settled | Done |
-| 2. Data pipeline | 1–4 | Prices, SEC fundamentals, GDELT and FNSPID sentiment, market series; leakage tests; coverage report | Data validated | Next |
+| 2. Data pipeline | 1–4 | Prices, SEC fundamentals, GDELT and FNSPID sentiment, market series; leakage tests; coverage report | Data validated | In progress |
 | 3. DC module | 2–4 | Event detection (done, cross-checked against the Java code); causal indicators (done); DC on news attention; HMM regimes with filtered probabilities | Part of the data check | In progress |
 | 4. Engine | 3–7 | Typed GP with extensible grammar; numba backtester (one position, *t*+1, take-profit, costs); daily-return metrics; tournament, weighted-sum, DALex and ε-lexicase selection | Unit tests, including hand-checked backtests | |
 | 5. Pilot | 7–8 | 2015–2018 only: timing, convergence, light tuning, 100-run check; analysis plan written to `PROTOCOL.md` | Protocol frozen | |
