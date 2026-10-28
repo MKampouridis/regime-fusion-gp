@@ -12,6 +12,7 @@ Commands (each has --help):
   fnspid        stream FNSPID's news files and keep the universe's headlines
   fa            ActTrade's twelve fundamental indicators, daily, from the steps above
   ta            ActTrade's twelve technical indicators, daily, from the prices
+  regimes       market regimes: HMMs on the S&P 500 per walk-forward window (filtered)
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
 cached: a raw file already there is not fetched again unless --refresh is given.
@@ -31,6 +32,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from regime_fusion import __version__
@@ -99,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = commands.add_parser("ta", help="ActTrade's twelve technical indicators, daily")
     add_stock_options(sub, refresh=False)
     sub.set_defaults(run=run_ta)
+
+    sub = commands.add_parser("regimes", help="market regimes per walk-forward window")
+    sub.add_argument("--inputs", nargs="+", default=None, help="input sets (default: all in the settings)")
+    sub.set_defaults(run=run_regimes)
 
     sub = commands.add_parser("fnspid", help="stream FNSPID's news files; keep the universe's headlines")
     sub.add_argument("--files", nargs="+", default=list(fnspid.FILES), help="files in the dataset")
@@ -675,3 +681,34 @@ def run_ta(args: argparse.Namespace) -> int:
     log.info("ta: %d stocks; indicators on fewer than 99%% of days: %s", len(report),
              {k: v["missing"] for k, v in report.items() if v["missing"]})
     return 1 if missing else 0
+
+
+def run_regimes(args: argparse.Namespace) -> int:
+    from regime_fusion.regimes import market as regimes
+    from regime_fusion.windows import walk_forward
+
+    config = load_config()
+    settings = regimes.load_settings()
+    source = store.layer("interim", "market", f"{settings['series']}.parquet")
+    close = pd.read_parquet(source)["close"]
+    report = {}
+    for name in args.inputs or list(settings["inputs"]):
+        features = regimes.inputs(close, name, settings)
+        for fit in regimes.walk_forward(features, walk_forward(config), settings, config.base_seed):
+            path = store.layer("processed", "regimes", name, f"{fit.test_year}.stage{fit.stage}.parquet")
+            store.write_parquet(path, fit.probabilities, inputs=name, test_year=fit.test_year,
+                                stage=fit.stage, fitted_on=[str(fit.fitted_on.start), str(fit.fitted_on.end)],
+                                settings=settings)
+            model = fit.model
+            fitted = fit.probabilities.loc[str(fit.fitted_on.start):str(fit.fitted_on.end)]
+            report[f"{name} {fit.test_year} stage {fit.stage}"] = {
+                "fitted_on": [str(fit.fitted_on.start), str(fit.fitted_on.end)],
+                "means": model.means.round(4).tolist(),
+                "sds": np.sqrt(model.variances).round(4).tolist(),
+                "expected_duration_days": model.expected_durations().round(1).tolist(),
+                "share_of_fit_days": fitted.idxmax(axis=1).value_counts(normalize=True).round(3).to_dict(),
+                "log_likelihood": round(model.log_likelihood, 2),
+            }
+        log.info("regimes: %s fitted for %d test years", name, len(config.period.test_years))
+    write_report("regimes.json", report, merge=False)
+    return 0

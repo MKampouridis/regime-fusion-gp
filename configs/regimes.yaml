@@ -1,0 +1,15 @@
+# Market regimes (src/regime_fusion/regimes/market.py).
+#
+# DRAFT: the pilot, on 2015-2018 data only, settles these before the recipe is frozen.
+# The regimes are fitted on the S&P 500 index so that all stocks share them.
+
+series: GSPC            # interim/market/<series>.parquet
+n_states: 2
+restarts: 10            # random starts of each EM fit; seeds from regime_fusion.seeds
+
+inputs:
+  volatility:           # rung A2: log annualised realised volatility over the last `window` sessions
+    window: 20
+  dc:                   # rung A3: directional changes of the index at `threshold`
+    threshold: 0.01     # at 1% one state is merely "no event in 20 sessions"; the pilot should try 0.5%
+    window: 20

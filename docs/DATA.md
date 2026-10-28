@@ -30,6 +30,7 @@ python -m regime_fusion.data sec --include-holdout        # SEC company facts, a
 python -m regime_fusion.data fundamentals --include-holdout  # point-in-time accounting values
 python -m regime_fusion.data fa --include-holdout         # ActTrade's twelve fundamental indicators
 python -m regime_fusion.data ta --include-holdout         # ActTrade's twelve technical indicators
+python -m regime_fusion.data regimes                      # market regimes per walk-forward window
 python -m regime_fusion.data fnspid                       # FNSPID headlines, about an hour of streaming
 python -m regime_fusion.data gdelt --workers 12           # GDELT news, about 3 days of streaming
 ```
@@ -120,6 +121,14 @@ The VIX is calculated until 16:15 New York time, a quarter of an hour after the 
 - **Levels in the prices of the day.** Moving average, momentum and midprice are price levels. Yahoo's adjusted prices are scaled by every later dividend and split, so on day *t* these are expressed in the prices of day *t* (past prices adjusted for the events up to *t* only). A later dividend therefore never changes an earlier value.
 - **Two readings of the paper:** the moving average averages *n* sessions (equation 8 sums *n*+1 prices but divides by *n*), and the midprice is the midpoint (high + low)/2, as its text says (equation 13 prints (high − low)/2).
 - Values are raw; ActTrade's scaling to [−1, 1] is fitted on training windows later. All 100 stocks have every indicator on at least 99% of study days.
+
+## Market regimes
+
+`python -m regime_fusion.data regimes` fits the market regimes for every walk-forward window (`regime_fusion.regimes`, `processed/regimes/<inputs>/<test year>.stage<1|2>.parquet`, parameters in `reports/regimes.json`). The regimes come from the S&P 500 index, so all stocks share them. The settings in [`configs/regimes.yaml`](../configs/regimes.yaml) are a draft until the pilot, which uses 2015–2018 data only.
+
+- **Model.** A Gaussian hidden Markov model with diagonal covariances, fitted by EM from ten random starts (seeds from `regime_fusion.seeds`, keyed by test year and stage only). States are ordered by the mean of the first input, so state 0 is the calmest.
+- **Only filtered probabilities:** each day's probabilities use the days up to it, never later ones. For each test year, stage 1 fits on the three training years and runs through the validation year, and stage 2 fits on all four years and runs through the test year, so test-day probabilities come from a model that never saw the test year.
+- **Inputs.** Rung A2 uses the log realised volatility of the index over 20 sessions. In the 2015–2018 fit it separates a calm state (about 8% annualised volatility, lasting about 88 days on average) from a turbulent one (about 18%, about 52 days). Rung A3 uses directional changes of the index at a 1% threshold: the number of events in the last 20 sessions and the move of the current trend. At this threshold one state is merely "no event in 20 sessions", so the pilot should try smaller thresholds. Rung A4 will add the news-attention DC once the GDELT data are in.
 
 ## News
 
