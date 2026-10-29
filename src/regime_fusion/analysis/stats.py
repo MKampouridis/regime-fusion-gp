@@ -61,17 +61,23 @@ def friedman(table: pd.DataFrame) -> tuple[float, float]:
 
 
 def conover(table: pd.DataFrame) -> pd.DataFrame:
-    """Conover's pairwise comparisons for the Friedman design, Holm-adjusted."""
+    """Conover's pairwise comparisons for the Friedman design, Holm-adjusted.
+
+    When every unit ranks the methods alike, the rank variance left over is zero:
+    methods with different rank sums then differ with certainty (p = 0), and
+    methods with equal ones not at all (p = 1).
+    """
     complete = table.dropna()
     n, k = complete.shape
     ranks = complete.rank(axis=1).to_numpy()
     sums = ranks.sum(axis=0)
     a = (ranks ** 2).sum()
-    scale = np.sqrt(2 * (n * a - (sums ** 2).sum()) / ((n - 1) * (k - 1)))
+    scale = np.sqrt(max(0.0, 2 * (n * a - (sums ** 2).sum()) / ((n - 1) * (k - 1))))
     df = (n - 1) * (k - 1)
     rows = []
     for i, j in combinations(range(k), 2):
-        t = abs(sums[i] - sums[j]) / scale if scale > 0 else 0.0
+        gap = abs(sums[i] - sums[j])
+        t = gap / scale if scale > 0 else (np.inf if gap > 0 else 0.0)
         rows.append({"first": complete.columns[i], "second": complete.columns[j],
                      "rank_sum_difference": float(sums[i] - sums[j]), "p": float(2 * stats.t.sf(t, df))})
     out = pd.DataFrame(rows)

@@ -6,9 +6,11 @@ import pytest
 
 from regime_fusion.config import load_config
 from regime_fusion.engine import cli
-from regime_fusion.engine.panel import load_panel, scale
+from regime_fusion.engine.panel import frame_digest, load_panel, scale
 from regime_fusion.engine.rungs import finbert_source, load_rungs
-from regime_fusion.engine.run import RunSpec, choose_exits, result_path, run
+from regime_fusion.engine.run import RunSpec, choose_exits, result_path, run, unpack_signal
+from regime_fusion.engine.tree import from_record, signals
+from regime_fusion.windows import walk_forward
 from regime_fusion.data import store
 from regime_fusion.data.store import DATA_DIR_ENV
 from regime_fusion.windows import DateRange
@@ -76,6 +78,19 @@ def test_runs_are_reproducible_and_written_with_provenance(data_dir):
     assert first["evaluate"] == ["2019-01-01", "2019-12-31"] and first["train"][1] == "2018-12-31"
     saved = json.loads(result_path("test", "A0", spec).read_text())
     assert saved["provenance"]["rung_digest"] == rungs["A0"].digest()
+    mark = saved["fingerprint"]                                  # what the result depends on
+    assert mark["config"] == config.digest() and mark["method"] == rungs["A0"].digest(None, SMALL)
+    assert mark["method"] != rungs["A0"].digest()                # overridden settings are other settings
+    window = next(w for w in walk_forward(config) if w.test_year == 2019)
+    first_day = pd.read_parquet(data_dir / "interim/prices/XYZ.parquet").loc[str(window.final_train.start):].index[0]
+    span = f"{first_day.date()}..2019-12-31"
+    assert set(mark["inputs"]) == {f"interim/prices/XYZ.parquet@{span}", "interim/prices/XYZ.parquet@2019-01-01..2019-12-31",
+                                   *(f"processed/{k}/XYZ.parquet@{span}" for k in ("fa", "sa", "ta"))}
+    panel = load_panel("XYZ", window.final_train, window.test, ("FA", "SA", "TA"))
+    assert mark["evaluation_prices"] == frame_digest(panel.prices.loc[panel.evaluate])
+    assert panel.inputs == mark["inputs"]
+    exact = signals(from_record(saved["tree"]), panel.arrays(panel.evaluate))["C"]   # the model, kept exactly
+    np.testing.assert_array_equal(exact, unpack_signal(saved["signal"]))
     other = run(RunSpec("XYZ", 2019, 4, 2, 10, 0.02), rungs["A0"], config, overrides=SMALL, write=False)
     assert other["model"] != first["model"]  # another run number, another seed
 
@@ -167,3 +182,24 @@ def test_validation_checkpoints_are_kept_in_stage_one_only(data_dir):
     assert last["sharpe"] == pytest.approx(record["evaluation"]["10bps"]["sharpe"])  # the model itself
     test_year = run(RunSpec("XYZ", 2019, 0, 2, 10, 0.02), rung, config, write=False, overrides=small)
     assert test_year["checkpoints"] == []
+
+
+def test_a_session_without_a_bar_is_refused_wherever_prices_are_read(data_dir):
+    from regime_fusion.analysis import portfolio
+    from regime_fusion.engine import benchmarks
+    from regime_fusion.ml.models import load_settings
+
+    path = data_dir / "interim/prices/XYZ.parquet"
+    prices = pd.read_parquet(path)
+    prices.loc["2018-03-07", "adj_close"] = np.nan          # dropping it would shift every count of days
+    prices.to_parquet(path)
+    train, test = DateRange(pd.Timestamp("2015-01-01").date(), pd.Timestamp("2017-12-31").date()), \
+        DateRange(pd.Timestamp("2018-01-01").date(), pd.Timestamp("2018-12-31").date())
+    with pytest.raises(ValueError, match="without a full bar"):
+        load_panel("XYZ", train, test, ("FA", "TA"))
+    settings = load_settings()
+    with pytest.raises(ValueError, match="without a full bar"):
+        benchmarks.run_rule(RunSpec("XYZ", 2019, 0, 1, 10, 0.03), settings.rules["RB-MA"], settings,
+                            load_config(), write=False)
+    with pytest.raises(ValueError, match="without a full bar"):
+        portfolio.stock_prices("XYZ")

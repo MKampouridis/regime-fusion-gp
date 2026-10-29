@@ -16,6 +16,12 @@ Exit settings are chosen per stock and test year on the validation year with
 rung A0: every candidate of the grid gets a few stage-1 runs, and the one with
 the best median validation Sharpe ratio at the primary cost wins. Every method
 then uses them, so any advantage of tuning goes to the baseline.
+
+Every result carries a *fingerprint*: digests of the study configuration, of
+the method's settings and of the data it read, each file's rows over the
+sessions used (``fingerprint``). A campaign uses them to refuse results made
+under other settings or from other data (``engine/tasks.py``). A GP result also
+keeps its model exactly (``tree.to_record``) besides the readable text.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from regime_fusion import provenance
 from regime_fusion.config import StudyConfig
@@ -35,9 +42,9 @@ from regime_fusion.engine import metrics
 from regime_fusion.engine.backtest import backtest
 from regime_fusion.engine.fitness import Evaluator
 from regime_fusion.engine.gp import evolve
-from regime_fusion.engine.panel import load_panel
+from regime_fusion.engine.panel import frame_digest, load_panel
 from regime_fusion.engine.rungs import Rung, finbert_source
-from regime_fusion.engine.tree import Grammar, active_sources, describe, signals
+from regime_fusion.engine.tree import Grammar, active_sources, describe, signals, to_record
 from regime_fusion.regimes import market as regime_inputs
 from regime_fusion.seeds import make_rng
 from regime_fusion.windows import walk_forward
@@ -107,6 +114,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
         "evaluate": [str(evaluate.start), str(evaluate.end)],
         "indicators": {k: len(v) for k, v in panel.names().items()},
         "model": describe(best),
+        "tree": to_record(best),
         "fitness": best.fitness,
         "train_stats": {c: v for c, v in best.stats.items() if c != "cases"},
         "evaluation": outcome,
@@ -115,6 +123,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
         "branches": branches,
         "history": evolution.history,
         "checkpoints": evolution.checkpoints,
+        "fingerprint": fingerprint(config, rung.digest(sources, overrides), panel.inputs, prices),
         "seconds": round(time.perf_counter() - started, 2),
     }
     if write:
@@ -122,6 +131,14 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
                                                   overrides=overrides or {})
         provenance.write(result_path(campaign, rung.name, spec), record)
     return record
+
+
+def fingerprint(config: StudyConfig, method: str, inputs: dict[str, str], evaluated: pd.DataFrame) -> dict[str, Any]:
+    """What a result depends on: the configuration, the method's settings (``method``, a digest) and
+    the data read (``panel.Panel.inputs``). ``evaluated`` holds the prices of the evaluation days; the
+    analysis checks them before it rebuilds the run's daily returns."""
+    return {"config": config.digest(), "method": method, "inputs": dict(sorted(inputs.items())),
+            "evaluation_prices": frame_digest(evaluated)}
 
 
 def listening(individual, panel) -> dict[str, Any]:

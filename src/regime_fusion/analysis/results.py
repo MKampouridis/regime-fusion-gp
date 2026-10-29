@@ -18,6 +18,9 @@ training fitness and evaluation measures at every cost.
   method covers. ``CONFIRMATORY`` holds the six comparisons of docs/PROTOCOL.md.
 * ``trust_map``: per method and regime state, the mean share of days on which
   each branch is on the model's active path (research question 4).
+* ``missing_runs`` and ``common_stock_years``: which planned runs have no
+  result, and the stock-years every method has, so that methods are compared
+  on the same units.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import pandas as pd
 from regime_fusion.analysis import stats
 
 KEYS = ["stock", "test_year"]
+RUN_KEYS = ["rung", "stock", "test_year", "stage", "run"]
 CONFIRMATORY = [("A1", "A0"), ("A2", "A1"), ("A3", "A2"), ("A4", "A3"), ("A5", "A4"), ("A5", "A0")]
 
 
@@ -115,4 +119,24 @@ def trust_map(runs: pd.DataFrame) -> pd.DataFrame:
     parts = long["column"].str.extract(r"listen_(?P<source>[a-z]+)_state(?P<state>\d+)")
     long = pd.concat([long, parts], axis=1)
     return long.pivot_table(index=["rung", "state"], columns="source", values="share", aggfunc="mean")
+
+
+def missing_runs(runs: pd.DataFrame, planned: pd.DataFrame) -> pd.DataFrame:
+    """The planned runs (``RUN_KEYS``) that have no result in ``runs``."""
+    merged = planned[RUN_KEYS].merge(runs[RUN_KEYS].drop_duplicates(), on=RUN_KEYS, how="left", indicator=True)
+    return merged.loc[merged["_merge"] == "left_only", RUN_KEYS].reset_index(drop=True)
+
+
+def common_stock_years(runs: pd.DataFrame) -> pd.DataFrame:
+    """The stock-years (``KEYS``) that every method in ``runs`` has."""
+    cells = runs[["rung", *KEYS]].drop_duplicates()
+    counts = cells.groupby(KEYS).size()
+    return counts[counts == cells["rung"].nunique()].index.to_frame(index=False)
+
+
+def keep_stock_years(runs: pd.DataFrame, stock_years: pd.DataFrame, keep: bool = True) -> pd.DataFrame:
+    """The runs on ``stock_years`` (or, with ``keep=False``, the runs on the others)."""
+    merged = runs.merge(stock_years[KEYS].drop_duplicates(), on=KEYS, how="left", indicator=True)
+    chosen = merged["_merge"] == "both"
+    return merged.loc[chosen if keep else ~chosen].drop(columns="_merge").reset_index(drop=True)
 

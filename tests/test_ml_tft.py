@@ -88,7 +88,12 @@ def test_campaigns_give_the_pooled_model_one_task_for_all_stocks(data_dir, monke
     def fake_tft(year, stage, run, stocks, exits, model, settings, config, *, campaign):
         calls.append(run)
         for stock in stocks:
-            provenance.write(result_path(campaign, model.name, RunSpec(stock, year, run, stage, *exits[stock])), {})
+            spec = RunSpec(stock, year, run, stage, *exits[stock])
+            mark = {"config": config.digest(), "method": settings.method_digest(model.name), "inputs": {},
+                    "evaluation_prices": ""}
+            provenance.write(result_path(campaign, model.name, spec), {
+                **spec.__dict__, "rung": model.name, "fingerprint": mark,
+                "evaluation": {f"{c:g}bps": {} for c in config.costs_bps_per_side}})
 
     monkeypatch.setattr("regime_fusion.ml.tft.run_tft", fake_tft)
     for stock in ("AAPL", "F"):

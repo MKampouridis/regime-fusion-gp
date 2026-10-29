@@ -16,6 +16,7 @@ from typing import Any
 
 import yaml
 
+from regime_fusion import provenance
 from regime_fusion.engine.fitness import Settings
 from regime_fusion.engine.gp import GPConfig
 
@@ -35,8 +36,13 @@ class Rung:
     spec: dict[str, Any]   # the resolved settings, for provenance
     finbert: bool = False  # robustness check: FinBERT headline sentiment joins the sentiment branch
 
-    def digest(self) -> str:
-        return hashlib.sha256(json.dumps(self.spec, sort_keys=True).encode()).hexdigest()[:12]
+    def digest(self, sources: tuple[str, ...] | None = None, overrides: dict[str, Any] | None = None) -> str:
+        """Digest of the rung's settings; other ``sources`` or GP ``overrides`` (development runs) change it."""
+        plain = hashlib.sha256(json.dumps(self.spec, sort_keys=True).encode()).hexdigest()[:12]
+        if not overrides and (sources is None or tuple(sources) == self.sources):
+            return plain
+        return provenance.digest({"rung": plain, "sources": list(sources or self.sources),
+                                  "overrides": overrides or {}})
 
 
 def load_rungs(path: str | Path = DEFAULT_RUNGS) -> dict[str, Rung]:

@@ -1,14 +1,18 @@
 """Daily returns of a campaign's methods, and the tests the plan runs on them.
 
 Every run stores its buy signal over the evaluation period (one bit per session),
-so its daily returns can be rebuilt exactly with the backtest, at any cost.
+so its daily returns can be rebuilt exactly with the backtest, at any cost. A
+run also keeps a digest of the prices it was evaluated on, and the rebuild
+refuses prices that have changed since.
 
 * ``run_returns``: one run's daily returns (buy-and-hold has no signal and is
   recomputed directly).
 * ``method_returns``: one daily series per method. Within a stock-year the
   daily returns of its runs are averaged (equal capital in every run, so no run
   is picked after the fact); across stocks they are averaged day by day (an
-  equal-weight portfolio of the stocks); test years follow one another.
+  equal-weight portfolio of the stocks); test years follow one another. Every
+  method must cover the same stock-years, or the portfolios would hold
+  different stocks.
 * ``tests``: Hansen's SPA test of the methods against a benchmark, the Deflated
   Sharpe Ratio of each method given every configuration tried, and the
   probability of backtest overfitting across the methods
@@ -26,23 +30,21 @@ import numpy as np
 import pandas as pd
 
 from regime_fusion.analysis import stats
-from regime_fusion.data import store
+from regime_fusion.analysis.results import KEYS
 from regime_fusion.engine.backtest import backtest
 from regime_fusion.engine import benchmarks
-from regime_fusion.engine.benchmarks import PRICE_COLUMNS, buy_and_hold
+from regime_fusion.engine.benchmarks import buy_and_hold
+from regime_fusion.engine.panel import frame_digest, stock_prices
 from regime_fusion.engine.run import unpack_signal
 from regime_fusion.ml.models import load_settings as load_benchmarks
 
 
-def stock_prices(stock: str) -> pd.DataFrame:
-    """A stock's prices on the sessions the engine uses (those with a close)."""
-    prices = pd.read_parquet(store.layer("interim", "prices", f"{stock}.parquet"))
-    return prices.loc[prices["adj_close"].notna(), PRICE_COLUMNS]
-
-
 def run_returns(row: pd.Series, prices: pd.DataFrame, cost_bps: float) -> pd.Series:
-    """Daily returns of one run over its evaluation period."""
+    """Daily returns of one run over its evaluation period, on the prices the run was evaluated on."""
     days = prices.loc[str(row["evaluate_start"]):str(row["evaluate_end"])]
+    if isinstance(row.get("prices_digest"), str) and frame_digest(days) != row["prices_digest"]:
+        raise ValueError(f"{row['rung']} {row['stock']} {row['test_year']} run {row['run']}: the prices of "
+                         f"{row['stock']} have changed since the run; analyse it with the data it used")
     if not isinstance(row.get("signal"), str):  # None, or missing after a round trip through a table
         if row["rung"] not in buy_and_hold_methods():
             raise ValueError(f"{row['rung']} {row['stock']} {row['test_year']} run {row['run']}: no stored signal")
@@ -62,6 +64,10 @@ def buy_and_hold_methods() -> set[str]:
 def method_returns(runs: pd.DataFrame, cost_bps: float,
                    prices_of: Callable[[str], pd.DataFrame] = stock_prices) -> pd.DataFrame:
     """Daily returns of each method's equal-weight portfolio; columns are methods."""
+    covered = {m: frozenset(map(tuple, g[KEYS].drop_duplicates().to_numpy().tolist())) for m, g in runs.groupby("rung")}
+    if len(set(covered.values())) > 1:
+        raise ValueError("the methods cover different stock-years, so their portfolios would hold different "
+                         "stocks; keep the stock-years they share (results.common_stock_years)")
     cache: dict[str, pd.DataFrame] = {}
     columns = {}
     for method, group in runs.groupby("rung"):
@@ -78,7 +84,12 @@ def method_returns(runs: pd.DataFrame, cost_bps: float,
 
 def tests(returns: pd.DataFrame, benchmark: str, candidates: list[str], n_trials: int,
           rng: np.random.Generator, bootstraps: int = 1000, blocks: int = 16) -> dict[str, object]:
-    """SPA of ``candidates`` against ``benchmark``; Deflated Sharpe of every method; PBO of all methods."""
+    """SPA of ``candidates`` against ``benchmark``; Deflated Sharpe of every method; PBO of all methods.
+
+    The Deflated Sharpe Ratio needs the number of trials and the variance of their Sharpe ratios.
+    The variance is that of the daily Sharpe ratios of the portfolios given, as a stand-in for all
+    the trials (the pilot's were evaluated on another year); both are recorded with the results.
+    """
     complete = returns.dropna()
     differences = complete[candidates].sub(complete[benchmark], axis=0)
     sharpes = complete.mean() / complete.std(ddof=1)
@@ -91,6 +102,8 @@ def tests(returns: pd.DataFrame, benchmark: str, candidates: list[str], n_trials
         "deflated_sharpe": {method: stats.deflated_sharpe(complete[method].to_numpy(), n_trials, trial_variance)
                             for method in complete.columns},
         "n_trials": n_trials,
+        "trial_sharpe_variance": trial_variance,
+        "trial_sharpe_variance_from": f"the daily Sharpe ratios of the {len(sharpes)} portfolios analysed",
     }
     if complete.shape[1] >= 2 and len(complete) >= 2 * blocks:
         out["pbo"] = stats.pbo(complete.to_numpy(), blocks=blocks)

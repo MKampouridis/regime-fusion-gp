@@ -33,14 +33,12 @@ import pandas as pd
 
 from regime_fusion import provenance
 from regime_fusion.config import StudyConfig
-from regime_fusion.data import store
 from regime_fusion.engine import metrics
 from regime_fusion.engine.backtest import Result, _simulate, backtest
 from regime_fusion.engine.fitness import sharpe as fast_sharpe
-from regime_fusion.engine.run import RunSpec, pack_signal, result_path
+from regime_fusion.engine.panel import price_entry, stock_prices
+from regime_fusion.engine.run import RunSpec, fingerprint, pack_signal, result_path
 from regime_fusion.windows import walk_forward
-
-PRICE_COLUMNS = ["adj_open", "adj_high", "adj_low", "adj_close"]
 
 
 def buy_and_hold(prices: pd.DataFrame, cost_bps: float) -> pd.Series:
@@ -137,8 +135,7 @@ def run_rule(spec: RunSpec, rule, settings, config: StudyConfig, *, campaign: st
     """Choose a rule's parameters on the validation year and trade the evaluation period."""
     started = time.perf_counter()
     window = next(w for w in walk_forward(config) if w.test_year == spec.test_year)
-    prices = pd.read_parquet(store.layer("interim", "prices", f"{spec.stock}.parquet"))
-    prices = prices.loc[prices["adj_close"].notna(), PRICE_COLUMNS]
+    prices = stock_prices(spec.stock)
     validation = prices.loc[str(window.validation.start):str(window.validation.end)]
     evaluated_on = window.validation if spec.stage == 1 else window.test
     later = prices.loc[str(evaluated_on.start):str(evaluated_on.end)]
@@ -179,6 +176,8 @@ def run_rule(spec: RunSpec, rule, settings, config: StudyConfig, *, campaign: st
         "evaluation": evaluation,
         "signal": None if signal is None else pack_signal(signal),  # buy-and-hold has no signal
         "branches": {},
+        "fingerprint": fingerprint(config, settings.method_digest(rule.name), dict(
+            [price_entry(spec.stock, prices.loc[:str(evaluated_on.end)]), price_entry(spec.stock, later)]), later),
         "seconds": round(time.perf_counter() - started, 2),
     }
     if write:

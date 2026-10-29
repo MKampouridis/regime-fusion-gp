@@ -196,3 +196,23 @@ def test_active_sources_follow_the_regime_gates():
     assert active["TA"].tolist() == active["SA"].tolist()
     fixed = active_sources(Individual(acttrade_fusion(), branch), data)
     assert all(v.all() for v in fixed.values())
+
+
+def test_saved_models_give_the_same_signals_again():
+    import json
+
+    from regime_fusion.engine.tree import Individual, describe, from_record, signals, to_record
+
+    def model(threshold):
+        return Individual([("LEAF", "F", "FA")], {"FA": [("GT", "FA", None), ("VAR", "FA", "fa:x"),
+                                                         ("ERC", None, threshold)]})
+
+    low, high = model(0.12340), model(0.12349)
+    data = {"fa:x": np.array([0.12345, 0.2, -0.5])}
+    assert describe(low) == describe(high)                     # the text rounds both to 0.123
+    assert signals(low, data)["C"][0] and not signals(high, data)["C"][0]
+    for individual in (low, high):
+        again = from_record(json.loads(json.dumps(to_record(individual))))   # as a result file keeps it
+        assert again.key() == individual.key()
+        np.testing.assert_array_equal(signals(again, data)["C"], signals(individual, data)["C"])
+

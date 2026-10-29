@@ -48,7 +48,7 @@ No test-year or hold-out result is computed before the protocol is frozen. Devel
 For each method, an equal-weight portfolio: within a stock-year the daily returns of all its runs are averaged (no run is picked after the fact), then the stocks are averaged day by day, over the seven test years (`analysis portfolio`).
 
 - **Hansen's SPA test:** every GP rung against the best non-GP benchmark, the one with the highest test-period Sharpe ratio. Picking the benchmark after the fact favours the benchmark.
-- **Deflated Sharpe Ratio** of each method. The number of trials counts every configuration evaluated, in the pilot and in the main campaign, as listed in the campaigns' task plans.
+- **Deflated Sharpe Ratio** of each method. The number of trials counts every configuration evaluated, in the pilot and in the main campaign, as listed in the campaigns' task plans (`analysis portfolio --trials-from gp-pilot pilot <main campaign>`).
 - **Probability of backtest overfitting** across all methods' portfolios, by combinatorially symmetric cross-validation with 16 blocks.
 
 ## 6. Secondary analyses
@@ -128,7 +128,7 @@ $E run-all --campaign pilot --kind runs --workers 7
 $E run-all --campaign pilot --plan check100 --workers 7
 $E collect --campaign pilot
 python -m regime_fusion.analysis pilot --campaign pilot
-python -m regime_fusion.analysis compare --campaign pilot --stage 1 --rungs A0 A1 A2 A3 A4 A5
+python -m regime_fusion.analysis compare --campaign pilot --stage 1 --plan runs --rungs A0 A1 A2 A3 A4 A5
 ```
 
 Measured on Michael's MacBook Air (Apple M1: four fast and four slow cores) on 29 October 2026, a full-size run takes 4–6 seconds alone (A0 to A4), 13–15 seconds with lexicase or DALex, and about three times as long when seven run at once (with the GDELT extraction also running). Seven at a time, the GP-parameter pilot takes about 2 hours and the rest about 10 (exit settings about 3, the runs about 6, the 100-run check about 1.5): some 12–16 hours in all, as a fanless laptop slows under long loads. Every run evaluates on 2018 only; the planning refuses anything later.

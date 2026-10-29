@@ -12,6 +12,12 @@ Commands (each has --help):
   collect   gather a campaign's runs into one table, results/<campaign>/runs.parquet
 
 Results go to $RFGP_DATA_DIR/results/<campaign>/ with a provenance record each.
+
+The direct ``run`` and ``exits`` commands keep to their campaign's status: one
+first used by them is development-only (no evaluation after the development
+period, no hold-out stock) unless --after-development says otherwise, and the
+overrides (--sources, --population, --generations) are for development-only
+campaigns.
 """
 
 from __future__ import annotations
@@ -41,7 +47,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--stock", required=True)
     sub.add_argument("--test-year", type=int, required=True)
     sub.add_argument("--run", type=int, default=0)
-    sub.add_argument("--stage", type=int, choices=(1, 2), default=2)
+    sub.add_argument("--stage", type=int, choices=(1, 2), default=1,
+                     help="1: evaluate on the validation year (default); 2: on the test year")
     sub.add_argument("--exit", nargs=2, metavar=("DAYS", "RATE"), help="exit settings; default: chosen ones")
     sub.add_argument("--scheme", choices=("rolling", "expanding"), help="walk-forward windows (default: rolling)")
     add_common(sub)
@@ -109,6 +116,25 @@ def add_common(sub: argparse.ArgumentParser) -> None:
     sub.add_argument("--sources", nargs="+", help="override the rung's sources (development only)")
     sub.add_argument("--population", type=int, help="override the population size (development only)")
     sub.add_argument("--generations", type=int, help="override the generations (development only)")
+    sub.add_argument("--after-development", action="store_true",
+                     help="a new campaign may evaluate after the development period (never with overrides)")
+
+
+def direct_campaign(args: argparse.Namespace, config, task: tasks.Task) -> None:
+    """Keep a direct command to its campaign's status (see the module notes)."""
+    known = tasks.campaign_record(args.campaign)
+    wanted = None if known and "development_only" in known else not args.after_development
+    try:
+        development_only = tasks.claim_campaign(args.campaign, config.windows.scheme, wanted)
+        if development_only:
+            if args.after_development:
+                raise ValueError(f"campaign {args.campaign!r} is development-only")
+            tasks.check_development(task, config)
+            tasks.check_roles([task.stock])
+        elif args.sources or overrides(args):
+            raise ValueError("--sources, --population and --generations are for development-only campaigns")
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
 
 
 def overrides(args: argparse.Namespace) -> dict:
@@ -135,10 +161,7 @@ def run_command(args: argparse.Namespace) -> int:
         chosen = json.loads(path.read_text())
         days, rate = chosen["days"], chosen["rate"]
     spec = RunSpec(args.stock, args.test_year, args.run, args.stage, days, rate)
-    try:
-        tasks.claim_scheme(args.campaign, config.windows.scheme)
-    except ValueError as error:
-        raise SystemExit(str(error)) from None
+    direct_campaign(args, config, tasks.Task("runs", args.stock, args.test_year, args.rung, args.stage))
     if args.rung in rungs:
         record = run(spec, rungs[args.rung], config, campaign=args.campaign,
                      sources=tuple(args.sources) if args.sources else None, overrides=overrides(args))
@@ -157,10 +180,7 @@ def exits_command(args: argparse.Namespace) -> int:
     config, rungs = load_config(), load_rungs()
     if args.scheme:
         config = with_scheme(config, args.scheme)
-    try:
-        tasks.claim_scheme(args.campaign, config.windows.scheme)
-    except ValueError as error:
-        raise SystemExit(str(error)) from None
+    direct_campaign(args, config, tasks.Task("exits", args.stock, args.test_year, "A0", 1))
     choice = choose_exits(args.stock, args.test_year, rungs["A0"], config, exit_grid(), campaign=args.campaign,
                           sources=tuple(args.sources) if args.sources else None, overrides=overrides(args))
     log.info("%s %d: exit after %d days or at +%.1f%%", args.stock, args.test_year, choice["days"],
@@ -204,7 +224,8 @@ def tasks_command(args: argparse.Namespace) -> int:
                          rate=float(args.exit[1]), scheme=args.scheme, config=config)
             tasks.fix_exits(args.campaign, **fixed, write=False)
         path = tasks.save_plan(args.campaign, args.kind, planned, development_only=args.development,
-                               replace=args.replace, stocks=stocks, scheme=args.scheme, name=args.plan)
+                               replace=args.replace, stocks=stocks, scheme=args.scheme, name=args.plan,
+                               frozen=tasks.manifest(planned, config, gp_rungs))
         if args.exit:
             log.info("%s: a fixed exit for %d stock-years", args.campaign, tasks.fix_exits(args.campaign, **fixed))
     except (ValueError, FileExistsError, FileNotFoundError) as error:  # missing FinBERT indicators among them
@@ -283,7 +304,10 @@ def status_command(args: argparse.Namespace) -> int:
 
 def collect_command(args: argparse.Namespace) -> int:
     config = load_config()
-    table = tasks.collect(args.campaign, list(config.costs_bps_per_side), config.primary_cost_bps_per_side)
+    try:
+        table = tasks.collect(args.campaign, list(config.costs_bps_per_side), config.primary_cost_bps_per_side)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
     path = store.data_dir() / "results" / args.campaign / "runs.parquet"
     store.write_parquet(path, table, campaign=args.campaign)
     log.info("%s: %d runs collected in %s", args.campaign, len(table), path)

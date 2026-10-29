@@ -15,3 +15,18 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev,ml]"
       - run: pytest -q
+
+  # The neural benchmarks' tests skip themselves without PyTorch, so they get a job of their own
+  # (the CPU build, which is far smaller than the default one).
+  neural:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e ".[dev,ml,neural]"
+      - run: python -c "import torch; print(torch.__version__)"
+      - run: pytest -q -rs tests/test_ml.py tests/test_ml_tft.py

@@ -14,7 +14,9 @@ Prices are total-return (adjusted) open, high, low and close. Daily returns are
 marked to market at each close, with costs on the entry and exit days, so the
 product of a trade's daily returns equals its net return; days without a
 position return zero. A session without a bar returns zero; a position cannot
-be entered on it, and a time exit due on it happens at the next close.
+be entered on it, and a time exit due on it happens at the next close. (The
+engine's loaders refuse such sessions, ``engine/panel.py``, so this matters only
+for direct calls.)
 """
 
 from __future__ import annotations

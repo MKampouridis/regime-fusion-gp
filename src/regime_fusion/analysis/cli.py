@@ -10,6 +10,13 @@ Commands (each has --help):
 
 Both read results/<campaign>/runs.parquet (``python -m regime_fusion.engine collect``)
 and write tables to results/<campaign>/analysis/.
+
+compare, portfolio and random check the runs against the campaign's plans:
+every planned run of the methods analysed must have a result (--incomplete
+instead leaves out the stock-years with runs missing, and says which), runs
+outside the plans are left out, and --plan keeps one plan's runs only (the
+pilot's 10 runs, say, without the 100-run check's extra ones). The portfolios
+use the stock-years that every method analysed covers.
 """
 
 from __future__ import annotations
@@ -25,6 +32,7 @@ from regime_fusion.analysis import pilot, portfolio, results
 from regime_fusion.ml.models import load_settings as load_benchmarks
 from regime_fusion.config import load_config
 from regime_fusion.data import store
+from regime_fusion.engine import tasks
 from regime_fusion.seeds import make_rng
 
 log = logging.getLogger("regime_fusion.analysis")
@@ -43,16 +51,22 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--confirmatory", action="store_true",
                      help="test exactly the six confirmatory comparisons of docs/PROTOCOL.md")
     sub.add_argument("--stage", type=int, choices=(1, 2), default=2, help="1 for the pilot (validation year)")
+    add_selection(sub)
     sub.set_defaults(handler=compare_command)
 
     sub = commands.add_parser("portfolio", help="portfolio returns of each method; SPA, Deflated Sharpe, PBO")
     sub.add_argument("--campaign", required=True)
+    sub.add_argument("--methods", nargs="+", help="methods to compare (default: all in the campaign)")
     sub.add_argument("--cost", type=float, help="basis points per side (default: the primary cost)")
     sub.add_argument("--stage", type=int, choices=(1, 2), default=2)
     sub.add_argument("--benchmark", help="SPA benchmark (default: the best rule-based or ML benchmark)")
     sub.add_argument("--trials", type=int, help="configurations tried, for the Deflated Sharpe "
-                                                "(default: the methods in the campaign)")
+                                                "(default: counted from the plans of --trials-from)")
+    sub.add_argument("--trials-from", nargs="+", metavar="CAMPAIGN",
+                     help="campaigns whose plans list the configurations tried (default: this one; the "
+                          "protocol counts the pilot's too)")
     sub.add_argument("--regimes", default="dc", help="market regimes for the breakdown (default dc, A3's)")
+    add_selection(sub)
     sub.set_defaults(handler=portfolio_command)
 
     sub = commands.add_parser("random", help="percentiles among random entries (1,000 draws)")
@@ -61,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--cost", type=float, help="basis points per side (default: the primary cost)")
     sub.add_argument("--stage", type=int, choices=(1, 2), default=2)
     sub.add_argument("--draws", type=int, default=1000)
+    add_selection(sub)
     sub.set_defaults(handler=random_command)
 
     sub = commands.add_parser("gp-params", help="the GP-parameter pilot's table and choice")
@@ -75,6 +90,63 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     return args.handler(args) or 0
+
+
+def add_selection(sub: argparse.ArgumentParser) -> None:
+    sub.add_argument("--plan", help="only the runs of this plan (default: those of every plan of runs)")
+    sub.add_argument("--incomplete", action="store_true",
+                     help="leave out the stock-years with planned runs missing instead of stopping")
+
+
+def select(args: argparse.Namespace, runs: pd.DataFrame, methods: list[str]) -> pd.DataFrame:
+    """The runs of ``methods`` and the stage to analyse, checked against the campaign's plans (see the
+    module notes)."""
+    runs = runs[(runs["stage"] == args.stage) & runs["rung"].isin(methods)]
+    try:
+        planned = tasks.planned_runs(args.campaign, args.plan)
+    except FileNotFoundError as error:
+        raise SystemExit(str(error)) from None
+    planned = planned[(planned["stage"] == args.stage) & planned["rung"].isin(methods)]
+    if planned.empty:
+        if args.plan:
+            raise SystemExit(f"plan {args.plan!r} has no stage-{args.stage} runs of {methods}")
+        log.warning("%s: no plan lists these runs, so whether all of them are there is not checked", args.campaign)
+        return runs
+    inside = runs.merge(planned, on=results.RUN_KEYS)
+    if len(inside) < len(runs):
+        log.warning("%s: %d runs that no plan%s lists are left out", args.campaign, len(runs) - len(inside),
+                    f" but {args.plan!r}" if args.plan else "")
+    missing = results.missing_runs(inside, planned)
+    if missing.empty:
+        return inside
+    counts = missing.groupby("rung").size().to_dict()
+    if not args.incomplete:
+        raise SystemExit(f"{len(missing)} planned runs have no result yet ({counts}); finish them "
+                         "(engine status lists them), or pass --incomplete to leave out their stock-years")
+    lacking = missing[results.KEYS].drop_duplicates()
+    log.warning("--incomplete: %d stock-years with planned runs missing (%s) are left out for every method",
+                len(lacking), counts)
+    return results.keep_stock_years(inside, lacking, keep=False)
+
+
+def trial_count(args: argparse.Namespace, methods: list[str]) -> dict[str, object]:
+    """How many configurations count as trials for the Deflated Sharpe Ratio, and where from: the
+    distinct methods the plans of ``--trials-from`` list (docs/PROTOCOL.md, section 5)."""
+    if args.trials:
+        return {"count": args.trials, "from": "given (--trials)"}
+    campaigns = args.trials_from or [args.campaign]
+    unplanned = [c for c in args.trials_from or [] if not tasks.plan_names(c)]
+    if unplanned:
+        raise SystemExit(f"--trials-from: no plans for {unplanned}")
+    configurations = sorted({name for campaign in campaigns for name in tasks.planned_runs(campaign)["rung"]})
+    if not configurations:
+        log.warning("Deflated Sharpe: no plans list the configurations tried; counting the %d methods analysed",
+                    len(methods))
+        return {"count": len(methods), "from": "the methods analysed (no plans)", "configurations": methods}
+    if not any(tasks.development_campaign(c) for c in campaigns):
+        log.warning("Deflated Sharpe: %d configurations from %s only; the protocol also counts the pilot's "
+                    "(pass --trials-from with the pilot campaigns too)", len(configurations), campaigns)
+    return {"count": len(configurations), "from": f"the plans of {campaigns}", "configurations": configurations}
 
 
 def load_runs(campaign: str) -> pd.DataFrame:
@@ -92,8 +164,8 @@ def output(campaign: str) -> Path:
 
 def compare_command(args: argparse.Namespace) -> int:
     runs = load_runs(args.campaign)
-    runs = runs[runs["stage"] == args.stage]
-    rungs = args.rungs or sorted(runs["rung"].unique())
+    rungs = args.rungs or sorted(runs.loc[runs["stage"] == args.stage, "rung"].unique())
+    runs = select(args, runs, rungs)
     missing = sorted(set(rungs) - set(runs["rung"]))
     if missing:
         raise SystemExit(f"no stage-{args.stage} runs for {missing}")
@@ -136,7 +208,18 @@ def portfolio_command(args: argparse.Namespace) -> int:
     config = load_config()
     cost = config.primary_cost_bps_per_side if args.cost is None else args.cost
     runs = load_runs(args.campaign)
-    runs = runs[runs["stage"] == args.stage]
+    methods = args.methods or sorted(runs.loc[runs["stage"] == args.stage, "rung"].unique())
+    runs = select(args, runs, methods)
+    absent = sorted(set(methods) - set(runs["rung"]))
+    if absent:
+        raise SystemExit(f"no stage-{args.stage} runs for {absent}")
+    shared = results.common_stock_years(runs)
+    every = runs[results.KEYS].drop_duplicates()
+    if len(shared) < len(every):
+        fewest = runs.groupby("rung")[results.KEYS].apply(lambda g: len(g.drop_duplicates())).idxmin()
+        log.warning("the methods cover different stock-years: the portfolios use the %d that all of them "
+                    "cover, of %d (%s covers the fewest)", len(shared), len(every), fewest)
+        runs = results.keep_stock_years(runs, shared)
     returns = portfolio.method_returns(runs, cost)
     benchmarks = [m for m in returns.columns if m.startswith(("RB-", "ML-"))]
     benchmark = args.benchmark or (max(benchmarks, key=lambda m: returns[m].mean() / returns[m].std())
@@ -147,7 +230,9 @@ def portfolio_command(args: argparse.Namespace) -> int:
     if not candidates:
         raise SystemExit("no GP rung in the campaign to test against the benchmark")
     rng = make_rng(config.base_seed, "analysis", "spa", args.campaign)
-    outcome = portfolio.tests(returns, benchmark, candidates, args.trials or returns.shape[1], rng)
+    trials = trial_count(args, list(returns.columns))
+    outcome = portfolio.tests(returns, benchmark, candidates, int(trials["count"]), rng)
+    outcome.update(trials=trials, stock_years=len(shared), stock_years_left_out=len(every) - len(shared))
     folder, name = output(args.campaign), f"{cost:g}bps.stage{args.stage}"
     store.write_parquet(folder / f"portfolio.{name}.parquet", returns, campaign=args.campaign, cost_bps=cost)
     (folder / f"portfolio_tests.{name}.json").write_text(json.dumps(outcome, indent=2, default=float) + "\n")
@@ -171,8 +256,7 @@ def portfolio_command(args: argparse.Namespace) -> int:
 def random_command(args: argparse.Namespace) -> int:
     config = load_config()
     cost = config.primary_cost_bps_per_side if args.cost is None else args.cost
-    runs = load_runs(args.campaign)
-    runs = runs[runs["stage"] == args.stage]
+    runs = select(args, load_runs(args.campaign), args.methods)
     folder = output(args.campaign)
     for method in args.methods:
         rng = make_rng(config.base_seed, "analysis", "random", args.campaign, method)

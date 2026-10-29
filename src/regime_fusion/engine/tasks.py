@@ -20,15 +20,31 @@ repeated safely: finished runs and exit choices are skipped, and result files
 are written whole or not at all, so a task stopped by a time limit is simply
 submitted again. ``collect`` gathers a campaign's runs into one table.
 
+A campaign is one experiment, so its results must all come from the same
+settings and data:
+
+* a plan freezes the digests of the study configuration, of each method's
+  settings and of the exit grid (``manifest``), and every task checks them
+  before it runs;
+* a result already there is skipped only if it is whole and was made under the
+  current settings (``finished_result``); anything else stops the task;
+* ``collect`` refuses a campaign whose results disagree on the configuration, on
+  a method's settings or on the data of any file and sessions they read (their
+  fingerprints, ``engine/run.py``).
+
+A changed setting or new data therefore need a campaign of their own.
+
 A campaign planned as development-only (the pilot) may evaluate on data up to
 ``period.development_end`` only: planning refuses any task that would look at
 later data, and running checks again; it may not include hold-out stocks.
 
 A campaign uses one walk-forward scheme, rolling (the main results) or
-expanding (the robustness check), recorded in ``results/<campaign>/campaign.json``
-when it is first planned or run. Results and exit settings carry no scheme in
-their paths, so a campaign refuses work under the other scheme: expanding
-windows need a campaign of their own.
+expanding (the robustness check). The scheme, and whether the campaign is
+development-only, are recorded in ``results/<campaign>/campaign.json`` when it
+is first planned or run, and every command that works on the campaign, the
+direct ``run`` and ``exits`` included, keeps to them. Results and exit settings
+carry no scheme in their paths, so expanding windows need a campaign of their
+own.
 """
 
 from __future__ import annotations
@@ -37,6 +53,7 @@ import dataclasses
 import datetime as dt
 import json
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -53,6 +70,7 @@ from regime_fusion.ml.models import load_settings as load_benchmarks
 from regime_fusion.windows import DateRange, walk_forward
 
 KINDS = ("exits", "runs")
+FINGERPRINT = {"config", "method", "inputs", "evaluation_prices"}  # what every result's fingerprint holds
 log = logging.getLogger("regime_fusion.engine")
 
 
@@ -127,22 +145,109 @@ def check_development(task: Task, config: StudyConfig) -> None:
                          f"after the development period (to {config.period.development_end})")
 
 
+def campaign_record(campaign: str) -> dict[str, Any] | None:
+    """What ``results/<campaign>/campaign.json`` records (None for a new campaign)."""
+    path = store.data_dir() / "results" / campaign / "campaign.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
 def campaign_scheme(campaign: str) -> str | None:
     """The walk-forward scheme a campaign was started with (None for a new campaign)."""
+    record = campaign_record(campaign)
+    return None if record is None else str(record["scheme"])
+
+
+def development_campaign(campaign: str) -> bool:
+    """Whether a campaign is development-only (as recorded, or as one of its plans says)."""
+    if (campaign_record(campaign) or {}).get("development_only"):
+        return True
+    return any(load_plan(campaign, name)[0] for name in plan_names(campaign))
+
+
+def claim_campaign(campaign: str, scheme: str, development_only: bool | None = None) -> bool:
+    """Record a new campaign's scheme and whether it is development-only, or refuse work that does not
+    keep to them; returns whether the campaign is development-only (``None`` takes its own status)."""
     path = store.data_dir() / "results" / campaign / "campaign.json"
-    return str(json.loads(path.read_text())["scheme"]) if path.exists() else None
-
-
-def claim_scheme(campaign: str, scheme: str) -> None:
-    """Record a new campaign's scheme, or refuse work under another scheme than its own."""
-    current = campaign_scheme(campaign)
-    if current is None:
-        provenance.write(store.data_dir() / "results" / campaign / "campaign.json",
-                         {"campaign": campaign, "scheme": scheme,
-                          "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")})
-    elif current != scheme:
-        raise ValueError(f"campaign {campaign!r} uses {current} windows; "
+    record = campaign_record(campaign)
+    if record is None:
+        provenance.write(path, {"campaign": campaign, "scheme": scheme, "development_only": bool(development_only),
+                                "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")})
+        return bool(development_only)
+    if record["scheme"] != scheme:
+        raise ValueError(f"campaign {campaign!r} uses {record['scheme']} windows; "
                          f"{scheme} windows need a campaign of their own")
+    if "development_only" not in record:  # recorded before campaigns kept their status
+        if development_only is None:
+            return False
+        provenance.write(path, {**record, "development_only": bool(development_only)})
+        return bool(development_only)
+    if development_only is not None and bool(development_only) != bool(record["development_only"]):
+        status = "development-only" if record["development_only"] else "not development-only"
+        raise ValueError(f"campaign {campaign!r} is {status}; the other kind of work needs a campaign of its own")
+    return bool(record["development_only"])
+
+
+def method_digest(name: str, rungs: dict[str, Rung]) -> str:
+    """Digest of a GP rung's or a benchmark's settings."""
+    return rungs[name].digest() if name in rungs else load_benchmarks().method_digest(name)
+
+
+def manifest(tasks: list[Task], config: StudyConfig, rungs: dict[str, Rung]) -> dict[str, Any]:
+    """The settings a plan's tasks run with, as digests: the study configuration, each method and,
+    for exit choices, the exit grid."""
+    frozen = {"config": config.digest(), "methods": {m: method_digest(m, rungs) for m in sorted({t.rung for t in tasks})}}
+    if any(t.kind == "exits" for t in tasks):
+        frozen["exit_grid"] = provenance.digest(exit_grid())
+    return frozen
+
+
+def check_manifest(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Rung]) -> None:
+    """Refuse a task whose settings changed since its plan was made."""
+    name = task.plan or task.kind
+    path = plan_path(campaign, name)
+    frozen = json.loads(path.read_text()).get("manifest") if path.exists() else None
+    if not frozen:
+        return
+    now = manifest([task], config, rungs)
+    changed = [what for what, then, current in (
+        ("the study configuration", frozen["config"], now["config"]),
+        (f"the settings of {task.rung}", frozen["methods"].get(task.rung), now["methods"][task.rung]),
+        ("the exit grid", frozen.get("exit_grid"), now.get("exit_grid"))) if then != current]
+    if changed:
+        raise ValueError(f"{' and '.join(changed)} changed since plan {name!r} of campaign {campaign!r} was "
+                         "made; results under new settings need a campaign of their own")
+
+
+def finished_result(path: Path, name: str, spec: RunSpec, config: StudyConfig, method: str) -> bool:
+    """Whether a run's result is there. A result that is there must be whole and made with these
+    settings; anything else stops the task rather than being skipped or overwritten."""
+    if not path.exists():
+        return False
+    problem = result_problem(path, name, spec, config, method)
+    if problem:
+        raise ValueError(f"{path}: {problem}. A campaign's results must all come from the same settings: "
+                         "delete the file to run it again, or start a new campaign for new settings")
+    return True
+
+
+def result_problem(path: Path, name: str, spec: RunSpec, config: StudyConfig, method: str) -> str | None:
+    try:
+        record = json.loads(path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return "not a readable result"
+    if not isinstance(record, dict):
+        return "not a result"
+    wrong = sorted(key for key, value in {"rung": name, **spec.__dict__}.items() if record.get(key) != value)
+    if wrong:
+        return f"it is the result of another run ({', '.join(wrong)} differ)"
+    if not {f"{c:g}bps" for c in config.costs_bps_per_side} <= set(record.get("evaluation") or {}):
+        return "it lacks the evaluation at some cost"
+    mark = record.get("fingerprint") or {}
+    if mark.get("config") != config.digest():
+        return "it was made under another study configuration, or before results carried one"
+    if mark.get("method") != method:
+        return f"it was made with other settings of {name}"
+    return None
 
 
 def check_roles(stocks: list[str]) -> None:
@@ -178,8 +283,8 @@ def fix_exits(campaign: str, stock_years: list[tuple[str, int]], days: int, rate
         todo.append((path, stock, year))
     if write:
         for path, stock, year in todo:
-            provenance.write(path, provenance.collect(config, stock=stock, test_year=year, days=int(days),
-                                                      rate=float(rate), fixed=True, scheme=scheme))
+            provenance.write(path, {"stock": stock, "test_year": year, "days": int(days), "rate": float(rate),
+                                    "fixed": True, "scheme": scheme, "provenance": provenance.collect(config)})
     return len(todo)
 
 
@@ -195,19 +300,20 @@ def plan_names(campaign: str) -> list[str]:
 
 def save_plan(campaign: str, kind: str, tasks: list[Task], *, development_only: bool,
               replace: bool = False, stocks: list[str] | None = None, scheme: str = "rolling",
-              name: str | None = None) -> Path:
+              name: str | None = None, frozen: dict[str, Any] | None = None) -> Path:
+    """Save a plan; ``frozen`` is its ``manifest``, which its tasks check before they run."""
     name = name or kind
     path = plan_path(campaign, name)
     if path.exists() and not replace:
         raise FileExistsError(f"{path} exists; running jobs use its numbering (pass replace to plan again)")
     if development_only:
         check_roles(sorted(stocks if stocks is not None else {t.stock for t in tasks} - {"*"}))
-    claim_scheme(campaign, scheme)
+    claim_campaign(campaign, scheme, development_only)
     named = [dataclasses.replace(t, plan=name) for t in tasks]
     record = {"campaign": campaign, "name": name, "kind": kind, "development_only": development_only,
               "scheme": scheme, "stocks": sorted(stocks if stocks is not None else {t.stock for t in tasks} - {"*"}),
               "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-              "git": provenance.git_state(), "tasks": [dataclasses.asdict(t) for t in named]}
+              "git": provenance.git_state(), "manifest": frozen, "tasks": [dataclasses.asdict(t) for t in named]}
     provenance.write(path, record)
     return path
 
@@ -232,13 +338,33 @@ def plan_stocks(campaign: str, name: str) -> list[str]:
     return list(json.loads(plan_path(campaign, name).read_text())["stocks"])
 
 
+def planned_runs(campaign: str, name: str | None = None) -> pd.DataFrame:
+    """The runs a campaign's plans of runs list (only plan ``name``'s if given): rung, stock, test
+    year, stage and run, once each."""
+    rows = []
+    for plan in [name] if name else plan_names(campaign):
+        path = plan_path(campaign, plan)
+        if not path.exists():
+            raise FileNotFoundError(f"no plan {plan!r} for campaign {campaign!r} ({path})")
+        record = json.loads(path.read_text())
+        if record["kind"] != "runs":
+            continue
+        for task in record["tasks"]:
+            for stock in record["stocks"] if task["stock"] == "*" else [task["stock"]]:
+                rows += [{"rung": task["rung"], "stock": stock, "test_year": int(task["test_year"]),
+                          "stage": int(task["stage"]), "run": int(n)} for n in task["runs"]]
+    return pd.DataFrame(rows, columns=["rung", "stock", "test_year", "stage", "run"]).drop_duplicates(
+        ignore_index=True)
+
+
 def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Rung], *,
             development_only: bool) -> dict[str, int]:
     """Do what is left of one task; returns how many items were done and skipped."""
-    claim_scheme(campaign, config.windows.scheme)
+    development_only = claim_campaign(campaign, config.windows.scheme) or development_only
     if development_only:
         check_development(task, config)
         check_roles(plan_stocks(campaign, task.plan or task.kind) if task.stock == "*" else [task.stock])
+    check_manifest(task, campaign, config, rungs)
     if task.stock == "*":
         return execute_pooled(task, campaign, config)
     if task.kind == "exits":
@@ -246,15 +372,12 @@ def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Run
             return {"done": 0, "skipped": 1}
         choose_exits(task.stock, task.test_year, rungs["A0"], config, exit_grid(), campaign=campaign)
         return {"done": 1, "skipped": 0}
-    exits = exits_path(campaign, task.stock, task.test_year)
-    if not exits.exists():
-        raise FileNotFoundError(f"{task.stock} {task.test_year}: no exit settings at {exits}; "
-                                "run the exits tasks first")
-    chosen = json.loads(exits.read_text())
+    days, rate = exit_settings(campaign, task.stock, task.test_year, config)
+    method = method_digest(task.rung, rungs)
     done = skipped = 0
     for number in task.runs:
-        spec = RunSpec(task.stock, task.test_year, number, task.stage, chosen["days"], chosen["rate"])
-        if result_path(campaign, task.rung, spec).exists():
+        spec = RunSpec(task.stock, task.test_year, number, task.stage, days, rate)
+        if finished_result(result_path(campaign, task.rung, spec), task.rung, spec, config, method):
             skipped += 1
             continue
         run_method(task.rung, spec, rungs, config, campaign)
@@ -262,23 +385,32 @@ def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Run
     return {"done": done, "skipped": skipped}
 
 
+def exit_settings(campaign: str, stock: str, test_year: int, config: StudyConfig) -> tuple[int, float]:
+    """A stock-year's exit settings (d, r), which must have been set under the current configuration."""
+    path = exits_path(campaign, stock, test_year)
+    if not path.exists():
+        raise FileNotFoundError(f"{stock} {test_year}: no exit settings at {path}; run the exits tasks first")
+    chosen = json.loads(path.read_text())
+    made_under = (chosen.get("provenance") or {}).get("config_digest")
+    if made_under is not None and made_under != config.digest():
+        raise ValueError(f"{stock} {test_year}: the exit settings at {path} were set under another study "
+                         "configuration; new settings need a campaign of their own")
+    return int(chosen["days"]), float(chosen["rate"])
+
+
 def execute_pooled(task: Task, campaign: str, config: StudyConfig) -> dict[str, int]:
     """Runs of a benchmark trained across all the campaign's stocks; each writes a result per stock."""
     from regime_fusion.ml.tft import run_tft
 
     stocks = plan_stocks(campaign, task.plan or task.kind)
-    exits = {}
-    for stock in stocks:
-        path = exits_path(campaign, stock, task.test_year)
-        if not path.exists():
-            raise FileNotFoundError(f"{stock} {task.test_year}: no exit settings at {path}; run the exits tasks first")
-        chosen = json.loads(path.read_text())
-        exits[stock] = (int(chosen["days"]), float(chosen["rate"]))
+    exits = {stock: exit_settings(campaign, stock, task.test_year, config) for stock in stocks}
     settings = load_benchmarks()
+    method = settings.method_digest(task.rung)
     done = skipped = 0
     for number in task.runs:
-        if all(result_path(campaign, task.rung, RunSpec(s, task.test_year, number, task.stage, *exits[s])).exists()
-               for s in stocks):
+        specs = [RunSpec(s, task.test_year, number, task.stage, *exits[s]) for s in stocks]
+        if all(finished_result(result_path(campaign, task.rung, spec), task.rung, spec, config, method)
+               for spec in specs):
             skipped += 1
             continue
         run_tft(task.test_year, task.stage, number, stocks, exits, settings.models[task.rung], settings, config,
@@ -316,17 +448,32 @@ def finished(task: Task, campaign: str) -> bool:
 
 
 def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
-    """One row per run of the campaign: its settings, fitness and evaluation measures."""
+    """One row per run of the campaign: its settings, fitness and evaluation measures.
+
+    Refuses a campaign whose results are not all whole and made under one study configuration, one
+    version of each method's settings and one version of the data of each file and sessions read.
+    """
     root = store.data_dir() / "results" / campaign
-    rows = []
+    rows, problems, commits = [], [], set()
+    configs, methods, inputs = defaultdict(set), defaultdict(set), defaultdict(set)
     for path in sorted(root.glob("*/*/*.stage*.run*.json")):
         try:
             record = json.loads(path.read_text())
-        except json.JSONDecodeError:
-            log.warning("collect: %s is not readable; skipped", path)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            problems.append(f"{path}: not a readable result")
             continue
+        mark = record.get("fingerprint") if isinstance(record, dict) else None
+        if not isinstance(mark, dict) or not FINGERPRINT <= set(mark) or "evaluation" not in record:
+            problems.append(f"{path}: not a whole result, or written before results carried fingerprints")
+            continue
+        configs[mark["config"]].add(str(record.get("rung")))
+        methods[record.get("rung")].add(mark["method"])
+        for key, digest in mark["inputs"].items():
+            inputs[key].add(digest)
+        commits.add(((record.get("provenance") or {}).get("git") or {}).get("commit"))
         row = {key: record.get(key) for key in ("rung", "stock", "test_year", "stage", "run", "exit_days",
                                                 "exit_rate", "fitness", "seconds", "scheme")}
+        row["prices_digest"] = mark["evaluation_prices"]
         row["evaluate_start"], row["evaluate_end"] = record.get("evaluate", [None, None])
         for cost in costs:
             for measure, value in record["evaluation"][f"{cost:g}bps"].items():
@@ -343,4 +490,17 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
         row["model"] = record.get("model")
         row["signal"] = record.get("signal")
         rows.append(row)
+    if len(configs) > 1:
+        problems.append("runs under different study configurations: "
+                        + "; ".join(f"{digest} ({', '.join(sorted(m))})" for digest, m in configs.items()))
+    problems += [f"{m}: runs with different settings ({', '.join(sorted(d))})" for m, d in methods.items() if len(d) > 1]
+    problems += [f"{key}: runs read {len(d)} versions of these data" for key, d in inputs.items() if len(d) > 1]
+    if problems:
+        shown = "\n  ".join(problems[:20]) + (f"\n  ... and {len(problems) - 20} more" if len(problems) > 20 else "")
+        raise ValueError(f"campaign {campaign!r}: its results do not all come from the same settings and data; "
+                         f"new settings or data need a campaign of their own:\n  {shown}")
+    commits.discard(None)
+    if len(commits) > 1:
+        log.warning("collect: %s's runs come from %d commits of the code: %s", campaign, len(commits),
+                    ", ".join(sorted(c[:7] for c in commits)))
     return pd.DataFrame(rows)

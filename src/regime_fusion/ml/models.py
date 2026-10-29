@@ -72,6 +72,16 @@ class Settings:
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.raw, sort_keys=True).encode()).hexdigest()[:12]
 
+    def method_digest(self, name: str) -> str:
+        """Digest of one benchmark's settings: its own entry and those every benchmark shares, so
+        that changing another benchmark leaves it alone."""
+        shared = {k: v for k, v in self.raw.items() if k not in ("models", "rules")}
+        own = {**self.raw.get("rules", {}), **self.raw["models"]}.get(name)
+        if own is None:
+            raise ValueError(f"no benchmark {name!r}")
+        return hashlib.sha256(json.dumps({"name": name, "own": own, "shared": shared}, sort_keys=True,
+                                         default=str).encode()).hexdigest()[:12]
+
 
 def load_settings(path: str | Path = DEFAULT_SETTINGS) -> Settings:
     raw = yaml.safe_load(Path(path).read_text())

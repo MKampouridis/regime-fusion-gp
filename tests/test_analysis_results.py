@@ -162,6 +162,87 @@ def test_portfolio_returns_are_rebuilt_from_the_stored_signals(monkeypatch, tmp_
     assert saved["spa"]["benchmark"] == "RB-BH" and saved["n_trials"] == 3
 
 
+def test_analyses_check_the_runs_against_the_plans(monkeypatch, tmp_path):
+    from regime_fusion.engine import tasks
+
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    stocks, years = ["S1", "S2", "S3", "S4"], [2019, 2020, 2021]
+    for name, n in (("runs", 5), ("check", 2)):
+        tasks.save_plan("main", "runs", [tasks.Task("runs", s, y, r, 2, tuple(range(n))) for r in "ABC"
+                                         for y in years for s in stocks], development_only=False, stocks=stocks, name=name)
+    runs = fake_runs()
+    extra = runs.iloc[[0]].assign(run=7, sharpe_10bps=99.0)                    # a run no plan lists
+    lacking = (runs.rung == "B") & (runs.stock == "S1") & (runs.test_year == 2019) & (runs.run == 3)
+    folder = tmp_path / "results" / "main"
+    pd.concat([runs[~lacking], extra]).to_parquet(folder / "runs.parquet")
+    compare = ["compare", "--campaign", "main", "--rungs", "A", "B", "C"]
+    with pytest.raises(SystemExit, match="1 planned runs have no result"):
+        cli.main(compare)
+    assert cli.main([*compare, "--incomplete"]) == 0                          # leaves (S1, 2019) out for all
+    medians = pd.read_csv(folder / "analysis" / "medians.sharpe_10bps.stage2.csv", index_col=[0, 1])
+    assert len(medians) == 11 and ("S1", 2019) not in medians.index and medians.max().max() < 99
+    assert cli.main([*compare, "--plan", "check"]) == 0                        # runs 0 and 1 only
+    medians = pd.read_csv(folder / "analysis" / "medians.sharpe_10bps.stage2.csv", index_col=[0, 1])
+    cell = runs[(runs.stock == "S2") & (runs.test_year == 2020) & (runs.rung == "A") & (runs.run < 2)]
+    assert len(medians) == 12 and medians.loc[("S2", 2020), "A"] == pytest.approx(cell["sharpe_10bps"].median())
+    with pytest.raises(SystemExit, match="no plan 'other'"):
+        cli.main([*compare, "--plan", "other"])
+
+
+def test_portfolios_share_their_stock_years_count_trials_and_check_prices(monkeypatch, tmp_path):
+    from regime_fusion.analysis import portfolio
+    from regime_fusion.engine import tasks
+    from regime_fusion.engine.panel import frame_digest
+    from regime_fusion.engine.run import pack_signal
+
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    rng = np.random.default_rng(7)
+    days = pd.bdate_range("2018-01-01", "2020-12-31")
+    (tmp_path / "interim" / "prices").mkdir(parents=True)
+    rows = []
+    for stock in ("S1", "S2"):
+        close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.01, len(days))))
+        prices = pd.DataFrame({"adj_open": close, "adj_high": close * 1.01, "adj_low": close * 0.99,
+                               "adj_close": close}, index=days)
+        prices.to_parquet(tmp_path / "interim" / "prices" / f"{stock}.parquet")
+        for year in (2019, 2020):
+            evaluated = prices.loc[str(year)]
+            for rung in ("A0", "A1", "RB-BH"):
+                if (rung, stock, year) == ("A1", "S2", 2020):
+                    continue                                                  # as a FinBERT rung would
+                rows.append({"rung": rung, "stock": stock, "test_year": year, "stage": 2, "run": 0, "exit_days": 5,
+                             "exit_rate": 0.02, "evaluate_start": f"{year}-01-01", "evaluate_end": f"{year}-12-31",
+                             "fitness": 0.0, "seconds": 1.0, "prices_digest": frame_digest(evaluated),
+                             "signal": None if rung == "RB-BH" else pack_signal(rng.random(len(evaluated)) < 0.2)})
+    runs = pd.DataFrame(rows)
+    with pytest.raises(ValueError, match="different stock-years"):
+        portfolio.method_returns(runs, 10)
+    tasks.save_plan("main", "runs", [tasks.Task("runs", r.stock, r.test_year, r.rung, 2, (0,)) for r in runs.itertuples()],
+                    development_only=False, stocks=["S1", "S2"])
+    tasks.save_plan("pilot", "runs", [tasks.Task("runs", "S1", 2019, name, 1, (0,)) for name in ("A0", "A1", "A1-rank")],
+                    development_only=True, stocks=["S1"])
+    folder = tmp_path / "results" / "main"
+    runs.to_parquet(folder / "runs.parquet")
+    assert cli.main(["portfolio", "--campaign", "main"]) == 0
+    saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
+    assert (saved["stock_years"], saved["stock_years_left_out"]) == (3, 1)    # S2 2020 left out for all
+    assert saved["trials"]["count"] == 3 and saved["n_trials"] == 3           # this campaign's plans only
+    returns = pd.read_parquet(folder / "analysis" / "portfolio.10bps.stage2.parquet")
+    alone = portfolio.run_returns(runs[(runs.rung == "A0") & (runs.stock == "S1") & (runs.test_year == 2020)].iloc[0],
+                                  portfolio.stock_prices("S1"), 10)
+    assert returns.loc["2020", "A0"].to_numpy() == pytest.approx(alone.to_numpy())
+    assert cli.main(["portfolio", "--campaign", "main", "--trials-from", "pilot", "main"]) == 0
+    saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
+    assert saved["trials"]["configurations"] == ["A0", "A1", "A1-rank", "RB-BH"] and saved["n_trials"] == 4
+    with pytest.raises(SystemExit, match="no plans for"):                     # a misspelt campaign
+        cli.main(["portfolio", "--campaign", "main", "--trials-from", "pilott", "main"])
+    changed = pd.read_parquet(tmp_path / "interim" / "prices" / "S1.parquet")
+    changed.loc["2019-06-03", "adj_close"] *= 1.01                             # the data changed after the runs
+    changed.to_parquet(tmp_path / "interim" / "prices" / "S1.parquet")
+    with pytest.raises(ValueError, match="have changed since the run"):
+        cli.main(["portfolio", "--campaign", "main"])
+
+
 def test_trust_map_averages_listening_by_regime():
     runs = pd.DataFrame({"rung": ["A3", "A3", "A1"], "listen_fa_state0": [1.0, 0.5, np.nan],
                          "listen_ta_state0": [0.0, 0.5, np.nan], "listen_fa_state1": [0.2, 0.4, np.nan],

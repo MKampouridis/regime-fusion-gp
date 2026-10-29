@@ -29,6 +29,23 @@ def test_wilcoxon_and_conover_find_the_better_method():
     assert post.loc[("A0", "same"), "p_holm"] > 0.05
 
 
+def test_conover_by_hand_and_for_perfectly_consistent_rankings():
+    from scipy import stats as scipy_stats
+
+    table = pd.DataFrame([[1, 2, 3], [2, 1, 3], [1, 3, 2], [1, 2, 3]], columns=["A", "B", "C"])
+    # Rank sums 5, 8 and 11; sum of squared ranks 56; n = 4, k = 3 (Conover, 1999):
+    # scale = sqrt(2 (4 * 56 - (25 + 64 + 121)) / (3 * 2)) = sqrt(28 / 6), with 6 degrees of freedom.
+    post = stats.conover(table).set_index(["first", "second"])
+    assert post.loc[("A", "C"), "p"] == pytest.approx(2 * scipy_stats.t.sf(6 / np.sqrt(28 / 6), 6))
+    assert post.loc[("A", "B"), "rank_sum_difference"] == -3
+    consistent = pd.DataFrame({"A": np.ones(10), "B": 2 * np.ones(10), "C": 3 * np.ones(10)})
+    assert stats.friedman(consistent)[1] < 1e-4
+    assert (stats.conover(consistent)["p_holm"] == 0).all()          # the same order in every unit
+    tied = consistent.assign(B=1.0)
+    post = stats.conover(tied).set_index(["first", "second"])
+    assert post.loc[("A", "B"), "p"] == 1.0 and post.loc[("A", "C"), "p"] == 0.0
+
+
 def test_deflated_sharpe_shrinks_with_the_number_of_trials():
     rng = np.random.default_rng(1)
     returns = rng.normal(0.001, 0.01, 1000)

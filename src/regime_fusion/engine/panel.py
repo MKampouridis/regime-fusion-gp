@@ -16,16 +16,27 @@ Scaling is fitted on the training rows only and then applied to every row:
 Regime probabilities p need no fitting: they enter as 2p - 1. An indicator with
 values on fewer than half of the training rows is dropped for the run.
 
+Prices must have a bar on every session (``stock_prices``): the backtest counts
+sessions, so leaving one out would change what "sell at the close of the d-th
+day" and "buy at the next open" mean. The price data have none missing
+(``docs/DATA.md``), so a gap is refused rather than skipped until a rule for it
+is chosen.
+
 For the robustness check, FinBERT headline sentiment from one source
 (``processed/finbert/<source>``) can join the sentiment branch: its indicators
 are then named ``sa:finbert_...``, and the source must cover every year of the
 window.
+
+A panel also lists the data it read (``Panel.inputs``): for each file, the
+sessions used and a digest of their values. Runs keep the list, so a campaign
+can tell when its runs did not all see the same data (``engine/tasks.py``).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -50,6 +61,7 @@ class Panel:
     prices: pd.DataFrame       # adjusted open, high, low, close
     train: pd.DatetimeIndex
     evaluate: pd.DatetimeIndex
+    inputs: dict[str, str] = field(default_factory=dict)  # "<file>@<first>..<last>" -> digest of those rows
 
     def names(self) -> dict[str, list[str]]:
         groups = {s: [] for s in (*SOURCES, "RG")}
@@ -67,6 +79,43 @@ class Panel:
                       days=exit_days, rate=rate, cost=cost_bps / 1e4)
 
 
+def frame_digest(frame: pd.DataFrame) -> str:
+    """Digest of a table's columns, sessions and values, to tell versions of the data apart."""
+    values = frame.to_numpy(dtype=np.float64)
+    values = np.where(np.isnan(values), np.nan, values)  # one bit pattern for every missing value
+    digest = hashlib.sha256(json.dumps([str(c) for c in frame.columns]).encode())
+    digest.update(pd.DatetimeIndex(frame.index).as_unit("ns").asi8.tobytes())
+    digest.update(np.ascontiguousarray(values).tobytes())
+    return digest.hexdigest()[:16]
+
+
+def input_entry(path: Path, rows: pd.DataFrame, root: Path | None = None) -> tuple[str, str]:
+    """(``<file>@<first session>..<last session>``, digest) for the rows of one file a run uses."""
+    base = Path(root) if root is not None else store.data_dir()
+    try:
+        name = Path(path).relative_to(base).as_posix()
+    except ValueError:
+        name = Path(path).as_posix()
+    span = f"{rows.index[0].date()}..{rows.index[-1].date()}" if len(rows) else "none"
+    return f"{name}@{span}", frame_digest(rows)
+
+
+def price_entry(stock: str, rows: pd.DataFrame, root: Path | None = None) -> tuple[str, str]:
+    """``input_entry`` for rows of a stock's prices (``stock_prices``)."""
+    return input_entry(store.layer("interim", "prices", f"{stock}.parquet", root=root), rows, root)
+
+
+def stock_prices(stock: str, root: Path | None = None) -> pd.DataFrame:
+    """A stock's adjusted prices, every session from its first bar to its last; refuses a gap."""
+    prices = pd.read_parquet(store.layer("interim", "prices", f"{stock}.parquet", root=root))
+    prices = prices.loc[:, list(PRICE_COLUMNS)]
+    gaps = prices.index[prices.isna().any(axis=1)]
+    if len(gaps):
+        raise ValueError(f"{stock}: {len(gaps)} sessions without a full bar (the first on {gaps[0].date()}); "
+                         "the engine has no rule yet for trading across them (engine/panel.py)")
+    return prices
+
+
 def finbert_years(source: str, stock: str, root: Path | None = None) -> set[int]:
     """Years in which ``source``'s headlines cover ``stock`` (``regime_fusion.data.finbert``)."""
     path = store.layer("processed", "finbert", source, f"{stock}.parquet", root=root)
@@ -82,26 +131,31 @@ def load_panel(stock: str, train: DateRange, evaluate: DateRange, sources: tuple
     ``finbert`` (a headline source) adds its FinBERT indicators to the sentiment branch."""
     if scaling not in SCALINGS:
         raise ValueError(f"scaling must be one of {SCALINGS}")
-    prices = pd.read_parquet(store.layer("interim", "prices", f"{stock}.parquet", root=root))
+    prices = stock_prices(stock, root)
     sessions = prices.index[(prices.index >= pd.Timestamp(train.start)) & (prices.index <= pd.Timestamp(evaluate.end))]
-    sessions = sessions[prices.loc[sessions, "adj_close"].notna()]
     train_days = sessions[sessions <= pd.Timestamp(train.end)]
     evaluate_days = sessions[sessions >= pd.Timestamp(evaluate.start)]
+
+    inputs = dict([price_entry(stock, prices.loc[sessions], root), price_entry(stock, prices.loc[evaluate_days], root)])
+
+    def read(path: Path) -> pd.DataFrame:
+        table = pd.read_parquet(path)
+        key, digest = input_entry(path, table.reindex(sessions), root)
+        inputs[key] = digest
+        return table
 
     frames = []
     for source in sources:
         path = store.layer("processed", PROCESSED[source], f"{stock}.parquet", root=root)
         if not path.exists():
             raise FileNotFoundError(f"{stock}: no {source} indicators at {path}")
-        table = pd.read_parquet(path)
-        frames.append(table.add_prefix(f"{source.lower()}:"))
+        frames.append(read(path).add_prefix(f"{source.lower()}:"))
     if finbert and "SA" in sources:
         missing = sorted(set(range(sessions[0].year, sessions[-1].year + 1)) - finbert_years(finbert, stock, root))
         if missing:
             raise ValueError(f"{stock}: the {finbert} headlines do not cover {missing}, so this window "
                              f"is not part of the FinBERT check")
-        path = store.layer("processed", "finbert", finbert, f"{stock}.parquet", root=root)
-        frames.append(pd.read_parquet(path).add_prefix("sa:"))
+        frames.append(read(store.layer("processed", "finbert", finbert, f"{stock}.parquet", root=root)).add_prefix("sa:"))
     raw = pd.concat(frames, axis=1).reindex(sessions)
     raw = raw.loc[:, [c for c in raw.columns if c.split(":", 1)[0] in {s.lower() for s in sources}
                       and not c.endswith(("market_value", "diluted_shares"))]]
@@ -111,9 +165,9 @@ def load_panel(stock: str, train: DateRange, evaluate: DateRange, sources: tuple
         raise ValueError(f"{stock}: no {' or '.join(empty)} indicator has values on at least "
                          f"{MIN_COVERAGE:.0%} of the training days {train.start} to {train.end}")
     if regimes is not None:
-        probabilities = pd.read_parquet(regimes).reindex(sessions)
+        probabilities = read(Path(regimes)).reindex(sessions)
         scaled = pd.concat([scaled, (2.0 * probabilities - 1.0).add_prefix("rg:")], axis=1)
-    return Panel(scaled, prices.loc[sessions, list(PRICE_COLUMNS)], train_days, evaluate_days)
+    return Panel(scaled, prices.loc[sessions], train_days, evaluate_days, inputs)
 
 
 def scale(raw: pd.DataFrame, train_days: pd.DatetimeIndex, scaling: str) -> pd.DataFrame:

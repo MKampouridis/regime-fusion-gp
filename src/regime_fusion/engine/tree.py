@@ -17,12 +17,17 @@ payload): the payload is the indicator name of a VAR, the constant of an ERC,
 and the branch of a LEAF. Indicators are looked up by name in a dict of arrays
 whose values are scaled to [-1, 1] on the training window; a comparison with a
 missing value is false.
+
+``describe`` prints an individual for reading, constants rounded to three
+decimals; ``to_record`` keeps it exactly (``from_record`` reads it back), so a
+saved model gives the same signals again.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -276,3 +281,17 @@ def describe(individual: Individual) -> str:
     lines = [f"fusion: {text(individual.fusion)}"]
     lines += [f"{s}: {text(tree)}" for s, tree in individual.branches.items()]
     return "\n".join(lines)
+
+
+def to_record(individual: Individual) -> dict[str, Any]:
+    """The individual as JSON-ready lists, constants at full precision."""
+    return {"fusion": [list(node) for node in individual.fusion],
+            "branches": {s: [list(node) for node in tree] for s, tree in individual.branches.items()}}
+
+
+def from_record(record: Mapping[str, Any]) -> Individual:
+    """The individual ``to_record`` wrote."""
+    def nodes(items) -> Tree:
+        return [tuple(item) for item in items]
+
+    return Individual(nodes(record["fusion"]), {s: nodes(tree) for s, tree in record["branches"].items()})

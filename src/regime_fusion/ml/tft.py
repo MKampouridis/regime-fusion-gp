@@ -45,7 +45,7 @@ from regime_fusion.config import StudyConfig
 from regime_fusion.engine import metrics
 from regime_fusion.engine.backtest import backtest
 from regime_fusion.engine.panel import Panel, load_panel
-from regime_fusion.engine.run import RunSpec, pack_signal, regimes_file, result_path
+from regime_fusion.engine.run import RunSpec, fingerprint, pack_signal, regimes_file, result_path
 from regime_fusion.ml.labels import trade_returns
 from regime_fusion.ml.models import ModelSpec, Settings
 from regime_fusion.ml.run import decide
@@ -308,6 +308,7 @@ def run_tft(test_year: int, stage: int, run: int, stocks: list[str], exits: dict
         predicted = predictions(train(final, best["params"], seed(config, test_year, run, 2), primary), final)
         evaluated_on, fitted_on = window.test, window.final_train
     seconds = round(time.perf_counter() - started, 2)
+    inputs = {k: v for pooled in (tuning, final) for panel in pooled.panels.values() for k, v in panel.inputs.items()}
     records = {}
     for stock in stocks:
         panel, (days, rate) = final.panels[stock], exits[stock]
@@ -337,6 +338,7 @@ def run_tft(test_year: int, stage: int, run: int, stocks: list[str], exits: dict
             "signal": pack_signal(signal),
             "selection_weights": selection_weights(predicted[stock]["weights"], final.columns),
             "branches": {},
+            "fingerprint": fingerprint(config, settings.method_digest(model.name), inputs, prices),  # all stocks' data
             "seconds": seconds,
         }
         if write:

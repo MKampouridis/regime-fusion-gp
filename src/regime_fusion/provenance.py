@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import platform
 import subprocess
@@ -36,6 +37,11 @@ def git_state(repo: Path = REPO_ROOT) -> dict[str, Any]:
     commit = run("rev-parse", "HEAD")
     status = run("status", "--porcelain")
     return {"commit": commit, "dirty": None if status is None else bool(status)}
+
+
+def digest(value: Any) -> str:
+    """A short, stable hash of a JSON-like value (a method's settings, say), to tell versions apart."""
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
 def package_versions() -> dict[str, str]:
