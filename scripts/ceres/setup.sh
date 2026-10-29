@@ -1,13 +1,21 @@
 #!/bin/bash
-# Sets up the study's Python environment on CERES; run once on the login node:
-#   bash scripts/ceres/setup.sh            (from the repository folder)
+# Sets up the study's Python environment on CERES, once. CERES asks for conda environments to be
+# built on a compute node, so start an interactive session first:
+#   qrsh -q interactive.q
+#   cd ~/regime-fusion-gp && bash scripts/ceres/setup.sh
 #
-# CERES runs CentOS 7 (Rocks 7, glibc 2.17) with Python 3.6, too old for this code,
-# so the environment comes from conda-forge (Miniforge) in the home folder, which
-# every compute node shares. conda only installs builds that work with the node's
-# glibc, so it may pick versions older than on Michael's Mac; the tests at the end
-# show whether they behave the same.
+# CERES runs CentOS 7 (Rocks 7, glibc 2.17). Its Pythons (3.6, and 3.9 on the compute nodes)
+# are too old for this code (3.11 or later), and CERES recommends conda environments, so the
+# environment comes from conda-forge (Miniforge) in the home folder, which every node shares.
+# conda-forge still builds for glibc 2.17, and conda installs only builds that work with it, so
+# some versions may be older than on Michael's Mac; the tests at the end show whether they
+# behave the same.
 set -euo pipefail
+case "$(hostname)" in
+    compute-*) ;;
+    *) echo "Please run this on a compute node: start one with 'qrsh -q interactive.q' and run it there." >&2
+       exit 1 ;;
+esac
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 PREFIX="$HOME/miniforge3"
 ENV=rfgp

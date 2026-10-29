@@ -3,16 +3,21 @@
 # and the COUNT - 1 tasks after it. Submit from the repository folder, for example:
 #
 #   mkdir -p logs
-#   qsub -t 1-850 -tc 100 -v CAMPAIGN=pilot,PLAN=runs scripts/ceres/tasks.sge
+#   qsub -t 1-850 -tc 60 -v CAMPAIGN=pilot,PLAN=runs scripts/ceres/tasks.sge
 #
-# -t 1-N runs N elements (N is printed when the plan is made), -tc 100 at most 100 at once.
-# Tasks are safe to repeat: finished runs are skipped, so a failed or stopped element is
-# simply submitted again (qsub -t 17 ... for element 17 alone).
+# -t 1-N runs N elements (N is printed when the plan is made). CERES requires -tc: at most 60
+# elements of an array at once, and about 250 across all of a user's arrays (hpc.essex.ac.uk,
+# Grid Engine page). Tasks are safe to repeat: finished runs are skipped, so a failed or
+# stopped element is simply submitted again (qsub -t 17 ... for element 17 alone).
+#
+# No run-time limit is set: all.q has none, and its jobs may be suspended for a while when the
+# higher-priority queue is busy, which a wall-clock limit would count against them.
 #$ -N rfgp
+#$ -S /bin/bash
+#$ -q all.q
 #$ -cwd
 #$ -j y
 #$ -o logs/
-#$ -l h_rt=04:00:00
 set -euo pipefail
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate rfgp
