@@ -121,9 +121,9 @@ The main campaign runs on CERES as job arrays, which Michael submits. Downloads 
 | --- | --- | --- | --- | --- |
 | 1. Set-up | 1 | Repository, configuration, seeds, provenance, tests | Decisions settled | Done |
 | 2. Data pipeline | 1–4 | Prices, SEC fundamentals, GDELT and FNSPID sentiment, market series; leakage tests; coverage report | Data validated | In progress |
-| 3. DC module | 2–4 | Event detection (done, cross-checked against the Java code); causal indicators (done); DC on news attention; HMM regimes with filtered probabilities | Part of the data check | In progress |
-| 4. Engine | 3–7 | Typed GP with extensible grammar; numba backtester (one position, *t*+1, take-profit, costs); daily-return metrics; tournament, weighted-sum, DALex and ε-lexicase selection | Unit tests, including hand-checked backtests | |
-| 5. Pilot | 7–8 | 2015–2018 only: timing, convergence, light tuning, 100-run check; analysis plan written to `PROTOCOL.md` | Protocol frozen | |
+| 3. DC module | 2–4 | Event detection (done, cross-checked against the Java code); causal indicators (done); DC on news attention; HMM regimes with filtered probabilities | Part of the data check | Built; thresholds set in the pilot |
+| 4. Engine | 3–7 | Typed GP with extensible grammar; numba backtester (one position, *t*+1, take-profit, costs); daily-return metrics; tournament, weighted-sum, DALex and ε-lexicase selection | Unit tests, including hand-checked backtests | Built, with campaigns, benchmarks (neural ones to follow) and the analysis |
+| 5. Pilot | 7–8 | 2015–2018 only: timing, convergence, light tuning, 100-run check; analysis plan written to `PROTOCOL.md` | Protocol frozen | Tools and draft protocol ready; waits for the news data |
 | 6. Main campaign | 9–12 | Ablation ladder, GP baselines, non-GP benchmarks, hold-out stocks, robustness (expanding windows, FinBERT) | | |
 | 7. Analysis | 13–14 | Statistics, cost tiers, interpretability maps, case studies | Analysis signed off | |
 | 8. Writing | 14–18 | Paper and reproducibility package (code and data-building scripts; the data cannot be redistributed) | | |

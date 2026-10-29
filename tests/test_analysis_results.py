@@ -52,6 +52,8 @@ def test_summary_and_comparisons():
     pairs = tests["pairs"].set_index(["first", "second"])
     assert pairs.loc[("B", "A"), "median_difference"] == pytest.approx(0.5, abs=0.1)
     assert (pairs["p_holm"] < 0.01).all()
+    with_ci = results.compare(medians, [("B", "A")], np.random.default_rng(0))["pairs"].iloc[0]
+    assert with_ci["ci_low"] < 0.5 < with_ci["ci_high"] and with_ci["ci_high"] - with_ci["ci_low"] < 0.3
     assert tests["friedman"]["p"] < 0.001 and list(tests["mean_ranks"].index) == ["C", "B", "A"]
     assert results.by_year(runs, "sharpe_10bps").shape == (3, 3)
 
@@ -89,6 +91,8 @@ def test_commands_write_the_tables(monkeypatch, tmp_path):
     wilcoxon = pd.read_csv(analysis / "wilcoxon.sharpe_10bps.stage2.csv")
     assert len(wilcoxon) == 4  # the ladder (B-A, C-B) and every method against A (B-A again, C-A)
     assert cli.main(["pilot", "--campaign", "pilot"]) == 0
+    with pytest.raises(SystemExit, match="confirmatory comparisons need"):
+        cli.main(["compare", "--campaign", "pilot", "--rungs", "A", "B", "C", "--confirmatory"])
     assert (analysis / "timing.csv").exists() and (analysis / "still_improving.csv").exists()
     with pytest.raises(SystemExit, match="no stage-1 runs"):
         cli.main(["compare", "--campaign", "pilot", "--stage", "1", "--rungs", "A"])

@@ -6,7 +6,7 @@ The project evolves strongly-typed genetic programming (GP) trading strategies w
 
 ## Status
 
-Set-up and the directional-change module are done. The data pipeline (Phase 2) is under way. Built and run: the trading calendar and point-in-time rules, the universe (ActTrade's US stocks plus a sector-balanced draw, and 50 hold-out stocks), prices with spin-off corrections, market series, SEC fundamentals, ActTrade's twelve fundamental and twelve technical indicators, and the market regimes (Phase 3). Built, waiting for data: the twelve sentiment indicators from GDELT, whose extraction is running (about three days). Also built: the typed GP engine with the ablation ladder, the backtester, rule-based benchmarks and the statistical tests (Phase 4). The plan is in [`docs/RESEARCH_PLAN.md`](docs/RESEARCH_PLAN.md) and decisions to date in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+Set-up and the directional-change module are done. Data pipeline (Phase 2): built and run for the trading calendar and point-in-time rules, the universe (ActTrade's US stocks plus a sector-balanced draw, and 50 hold-out stocks), prices with spin-off corrections, market series, SEC fundamentals, and ActTrade's twelve fundamental and twelve technical indicators; the twelve sentiment indicators are built and wait for the GDELT extraction, which is running (about three days). Market regimes (Phase 3), including news attention, are built. The engine (Phase 4) is built: the typed GP with the ablation ladder, the backtester, campaigns as job-array tasks, rule-based and machine-learning benchmarks, and the analysis (paired tests, portfolio tests, pilot checks). Next: the pilot on 2015–2018 (Phase 5) under the draft analysis protocol, [`docs/PROTOCOL.md`](docs/PROTOCOL.md). The plan is in [`docs/RESEARCH_PLAN.md`](docs/RESEARCH_PLAN.md) and decisions to date in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Layout
 
@@ -17,11 +17,13 @@ Set-up and the directional-change module are done. The data pipeline (Phase 2) i
 | `src/regime_fusion/data/` | Data pipeline: downloads, trading calendar, point-in-time alignment, checks |
 | `src/regime_fusion/engine/` | Typed GP (ActTrade and the ablation ladder), backtester, metrics, runs; see `docs/ENGINE.md` |
 | `src/regime_fusion/regimes/` | Market regimes: Gaussian HMMs with filtered probabilities, per walk-forward window |
-| `src/regime_fusion/analysis/` | Statistics: Wilcoxon-Holm, Friedman-Conover, Deflated Sharpe Ratio, PBO, Hansen's SPA |
+| `src/regime_fusion/analysis/` | Analysis of campaigns and statistics: Wilcoxon-Holm, Friedman-Conover, Deflated Sharpe Ratio, PBO, Hansen's SPA |
+| `src/regime_fusion/ml/` | Machine-learning benchmarks |
 | `configs/study.yaml` | Settled study design: periods, walk-forward windows, runs, costs, base seed |
 | `configs/data_sources.yaml` | Settings for the data pipeline (download range, rate limits, contacts) |
 | `configs/rungs.yaml` | GP parameters, the ablation ladder and the exit-setting grid |
-| `docs/` | Research plan, decision log, data pipeline (`DATA.md`), and the analysis protocol once it is frozen |
+| `configs/benchmarks.yaml` | Rule-based and machine-learning benchmarks |
+| `docs/` | Research plan, decision log, data pipeline (`DATA.md`), engine (`ENGINE.md`) and the analysis protocol (`PROTOCOL.md`, a draft until the pilot ends) |
 | `tests/` | Automated tests, including look-ahead checks and a cross-check against the group's earlier Java DC code |
 
 ## Set-up

@@ -12,9 +12,10 @@ training fitness and evaluation measures at every cost.
   branch (the plan's ΔSRC_Max), per run.
 * ``summary``: per method, the medians and means over stock-years of several
   measures, and the share of runs that never trade.
-* ``compare``: Wilcoxon-Holm tests between named pairs, and the Friedman test
+* ``compare``: Wilcoxon-Holm tests between named pairs, each with a bootstrap
+  confidence interval for the median paired difference, and the Friedman test
   with Conover's comparisons across all methods, on stock-years that every
-  method covers.
+  method covers. ``CONFIRMATORY`` holds the six comparisons of docs/PROTOCOL.md.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ import pandas as pd
 from regime_fusion.analysis import stats
 
 KEYS = ["stock", "test_year"]
+CONFIRMATORY = [("A1", "A0"), ("A2", "A1"), ("A3", "A2"), ("A4", "A3"), ("A5", "A4"), ("A5", "A0")]
 
 
 def stock_year_medians(runs: pd.DataFrame, measure: str) -> pd.DataFrame:
@@ -69,10 +71,27 @@ def ladder(rungs: list[str]) -> list[tuple[str, str]]:
     return list(zip(rungs[1:], rungs[:-1]))
 
 
-def compare(table: pd.DataFrame, pairs: list[tuple[str, str]]) -> dict[str, object]:
+def median_difference_ci(differences, rng: np.random.Generator, draws: int = 10_000,
+                         level: float = 0.95) -> tuple[float, float]:
+    """Percentile bootstrap interval for the median of paired differences (units resampled)."""
+    values = np.asarray(differences, dtype=float)
+    values = values[~np.isnan(values)]
+    if len(values) == 0:
+        return np.nan, np.nan
+    medians = np.median(values[rng.integers(len(values), size=(draws, len(values)))], axis=1)
+    tail = (1 - level) / 2
+    return float(np.quantile(medians, tail)), float(np.quantile(medians, 1 - tail))
+
+
+def compare(table: pd.DataFrame, pairs: list[tuple[str, str]],
+            rng: np.random.Generator | None = None) -> dict[str, object]:
     """Paired tests on a stock-year table; Friedman and Conover use the stock-years every method has."""
     complete = table.dropna()
-    out: dict[str, object] = {"pairs": stats.wilcoxon_pairs(table, pairs), "stock_years": len(complete)}
+    tested = stats.wilcoxon_pairs(table, pairs)
+    if rng is not None:
+        bounds = [median_difference_ci(table[a] - table[b], rng) for a, b in pairs]
+        tested["ci_low"], tested["ci_high"] = [b[0] for b in bounds], [b[1] for b in bounds]
+    out: dict[str, object] = {"pairs": tested, "stock_years": len(complete)}
     if table.shape[1] >= 3 and len(complete) >= 2:
         statistic, p = stats.friedman(complete)
         out.update(friedman={"statistic": statistic, "p": p}, conover=stats.conover(complete),

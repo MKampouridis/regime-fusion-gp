@@ -37,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--measure", default="sharpe_10bps", help="a column of runs.parquet (default sharpe_10bps)")
     sub.add_argument("--rungs", nargs="+", help="methods in ladder order (default: all, sorted)")
     sub.add_argument("--against", help="also compare every method with this one")
+    sub.add_argument("--confirmatory", action="store_true",
+                     help="test exactly the six confirmatory comparisons of docs/PROTOCOL.md")
     sub.add_argument("--stage", type=int, choices=(1, 2), default=2, help="1 for the pilot (validation year)")
     sub.set_defaults(handler=compare_command)
 
@@ -82,10 +84,17 @@ def compare_command(args: argparse.Namespace) -> int:
     runs = runs[runs["rung"].isin(rungs)]
     folder, name = output(args.campaign), f"{args.measure}.stage{args.stage}"
     medians = results.stock_year_medians(runs, args.measure)[rungs]
-    pairs = results.ladder(rungs)
-    if args.against:
-        pairs += [(rung, args.against) for rung in rungs if rung != args.against]
-    tests = results.compare(medians, pairs)
+    if args.confirmatory:
+        pairs = results.CONFIRMATORY
+        absent = sorted({m for pair in pairs for m in pair} - set(rungs))
+        if absent:
+            raise SystemExit(f"the confirmatory comparisons need {absent}")
+    else:
+        pairs = results.ladder(rungs)
+        if args.against:
+            pairs += [(rung, args.against) for rung in rungs if rung != args.against]
+    rng = make_rng(load_config().base_seed, "analysis", "compare", args.campaign, args.measure)
+    tests = results.compare(medians, pairs, rng)
     medians.to_csv(folder / f"medians.{name}.csv")
     results.best_fitness(runs, args.measure)[rungs].to_csv(folder / f"best_fitness.{name}.csv")
     results.by_year(runs, args.measure)[rungs].to_csv(folder / f"by_year.{name}.csv")
