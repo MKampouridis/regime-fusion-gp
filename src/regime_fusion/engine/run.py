@@ -89,6 +89,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
         **spec.__dict__,
         "rung": rung.name,
         "campaign": campaign,
+        "scheme": config.windows.scheme,
         "sources": list(sources),
         "train": [str(train.start), str(train.end)],
         "evaluate": [str(evaluate.start), str(evaluate.end)],
@@ -176,7 +177,7 @@ def choose_exits(stock: str, test_year: int, rung: Rung, config: StudyConfig, gr
                            "sharpes": sharpes})
     best = max(scores, key=lambda s: (s["median_sharpe"], -s["days"]))
     choice = {"stock": stock, "test_year": test_year, "days": best["days"], "rate": best["rate"],
-              "rung": rung.name, "candidates": scores}
+              "rung": rung.name, "scheme": config.windows.scheme, "candidates": scores}
     provenance.write(exits_path(campaign, stock, test_year),
                      {**choice, "provenance": provenance.collect(config, rung_digest=rung.digest())})
     return choice

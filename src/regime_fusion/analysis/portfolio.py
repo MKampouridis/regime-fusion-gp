@@ -97,11 +97,16 @@ def tests(returns: pd.DataFrame, benchmark: str, candidates: list[str], n_trials
     return out
 
 
-def regime_states(name: str, years: list[int], root=None) -> pd.Series:
-    """Most probable regime state of each test-year day (stage-2 probabilities, market regimes)."""
+def regime_states(name: str, years: list[int], root=None, scheme: str = "rolling") -> pd.Series:
+    """Most probable regime state of each test-year day (stage-2 probabilities of shared regimes,
+    fitted on the campaign's walk-forward scheme). Regimes per stock have no common state."""
+    from regime_fusion.regimes import market
+
+    if market.per_stock(name, market.load_settings()):
+        raise FileNotFoundError(f"{name} regimes are per stock; a portfolio has no common regime state")
     parts = []
     for year in years:
-        path = store.layer("processed", "regimes", name, f"{year}.stage2.parquet", root=root)
+        path = market.probabilities_path(name, year, 2, root=root, scheme=scheme)
         probabilities = pd.read_parquet(path).loc[str(year)]
         parts.append(probabilities.idxmax(axis=1).str.removeprefix("p_state").astype(int))
     return pd.concat(parts).rename("state")

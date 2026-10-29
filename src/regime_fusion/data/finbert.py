@@ -1,9 +1,13 @@
 """FinBERT headline sentiment from FNSPID, for the robustness check (option B, docs/DECISIONS.md).
 
 * ``headlines``: the universe's FNSPID headlines (``regime_fusion.data.fnspid``),
-  one row per stock, headline and time, with the session each counts for
-  (``regime_fusion.data.news``: after the close of t counts for t+1; items with
-  only a date count for the first session after it).
+  one row per stock, headline and time, with the session each counts for. All
+  of them count as items with only a date, so each counts for the first session
+  after its date (``regime_fusion.data.news``). FNSPID labels its times UTC, but
+  99.5% are exactly midnight (a date only), and the rest cluster between 03:00
+  and 09:00, the New York pre-market hours, which suggests local times labelled
+  UTC. Ignoring the time of day rules out any look-ahead from that doubt and
+  delays few headlines.
 * ``score_texts``: FinBERT's probabilities that a headline is positive,
   negative or neutral (ProsusAI/finbert, fine-tuned on the Financial PhraseBank,
   text written before 2014). Each distinct headline is scored once and the
@@ -16,8 +20,10 @@
   finbert_sentiment_w   mean of P(positive) - P(negative) over headlines
   ====================  ===============================================
 
-  The sentiment is missing when the window has no headline. Sessions after the
-  last day FNSPID covers have no value at all, rather than zero news.
+  The sentiment is missing when the window has no headline. FNSPID's coverage
+  differs by stock (``All_external.csv`` ends in June 2020, and 18 of the stocks
+  have no later source), so sessions outside a stock's first and last headline
+  have no value at all, rather than zero news.
 
 The indicators join the sentiment branch (as ``sa:finbert_...``) in the
 robustness rungs (``finbert: true`` in ``configs/rungs.yaml``).
@@ -48,11 +54,12 @@ def headlines(frames: Iterable[pd.DataFrame], calendar: TradingCalendar) -> pd.D
     """Distinct headlines per stock with their time and session (``stock`` is the study's id)."""
     raw = pd.concat(list(frames), ignore_index=True)
     raw = raw.dropna(subset=["Article_title", "Date"])
-    stamps, date_only = news.fnspid_time(raw["Date"])
+    stamps, _ = news.fnspid_time(raw["Date"])
     out = pd.DataFrame({"stock": raw["stock"].to_numpy(), "time": stamps,
                         "title": raw["Article_title"].astype(str).str.strip().to_numpy()})
-    out["session"] = news.assign_sessions(calendar, stamps, date_only)
-    out = out.dropna(subset=["session"]).drop_duplicates(["stock", "time", "title"])
+    out["session"] = news.assign_sessions(calendar, stamps, np.ones(len(stamps), dtype=bool))  # dates only
+    before = stamps.tz_convert("UTC").tz_localize(None).normalize() < calendar.sessions[0]
+    out = out[~before].dropna(subset=["session"]).drop_duplicates(["stock", "time", "title"])
     out["key"] = text_key(out["title"])
     return out.sort_values(["stock", "time"]).reset_index(drop=True)
 
@@ -89,9 +96,20 @@ def score_texts(items: pd.DataFrame, known: pd.DataFrame, scorer: Callable[[list
     return pd.concat([known, fresh], ignore_index=True)[["key", "positive", "negative", "neutral"]]
 
 
+def coverage(items: pd.DataFrame) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    """FNSPID's coverage of one stock: the sessions of its first and last headline.
+
+    This describes the dataset (where it stops following a stock), not the
+    market, and is fixed once from the whole dataset; the indicators of a day
+    still use only the headlines up to it.
+    """
+    return (items["session"].min(), items["session"].max()) if len(items) else None
+
+
 def indicators(items: pd.DataFrame, scores: pd.DataFrame, sessions: pd.DatetimeIndex,
-               covered_until: pd.Timestamp) -> pd.DataFrame:
-    """The four indicators of one stock for every session in ``sessions``."""
+               covered: tuple[pd.Timestamp, pd.Timestamp] | None) -> pd.DataFrame:
+    """The four indicators of one stock for every session in ``sessions``; missing outside
+    ``covered`` (``coverage`` of the stock's headlines)."""
     scored = items.merge(scores, on="key", how="left")
     scored["tone"] = scored["positive"] - scored["negative"]
     daily = scored.groupby("session").agg(count=("tone", "size"), tone=("tone", "sum"))
@@ -103,5 +121,8 @@ def indicators(items: pd.DataFrame, scores: pd.DataFrame, sessions: pd.DatetimeI
         out[f"finbert_attention_{w}"] = np.log1p(count)
         out[f"finbert_sentiment_{w}"] = (tone / count).where(count > 0)
     table = pd.DataFrame(out, index=sessions)[COLUMNS]
-    table.loc[table.index > covered_until] = np.nan
+    if covered is None:
+        return table * np.nan
+    inside = (table.index >= covered[0]) & (table.index <= covered[1])
+    table.loc[~inside] = np.nan
     return table

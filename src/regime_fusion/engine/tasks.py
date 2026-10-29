@@ -22,9 +22,13 @@ submitted again. ``collect`` gathers a campaign's runs into one table.
 
 A campaign planned as development-only (the pilot) may evaluate on data up to
 ``period.development_end`` only: planning refuses any task that would look at
-later data, and running checks again. A campaign may use expanding instead of
-rolling walk-forward windows (the robustness check); the plan records which,
-and every task of the campaign follows it.
+later data, and running checks again; it may not include hold-out stocks.
+
+A campaign uses one walk-forward scheme, rolling (the main results) or
+expanding (the robustness check), recorded in ``results/<campaign>/campaign.json``
+when it is first planned or run. Results and exit settings carry no scheme in
+their paths, so a campaign refuses work under the other scheme: expanding
+windows need a campaign of their own.
 """
 
 from __future__ import annotations
@@ -104,6 +108,35 @@ def check_development(task: Task, config: StudyConfig) -> None:
                          f"after the development period (to {config.period.development_end})")
 
 
+def campaign_scheme(campaign: str) -> str | None:
+    """The walk-forward scheme a campaign was started with (None for a new campaign)."""
+    path = store.data_dir() / "results" / campaign / "campaign.json"
+    return str(json.loads(path.read_text())["scheme"]) if path.exists() else None
+
+
+def claim_scheme(campaign: str, scheme: str) -> None:
+    """Record a new campaign's scheme, or refuse work under another scheme than its own."""
+    current = campaign_scheme(campaign)
+    if current is None:
+        provenance.write(store.data_dir() / "results" / campaign / "campaign.json",
+                         {"campaign": campaign, "scheme": scheme,
+                          "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")})
+    elif current != scheme:
+        raise ValueError(f"campaign {campaign!r} uses {current} windows; "
+                         f"{scheme} windows need a campaign of their own")
+
+
+def check_roles(stocks: list[str]) -> None:
+    """Development-only work may not touch the hold-out stocks."""
+    from regime_fusion.data.universe import DEFAULT_UNIVERSE, load_universe
+
+    universe = load_universe(DEFAULT_UNIVERSE)
+    known = {stock.id: stock.role for stock in universe.stocks}
+    held_out = sorted(s for s in stocks if known.get(s) == "holdout")
+    if held_out:
+        raise ValueError(f"development-only work may not use hold-out stocks: {held_out}")
+
+
 def plan_path(campaign: str, name: str) -> Path:
     return store.data_dir() / "results" / campaign / f"tasks.{name}.json"
 
@@ -121,6 +154,9 @@ def save_plan(campaign: str, kind: str, tasks: list[Task], *, development_only: 
     path = plan_path(campaign, name)
     if path.exists() and not replace:
         raise FileExistsError(f"{path} exists; running jobs use its numbering (pass replace to plan again)")
+    if development_only:
+        check_roles(sorted(stocks if stocks is not None else {t.stock for t in tasks} - {"*"}))
+    claim_scheme(campaign, scheme)
     named = [dataclasses.replace(t, plan=name) for t in tasks]
     record = {"campaign": campaign, "name": name, "kind": kind, "development_only": development_only,
               "scheme": scheme, "stocks": sorted(stocks if stocks is not None else {t.stock for t in tasks} - {"*"}),
@@ -153,8 +189,10 @@ def plan_stocks(campaign: str, name: str) -> list[str]:
 def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Rung], *,
             development_only: bool) -> dict[str, int]:
     """Do what is left of one task; returns how many items were done and skipped."""
+    claim_scheme(campaign, config.windows.scheme)
     if development_only:
         check_development(task, config)
+        check_roles(plan_stocks(campaign, task.plan or task.kind) if task.stock == "*" else [task.stock])
     if task.stock == "*":
         return execute_pooled(task, campaign, config)
     if task.kind == "exits":
@@ -242,7 +280,7 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
             log.warning("collect: %s is not readable; skipped", path)
             continue
         row = {key: record.get(key) for key in ("rung", "stock", "test_year", "stage", "run", "exit_days",
-                                                "exit_rate", "fitness", "seconds")}
+                                                "exit_rate", "fitness", "seconds", "scheme")}
         row["evaluate_start"], row["evaluate_end"] = record.get("evaluate", [None, None])
         for cost in costs:
             for measure, value in record["evaluation"][f"{cost:g}bps"].items():

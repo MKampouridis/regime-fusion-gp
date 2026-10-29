@@ -21,6 +21,7 @@ from pathlib import Path
 import pandas as pd
 
 from regime_fusion.analysis import pilot, portfolio, results
+from regime_fusion.ml.models import load_settings as load_benchmarks
 from regime_fusion.config import load_config
 from regime_fusion.data import store
 from regime_fusion.seeds import make_rng
@@ -151,8 +152,10 @@ def portfolio_command(args: argparse.Namespace) -> int:
              {k: round(v, 3) for k, v in outcome["deflated_sharpe"].items()})
     if args.stage == 2:
         years = sorted(int(y) for y in runs["test_year"].unique())
+        schemes = set(runs["scheme"].dropna()) if "scheme" in runs else set()
+        scheme = schemes.pop() if len(schemes) == 1 else "rolling"
         try:
-            states = portfolio.regime_states(args.regimes, years)
+            states = portfolio.regime_states(args.regimes, years, scheme=scheme)
         except FileNotFoundError as error:
             log.warning("no breakdown by regime: %s", error)
         else:
@@ -182,8 +185,11 @@ def pilot_command(args: argparse.Namespace) -> int:
     config = load_config()
     runs = load_runs(args.campaign)
     folder = output(args.campaign)
-    speed = pilot.timing(runs, stocks=50, years=len(config.period.test_years),
-                         runs_per=config.runs_per_configuration)
+    benchmarks = load_benchmarks().methods()
+    runs_for = {m: (benchmarks[m].runs if m in benchmarks else config.runs_per_configuration)
+                for m in runs["rung"].unique()}
+    pooled = frozenset(m for m in runs_for if m in benchmarks and benchmarks[m].pooled)
+    speed = pilot.timing(runs, stocks=50, years=len(config.period.test_years), runs_for=runs_for, pooled=pooled)
     speed.to_csv(folder / "timing.csv")
     history = pilot.histories(args.campaign)
     if len(history):

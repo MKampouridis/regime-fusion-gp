@@ -53,9 +53,8 @@ def run_ml(spec: RunSpec, model: ModelSpec, settings: Settings, config: StudyCon
     else:
         final = panel_for(spec, settings, window.final_train, window.test, stage=2, scheme=config.windows.scheme)
         fitted = fit(final, spec, model, choice["params"], primary, seed(config, spec, stage=2))
-        threshold = float(np.quantile(fitted["train_prediction"], choice["quantile"]))
-        signal = fitted["evaluate_prediction"] >= threshold
-        train_signal = fitted["train_prediction"] >= threshold
+        signal = decide(fitted["train_prediction"], fitted["evaluate_prediction"], choice["quantile"])
+        train_signal = decide(fitted["train_prediction"], fitted["train_prediction"], choice["quantile"])
         fitted_on, evaluated_on = window.final_train, window.test
     prices = final.prices.loc[final.evaluate]
     evaluation = {f"{cost:g}bps": metrics.summary(backtest(signal, prices, spec.exit_days, spec.exit_rate, cost))
@@ -65,6 +64,7 @@ def run_ml(spec: RunSpec, model: ModelSpec, settings: Settings, config: StudyCon
         **spec.__dict__,
         "rung": model.name,
         "campaign": campaign,
+        "scheme": config.windows.scheme,
         "sources": list(settings.sources),
         "train": [str(fitted_on.start), str(fitted_on.end)],
         "evaluate": [str(evaluated_on.start), str(evaluated_on.end)],
@@ -83,6 +83,20 @@ def run_ml(spec: RunSpec, model: ModelSpec, settings: Settings, config: StudyCon
                                                   ml_model=model.__dict__)
         provenance.write(result_path(campaign, model.name, spec), record)
     return record
+
+
+def decide(train_prediction: np.ndarray, prediction: np.ndarray, quantile: float) -> np.ndarray:
+    """Buy where the prediction reaches the ``quantile`` of the training predictions.
+
+    A model whose training predictions are all equal (it saw one class only)
+    ranks nothing; it then buys every day only if it predicts gains more often
+    than not, and otherwise never.
+    """
+    train_prediction, prediction = np.asarray(train_prediction), np.asarray(prediction)
+    if len(train_prediction) == 0 or np.ptp(train_prediction) == 0:
+        rate = float(train_prediction[0]) if len(train_prediction) else 0.0
+        return np.full(len(prediction), rate > 0.5)
+    return prediction >= float(np.quantile(train_prediction, quantile))
 
 
 def seed(config: StudyConfig, spec: RunSpec, stage: int) -> int:
@@ -117,15 +131,14 @@ def tune(panel: Panel, spec: RunSpec, model: ModelSpec, settings: Settings, cost
     for params in model.candidates():
         fitted = fit(panel, spec, model, params, cost_bps, seed_value)
         for quantile in settings.quantiles:
-            threshold = float(np.quantile(fitted["train_prediction"], quantile))
-            signal = fitted["evaluate_prediction"] >= threshold
+            signal = decide(fitted["train_prediction"], fitted["evaluate_prediction"], quantile)
             result = backtest(signal, prices, spec.exit_days, spec.exit_rate, cost_bps)
             trades = len(result.trades)
             score = metrics.sharpe(result.daily) if trades >= settings.min_trades else 0.0
             table.append({**params, "quantile": quantile, "sharpe": score, "trades": trades})
             if best is None or score > best["sharpe"]:
                 best = {"params": params, "quantile": quantile, "sharpe": score, "validation_signal": signal,
-                        "train_signal": fitted["train_prediction"] >= threshold}
+                        "train_signal": decide(fitted["train_prediction"], fitted["train_prediction"], quantile)}
     return {**best, "table": table}
 
 

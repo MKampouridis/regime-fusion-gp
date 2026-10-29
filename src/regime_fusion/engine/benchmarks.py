@@ -168,6 +168,7 @@ def run_rule(spec: RunSpec, rule, settings, config: StudyConfig, *, campaign: st
         **spec.__dict__,
         "rung": rule.name,
         "campaign": campaign,
+        "scheme": config.windows.scheme,
         "sources": [],
         "train": [str(window.validation.start), str(window.validation.end)],  # where parameters were chosen
         "evaluate": [str(evaluated_on.start), str(evaluated_on.end)],

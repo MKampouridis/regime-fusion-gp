@@ -60,16 +60,24 @@ def test_summary_and_comparisons():
 
 def test_timing_convergence_and_run_counts():
     runs = fake_runs(n_runs=60)
-    speed = pilot.timing(runs, stocks=50, years=7, runs_per=30)
+    speed = pilot.timing(runs, stocks=50, years=7, runs_for={"A": 30, "B": 1, "C": 10}, pooled=frozenset({"C"}))
     assert speed.loc["A", "median_seconds"] == 10.0
     assert speed.loc["A", "campaign_cpu_hours"] == pytest.approx(10.0 * 50 * 7 * 30 / 3600)
+    assert speed.loc["B", "campaign_cpu_hours"] == pytest.approx(10.5 * 50 * 7 * 1 / 3600)  # one run each
+    assert speed.loc["C", "campaign_cpu_hours"] == pytest.approx(11.0 * 7 * 10 / 3600)      # pooled: no stocks
+    assert speed.loc["C", "runs"] == 3 * 60  # one per test year and run, not per stock
     history = pd.DataFrame([{"rung": rung, "stock": "S1", "test_year": 2019, "stage": 1, "run": run,
-                             "generation": g, "best_fitness": (g if rung == "late" else min(g, 10)) + 1.0}
+                             "generation": g, "best_fitness": (g if rung == "late" else min(g, 10)) - 30.0}
                             for rung in ("early", "late") for run in range(3) for g in range(51)])
-    converged = pilot.convergence(history)
+    converged = pilot.convergence(history)  # fitness negative throughout: progress must still run 0 to 1
     assert converged["still_improving"].loc["early", "still_improving"] == 0.0
     assert converged["still_improving"].loc["late", "still_improving"] == 1.0
-    assert converged["curve"].loc[50, "late"] == 1.0 and converged["curve"].loc[0, "late"] == pytest.approx(1 / 51)
+    assert converged["curve"].loc[50, "late"] == 1.0 and converged["curve"].loc[0, "late"] == 0.0
+    assert converged["curve"].loc[5, "early"] == pytest.approx(0.5)
+    generations = pilot.convergence_generation(history)
+    assert generations.xs("early", level="rung").eq(10).all() and generations.xs("late", level="rung").eq(50).all()
+    flat = history.assign(best_fitness=1.0)
+    assert pilot.convergence_generation(flat).eq(0).all()
     counts = pilot.run_count_check(runs, "sharpe_10bps", np.random.default_rng(1), sizes=(10, 30, 50), draws=200)
     assert list(counts.index) == [10, 30, 50] and counts["cells"].eq(36).all()
     assert counts["sd"].is_monotonic_decreasing

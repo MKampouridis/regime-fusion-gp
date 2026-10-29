@@ -48,6 +48,7 @@ from regime_fusion.engine.panel import Panel, load_panel
 from regime_fusion.engine.run import RunSpec, pack_signal, regimes_file, result_path
 from regime_fusion.ml.labels import trade_returns
 from regime_fusion.ml.models import ModelSpec, Settings
+from regime_fusion.ml.run import decide
 from regime_fusion.seeds import make_rng
 from regime_fusion.windows import walk_forward
 
@@ -276,8 +277,8 @@ def best_quantile(stock_prediction: dict[str, np.ndarray], panel: Panel, exits: 
     best = (settings.quantiles[0], -np.inf)
     prices = panel.prices.loc[panel.evaluate]
     for quantile in settings.quantiles:
-        threshold = float(np.quantile(stock_prediction["train"], quantile))
-        result = backtest(stock_prediction["evaluate"] >= threshold, prices, exits[0], exits[1], cost_bps)
+        signal = decide(stock_prediction["train"], stock_prediction["evaluate"], quantile)
+        result = backtest(signal, prices, exits[0], exits[1], cost_bps)
         score = metrics.sharpe(result.daily) if len(result.trades) >= settings.min_trades else 0.0
         if score > best[1]:
             best = (quantile, score)
@@ -311,16 +312,17 @@ def run_tft(test_year: int, stage: int, run: int, stocks: list[str], exits: dict
     for stock in stocks:
         panel, (days, rate) = final.panels[stock], exits[stock]
         quantile = best["chosen"][stock][0]
-        threshold = float(np.quantile(predicted[stock]["train"], quantile))
-        signal = predicted[stock]["evaluate"] >= threshold
+        signal = decide(predicted[stock]["train"], predicted[stock]["evaluate"], quantile)
         prices = panel.prices.loc[panel.evaluate]
         spec = RunSpec(stock, test_year, run, stage, days, rate)
-        train_result = backtest(predicted[stock]["train"] >= threshold, panel.prices.loc[panel.train], days, rate,
+        train_result = backtest(decide(predicted[stock]["train"], predicted[stock]["train"], quantile),
+                                panel.prices.loc[panel.train], days, rate,
                                 primary)
         record = {
             **spec.__dict__,
             "rung": model.name,
             "campaign": campaign,
+            "scheme": config.windows.scheme,
             "sources": list(settings.sources),
             "train": [str(fitted_on.start), str(fitted_on.end)],
             "evaluate": [str(evaluated_on.start), str(evaluated_on.end)],

@@ -846,7 +846,6 @@ def run_finbert(args: argparse.Namespace) -> int:
         log.error("finbert: no FNSPID headlines in %s; run the fnspid command first", store.layer("raw", "fnspid"))
         return 1
     items = finbert.headlines((pd.read_parquet(path) for path in files), calendar)
-    covered_until = items["session"].max()
     items = items[items["stock"].isin(stocks)]
     cache = store.layer("interim", "finbert", "scores.parquet")
     known = (pd.read_parquet(cache) if cache.exists()
@@ -863,12 +862,14 @@ def run_finbert(args: argparse.Namespace) -> int:
     report = {}
     for stock in stocks:
         own = items[items["stock"] == stock]
-        table = finbert.indicators(own, scores, calendar.sessions, covered_until)
+        window = finbert.coverage(own)
+        table = finbert.indicators(own, scores, calendar.sessions, window)
+        covered = [str(day.date()) for day in window] if window else None
         store.write_parquet(store.layer("processed", "finbert", f"{stock}.parquet"), table, stock=stock,
-                            model=finbert.MODEL, revision=revision, covered_until=str(covered_until.date()))
+                            model=finbert.MODEL, revision=revision, covered=covered)
         per_year = own.groupby(own["session"].dt.year).size()
         report[stock] = {"headlines_per_year": {str(k): int(v) for k, v in per_year.items()},
-                         "covered_until": str(covered_until.date())}
+                         "covered": covered}
     write_report("finbert_coverage.json", report)
     return 0
 

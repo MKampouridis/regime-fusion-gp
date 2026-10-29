@@ -50,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = commands.add_parser("exits", help="choose a stock-year's exit settings with rung A0")
     sub.add_argument("--stock", required=True)
     sub.add_argument("--test-year", type=int, required=True)
+    sub.add_argument("--scheme", choices=("rolling", "expanding"), help="walk-forward windows (default: rolling)")
     add_common(sub)
     sub.set_defaults(handler=exits_command)
 
@@ -132,6 +133,10 @@ def run_command(args: argparse.Namespace) -> int:
         chosen = json.loads(path.read_text())
         days, rate = chosen["days"], chosen["rate"]
     spec = RunSpec(args.stock, args.test_year, args.run, args.stage, days, rate)
+    try:
+        tasks.claim_scheme(args.campaign, config.windows.scheme)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
     if args.rung in rungs:
         record = run(spec, rungs[args.rung], config, campaign=args.campaign,
                      sources=tuple(args.sources) if args.sources else None, overrides=overrides(args))
@@ -148,6 +153,12 @@ def run_command(args: argparse.Namespace) -> int:
 
 def exits_command(args: argparse.Namespace) -> int:
     config, rungs = load_config(), load_rungs()
+    if args.scheme:
+        config = with_scheme(config, args.scheme)
+    try:
+        tasks.claim_scheme(args.campaign, config.windows.scheme)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
     choice = choose_exits(args.stock, args.test_year, rungs["A0"], config, exit_grid(), campaign=args.campaign,
                           sources=tuple(args.sources) if args.sources else None, overrides=overrides(args))
     log.info("%s %d: exit after %d days or at +%.1f%%", args.stock, args.test_year, choice["days"],
@@ -158,6 +169,8 @@ def exits_command(args: argparse.Namespace) -> int:
 def tasks_command(args: argparse.Namespace) -> int:
     config = with_scheme(load_config(), args.scheme)
     universe = load_universe(DEFAULT_UNIVERSE)
+    if args.development and args.include_holdout:
+        raise SystemExit("a development-only campaign may not use the hold-out stocks")
     if args.stocks:
         chosen = [universe.get(stock) for stock in args.stocks]
         if any(stock.role == "holdout" for stock in chosen) and not args.include_holdout:

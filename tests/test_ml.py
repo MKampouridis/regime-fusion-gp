@@ -162,3 +162,15 @@ def test_gated_benchmark_runs_with_the_common_protocol(data_dir):
     record = run_ml(spec, settings.models["ML-GATED"], settings, config, write=False)
     assert record["rung"] == "ML-GATED" and settings.models["ML-GATED"].runs == 10
     assert record["evaluation"]["10bps"]["sharpe"] > 1.0  # it found the pattern out of sample
+
+
+def test_a_model_that_saw_one_class_does_not_buy_every_day():
+    from regime_fusion.ml.run import decide
+
+    nothing = decide(np.zeros(50), np.zeros(10), 0.7)          # never saw a gaining trade
+    assert not nothing.any()
+    assert decide(np.ones(50), np.ones(10), 0.7).all()          # only gaining trades: buys
+    ranked = decide(np.arange(101.0), np.array([69.0, 70.0, 71.0]), 0.7)  # the 0.7 quantile is 70
+    assert ranked.tolist() == [False, True, True]
+    constant = models.Constant(np.zeros(30))
+    assert not decide(constant.predict(np.zeros((30, 2))), constant.predict(np.zeros((5, 2))), 0.5).any()

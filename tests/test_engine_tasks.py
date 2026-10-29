@@ -177,3 +177,23 @@ def test_run_all_in_parallel_reports_failed_tasks(monkeypatch, tmp_path):
     assert cli.main(["tasks", "--campaign", "x", "--kind", "exits", "--stocks", "AAPL", "F", "--years", "2019",
                      "--development"]) == 0
     assert cli.main(["run-all", "--campaign", "x", "--kind", "exits", "--workers", "2"]) == 1
+
+
+def test_a_campaign_keeps_to_one_scheme_and_pilots_keep_off_the_hold_out(fake_engine, tmp_path):
+    config = load_config()
+    assert cli.main(["tasks", "--campaign", "main", "--kind", "exits", "--stocks", "AAPL", "--years", "2019"]) == 0
+    assert tasks.campaign_scheme("main") == "rolling"
+    with pytest.raises(SystemExit, match="need a campaign of their own"):
+        cli.main(["tasks", "--campaign", "main", "--kind", "runs", "--plan", "robust", "--rungs", "A0",
+                  "--stocks", "AAPL", "--years", "2019", "--scheme", "expanding"])
+    with pytest.raises(SystemExit, match="need a campaign of their own"):
+        cli.main(["run", "--rung", "A0", "--stock", "AAPL", "--test-year", "2019", "--exit", "10", "0.02",
+                  "--campaign", "main", "--scheme", "expanding"])
+    with pytest.raises(SystemExit, match="hold-out"):
+        cli.main(["tasks", "--campaign", "dev", "--kind", "exits", "--include-holdout", "--years", "2019",
+                  "--development"])
+    planned = tasks.plan("exits", ["AMG"], [2019], config, development_only=True)
+    with pytest.raises(ValueError, match="hold-out"):
+        tasks.save_plan("dev", "exits", planned, development_only=True)
+    with pytest.raises(ValueError, match="hold-out"):
+        tasks.execute(planned[0], "dev", config, {}, development_only=True)

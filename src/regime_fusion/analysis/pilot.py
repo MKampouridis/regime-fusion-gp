@@ -1,10 +1,12 @@
 """Checks for the pilot (Phase 5, on 2015-2018 data only): timing, convergence, number of runs.
 
 * ``timing``: seconds per run for each method, and the CPU hours the main
-  campaign would need at that speed.
-* ``histories`` and ``convergence``: the best training fitness of each
-  generation relative to the last, and the share of runs still improving in
-  their last generations, which says whether 50 generations are enough.
+  campaign would need at that speed, with each method's own number of runs (a
+  pooled model's run serves every stock at once).
+* ``histories`` and ``convergence``: each run's progress, the share of its
+  total rise in best training fitness reached by each generation (well defined
+  whatever the sign of the fitness), and the share of runs still improving in
+  their last generations, which says whether there are enough generations.
 * ``run_count_check``: from stock-years with many runs (the plan's 100-run
   check), how much the median of n runs varies around the median of all of
   them, for several n; it says whether 30 runs are enough or 50 are needed.
@@ -23,13 +25,27 @@ from regime_fusion.data import store
 CELL = ["rung", "stock", "test_year", "stage"]
 
 
-def timing(runs: pd.DataFrame, *, stocks: int = 50, years: int = 7, runs_per: int = 30) -> pd.DataFrame:
-    """Seconds per run for each method, and the CPU hours of a campaign of that size."""
-    grouped = runs.groupby("rung")["seconds"]
-    out = pd.DataFrame({"runs": grouped.size(), "median_seconds": grouped.median(),
-                        "p90_seconds": grouped.quantile(0.9)})
-    out["campaign_cpu_hours"] = out["median_seconds"] * stocks * years * runs_per / 3600
-    return out
+def timing(runs: pd.DataFrame, *, stocks: int = 50, years: int = 7, runs_for: dict[str, int] | int = 30,
+           pooled: frozenset[str] = frozenset()) -> pd.DataFrame:
+    """Seconds per run for each method, and the CPU hours of a campaign of that size.
+
+    ``runs_for`` gives each method's runs per stock-year (one number for all, or
+    one per method). A pooled method's record holds the seconds of the run that
+    served every stock, so it counts once per test year, stage and run.
+    """
+    rows = {}
+    for rung, group in runs.groupby("rung"):
+        count = runs_for if isinstance(runs_for, int) else runs_for.get(rung, 30)
+        if rung in pooled:
+            seconds = group.drop_duplicates(["test_year", "stage", "run"])["seconds"]
+            hours = seconds.median() * years * count / 3600
+        else:
+            seconds = group["seconds"]
+            hours = seconds.median() * stocks * years * count / 3600
+        rows[rung] = {"runs": len(seconds), "median_seconds": seconds.median(),
+                      "p90_seconds": seconds.quantile(0.9), "runs_per_stock_year": count,
+                      "campaign_cpu_hours": hours}
+    return pd.DataFrame(rows).T
 
 
 def histories(campaign: str, root: Path | None = None) -> pd.DataFrame:
@@ -47,20 +63,39 @@ def histories(campaign: str, root: Path | None = None) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def convergence(history: pd.DataFrame, last: int = 10, gain: float = 0.01) -> dict[str, pd.DataFrame]:
-    """Per method: the median best fitness of each generation relative to the run's final best,
-    and the share of runs whose best fitness still rose by more than ``gain`` (of its final
-    size) over the last ``last`` generations."""
+def progress(history: pd.DataFrame) -> pd.DataFrame:
+    """Adds each run's progress: (best fitness - its first value) / (its last value - its first value).
+
+    Progress runs from 0 to 1 whatever the sign of the fitness (the best fitness
+    never falls, thanks to elitism); it is missing for a run that never improved.
+    """
     keys = CELL + ["run"]
-    final_generation = history.groupby(keys)["generation"].transform("max")
-    final = history.loc[history["generation"] == final_generation].set_index(keys)["best_fitness"]
-    relative = history.join(final.rename("final"), on=keys)
-    relative["share_of_final"] = relative["best_fitness"] / relative["final"].where(relative["final"] != 0)
-    curve = relative.groupby(["rung", "generation"])["share_of_final"].median().unstack("rung")
-    earlier = relative.loc[relative["generation"] == final_generation - last].set_index(keys)["best_fitness"]
-    rise = (final - earlier.reindex(final.index)) / final.abs().where(final != 0)
-    improving = (rise > gain).groupby(level="rung").mean().rename("still_improving")
+    ordered = history.sort_values([*keys, "generation"])
+    first = ordered.groupby(keys)["best_fitness"].transform("first")
+    last = ordered.groupby(keys)["best_fitness"].transform("last")
+    rise = (last - first).where(last > first)
+    return ordered.assign(progress=(ordered["best_fitness"] - first) / rise)
+
+
+def convergence(history: pd.DataFrame, last: int = 10, gain: float = 0.01) -> dict[str, pd.DataFrame]:
+    """Per method: the median progress of each generation, and the share of runs that gained more
+    than ``gain`` of their total rise over their last ``last`` generations (still improving)."""
+    keys = CELL + ["run"]
+    runs = progress(history)
+    curve = runs.groupby(["rung", "generation"])["progress"].median().unstack("rung")
+    final_generation = runs.groupby(keys)["generation"].transform("max")
+    before_end = runs.loc[runs["generation"] == final_generation - last].set_index(keys)["progress"]
+    improving = (1.0 - before_end > gain).groupby(level="rung").mean().rename("still_improving")
     return {"curve": curve, "still_improving": improving.to_frame()}
+
+
+def convergence_generation(history: pd.DataFrame, tolerance: float = 0.01) -> pd.Series:
+    """Per run, the first generation by which the best training fitness had made all but
+    ``tolerance`` of its total rise (generation 0 for a run that never improved)."""
+    keys = CELL + ["run"]
+    runs = progress(history)
+    reached = runs[(runs["progress"] >= 1.0 - tolerance) | runs["progress"].isna()]
+    return reached.groupby(keys)["generation"].min().rename("convergence_generation")
 
 
 def run_count_check(runs: pd.DataFrame, measure: str, rng: np.random.Generator,
