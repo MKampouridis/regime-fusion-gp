@@ -16,7 +16,9 @@ gp:
   particularity: 20.0       # DALex
 
 fitness:
-  # ActTrade's paper does not give its weights; equal weights until confirmed.
+  # ActTrade's values are published nowhere (its code reads them from the command line); its
+  # paper and thesis call the fitness the summation of the four Sharpe ratios, which equal
+  # weights reproduce: 0.25 each ranks trees exactly as the plain sum does (docs/ENGINE.md).
   weights: {C: 0.25, FA: 0.25, SA: 0.25, TA: 0.25}
   min_trades: 3             # ActTrade: six buys and sells
   blocks: 8                 # lexicase time blocks (half-years of a four-year window)

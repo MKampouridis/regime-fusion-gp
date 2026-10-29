@@ -84,7 +84,7 @@ Each is settled on 2015–2018 data only (stage 1 of the 2019 window), by the ru
 | DC threshold of the price regimes (A3) | 0.5% (`A3-fine`) or 1% (`A3`) | Options whose fitted regimes give a state less than 15% of the 2015–2017 days are dropped; of the rest, the higher median validation Sharpe ratio of A3 over the 50 stocks, 10 runs each; ties go to the smaller threshold |
 | Threshold of the news-attention DC (A4) | 0.25 (`A4`) or 0.5 (`A4-wide`), in log units | As for A3, with A4, after its price threshold is set to A3's choice |
 | Scaling of the indicators | min-max (`A1`) or rank (`A1-rank`) | The higher median validation Sharpe ratio of A1, 10 runs each |
-| Fitness weights | Equal (0.25 each) | Kept unless ActTrade's own values are found |
+| Fitness weights | Equal (0.25 each) | Kept: ActTrade's values are published nowhere, and its texts describe the fitness as the plain sum of the four Sharpe ratios, which equal weights reproduce (`ENGINE.md`, choice 3) |
 | Sentiment indicators | The twelve GDELT indicators | Decided by Michael (29 October 2026) |
 | GDELT name rules | `configs/news_names.yaml` | Revised on the 2015–2018 names report and the cross-check with FNSPID, before any pilot run (the main firms' rules were first reviewed on the 2015–16 news, 29 October 2026) |
 
