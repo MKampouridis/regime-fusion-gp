@@ -10,12 +10,13 @@
 # conda-forge still builds for glibc 2.17, and conda installs only builds that work with it, so
 # some versions may be older than on Michael's Mac; the tests at the end show whether they
 # behave the same.
-set -euo pipefail
+set -eo pipefail   # not -u: conda's own activation scripts use variables that may be unset
 case "$(hostname)" in
     compute-*) ;;
     *) echo "Please run this on a compute node: start one with 'qrsh -q interactive.q' and run it there." >&2
        exit 1 ;;
 esac
+unset PYTHONPATH   # CERES sets one for its own Pythons; the environment's Python would load their packages
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 PREFIX="$HOME/miniforge3"
 ENV=rfgp

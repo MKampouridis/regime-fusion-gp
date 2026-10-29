@@ -18,7 +18,10 @@
 #$ -cwd
 #$ -j y
 #$ -o logs/
-set -euo pipefail
+set -eo pipefail   # not -u: conda's own activation scripts use variables that may be unset
+: "${CAMPAIGN:?give CAMPAIGN with qsub -v}" "${PLAN:?give PLAN with qsub -v}"
+case "${SGE_TASK_ID:-}" in ''|*[!0-9]*) echo "submit this as a job array (qsub -t ...)" >&2; exit 1 ;; esac
+unset PYTHONPATH   # CERES sets one for its own Pythons; the environment's Python would load their packages
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate rfgp
 export RFGP_DATA_DIR="${RFGP_DATA_DIR:-$HOME/rfgp-data}"
