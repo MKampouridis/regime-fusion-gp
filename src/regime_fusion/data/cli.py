@@ -15,6 +15,7 @@ Commands (each has --help):
   sa            twelve sentiment indicators, daily, from the GDELT news sums
   regimes       market regimes: HMMs on the S&P 500 per walk-forward window (filtered)
   check         one view of every step's checks, for signing off the data (reports/data_check.md)
+  finbert       FinBERT sentiment of the FNSPID headlines, daily (robustness check)
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
 cached: a raw file already there is not fetched again unless --refresh is given.
@@ -42,7 +43,7 @@ import pandas as pd
 from regime_fusion import __version__
 from regime_fusion.config import StudyConfig, load_config
 from regime_fusion.data import (
-    check, constituents, draw, fa, fnspid, fundamentals, gdelt, market, prices, sa, sec, store, ta,
+    check, constituents, draw, fa, finbert, fnspid, fundamentals, gdelt, market, prices, sa, sec, store, ta,
 )
 from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.settings import DataSettings, load_settings
@@ -116,6 +117,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--inputs", nargs="+", default=None, help="input sets (default: all in the settings)")
     add_stock_options(sub, refresh=False)  # for regimes from each stock's news (rung A4)
     sub.set_defaults(run=run_regimes)
+
+    sub = commands.add_parser("finbert", help="FinBERT sentiment of the FNSPID headlines, daily")
+    add_stock_options(sub, refresh=False)
+    sub.set_defaults(run=run_finbert)
 
     sub = commands.add_parser("check", help="one view of every step's checks (reports/data_check.md)")
     sub.add_argument("--include-holdout", action="store_true", help="also the hold-out stocks")
@@ -823,6 +828,42 @@ def run_regimes(args: argparse.Namespace) -> int:
         write_report("regimes.json", report, merge=False)
     if per_stock_report:
         write_report("regimes_per_stock.json", per_stock_report)
+    return 0
+
+
+def run_finbert(args: argparse.Namespace) -> int:
+    """Score the FNSPID headlines with FinBERT (each distinct headline once) and build the indicators."""
+    calendar = study_calendar()
+    stocks = [stock.id for stock in selected_stocks(args)]
+    files = sorted(store.layer("raw", "fnspid").glob("*.parquet"))
+    if not files:
+        log.error("finbert: no FNSPID headlines in %s; run the fnspid command first", store.layer("raw", "fnspid"))
+        return 1
+    items = finbert.headlines((pd.read_parquet(path) for path in files), calendar)
+    covered_until = items["session"].max()
+    items = items[items["stock"].isin(stocks)]
+    cache = store.layer("interim", "finbert", "scores.parquet")
+    known = (pd.read_parquet(cache) if cache.exists()
+             else pd.DataFrame(columns=["key", "positive", "negative", "neutral"]))
+    try:
+        scorer, revision = finbert.finbert_scorer()
+    except ImportError:
+        raise SystemExit("finbert needs PyTorch and transformers: pip install -e '.[neural,finbert]'") from None
+    started = time.monotonic()
+    scores = finbert.score_texts(items, known, scorer)
+    store.write_parquet(cache, scores, model=finbert.MODEL, revision=revision)
+    log.info("finbert: %d headlines, %d newly scored in %.0f s (model %s, revision %s)", len(items),
+             len(scores) - len(known), time.monotonic() - started, finbert.MODEL, revision)
+    report = {}
+    for stock in stocks:
+        own = items[items["stock"] == stock]
+        table = finbert.indicators(own, scores, calendar.sessions, covered_until)
+        store.write_parquet(store.layer("processed", "finbert", f"{stock}.parquet"), table, stock=stock,
+                            model=finbert.MODEL, revision=revision, covered_until=str(covered_until.date()))
+        per_year = own.groupby(own["session"].dt.year).size()
+        report[stock] = {"headlines_per_year": {str(k): int(v) for k, v in per_year.items()},
+                         "covered_until": str(covered_until.date())}
+    write_report("finbert_coverage.json", report)
     return 0
 
 

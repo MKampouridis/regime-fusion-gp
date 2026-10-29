@@ -15,6 +15,9 @@ Scaling is fitted on the training rows only and then applied to every row:
 
 Regime probabilities p need no fitting: they enter as 2p - 1. An indicator with
 values on fewer than half of the training rows is dropped for the run.
+
+For the robustness check, FinBERT headline sentiment (``processed/finbert``)
+can join the sentiment branch: its indicators are then named ``sa:finbert_...``.
 """
 
 from __future__ import annotations
@@ -62,8 +65,10 @@ class Panel:
 
 
 def load_panel(stock: str, train: DateRange, evaluate: DateRange, sources: tuple[str, ...],
-               regimes: Path | None = None, scaling: str = "minmax", root: Path | None = None) -> Panel:
-    """Indicators and prices of ``stock``; ``regimes`` is a processed regime-probability file."""
+               regimes: Path | None = None, scaling: str = "minmax", root: Path | None = None,
+               finbert: bool = False) -> Panel:
+    """Indicators and prices of ``stock``; ``regimes`` is a processed regime-probability file;
+    ``finbert`` adds the FinBERT indicators to the sentiment branch."""
     if scaling not in SCALINGS:
         raise ValueError(f"scaling must be one of {SCALINGS}")
     prices = pd.read_parquet(store.layer("interim", "prices", f"{stock}.parquet", root=root))
@@ -79,6 +84,11 @@ def load_panel(stock: str, train: DateRange, evaluate: DateRange, sources: tuple
             raise FileNotFoundError(f"{stock}: no {source} indicators at {path}")
         table = pd.read_parquet(path)
         frames.append(table.add_prefix(f"{source.lower()}:"))
+    if finbert and "SA" in sources:
+        path = store.layer("processed", "finbert", f"{stock}.parquet", root=root)
+        if not path.exists():
+            raise FileNotFoundError(f"{stock}: no FinBERT indicators at {path}")
+        frames.append(pd.read_parquet(path).add_prefix("sa:"))
     raw = pd.concat(frames, axis=1).reindex(sessions)
     raw = raw.loc[:, [c for c in raw.columns if c.split(":", 1)[0] in {s.lower() for s in sources}
                       and not c.endswith(("market_value", "diluted_shares"))]]

@@ -27,6 +27,7 @@ class Rung:
     max_branch_depth: int
     scaling: str
     spec: dict[str, Any]   # the resolved settings, for provenance
+    finbert: bool = False  # robustness check: FinBERT headline sentiment joins the sentiment branch
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.spec, sort_keys=True).encode()).hexdigest()[:12]
@@ -59,4 +60,4 @@ def _rung(name: str, raw: dict[str, Any]) -> Rung:
     fitness["weights"] = spec.get("weights", fitness["weights"])
     resolved = {"rung": name, **spec, "gp": raw["gp"], "fitness": fitness, "scaling": raw["scaling"]}
     return Rung(name, tuple(spec["sources"]), tuple(spec["fusion"]), spec.get("regimes"), gp,
-                Settings(**fitness), max_depth, raw["scaling"], resolved)
+                Settings(**fitness), max_depth, raw["scaling"], resolved, bool(spec.get("finbert", False)))

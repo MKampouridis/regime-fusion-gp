@@ -63,7 +63,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
                        else (window.final_train, window.test))
     sources = tuple(sources or rung.sources)
     regimes = regimes_file(rung.regimes, spec.stock, spec.test_year, spec.stage)
-    panel = load_panel(spec.stock, train, evaluate, sources, regimes, rung.scaling)
+    panel = load_panel(spec.stock, train, evaluate, sources, regimes, rung.scaling, finbert=rung.finbert)
     grammar = Grammar(panel.names(), fusion_functions=rung.fusion, sources=sources,
                       max_branch_depth=rung.max_branch_depth)
     gp_config = rung.gp if not overrides else type(rung.gp)(**{**rung.gp.__dict__, **overrides})

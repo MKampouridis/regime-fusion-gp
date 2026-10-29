@@ -35,6 +35,7 @@ python -m regime_fusion.data gdelt --workers 12           # GDELT news, about 3 
 python -m regime_fusion.data sa --include-holdout         # twelve sentiment indicators from the GDELT news
 python -m regime_fusion.data regimes --include-holdout    # regimes per walk-forward window (A4's need the news)
 python -m regime_fusion.data check --include-holdout      # one view of every check: reports/data_check.md
+python -m regime_fusion.data finbert                      # robustness: FinBERT sentiment of FNSPID headlines
 ```
 
 Each step caches its downloads (`--refresh` fetches again), prints what needs a look, and writes its checks to `reports/`. The `check` step gathers them into one page, `reports/data_check.md`, listing per stock what needs a look (gaps, flags, daily moves over 25%, thin indicators, thin news, missing regime files); it is the basis for signing off the data (Phase 2). `--stocks AAPL MSFT` limits a step to some stocks (ids are January 2015 tickers). `python -m regime_fusion.data constituents` and `draw` rebuilt the committed constituents list and universe; they are needed again only if those change.
@@ -159,4 +160,12 @@ Sentiment and news attention come from GDELT (main source) and FNSPID (robustnes
   Means count each article once and are missing when there is no article. A five-session value needs at least three covered sessions, and its article count is scaled to five sessions. News effects on prices fade within days, hence windows of a day and a week.
 - **Why not ActTrade's.** ActTrade's twelve sentiment indicators score each article's text, title and summary with TextBlob (polarity and subjectivity), SentiWordNet and AFINN. GDELT gives no article text, so the study uses the text measures GDELT computes on the full text instead: its tone and the Loughran–McDonald dictionary, the standard finance dictionary, as the plan names them, plus attention. This choice is open for Michael in [`DECISIONS.md`](DECISIONS.md).
 - **Look-ahead tests.** The indicators are recomputed on truncated data (`check_no_lookahead`), and rebuilt with only the news and GDELT files public by each close (`check_point_in_time`).
+
+## FinBERT headline sentiment (robustness check)
+
+`python -m regime_fusion.data finbert` (`regime_fusion.data.finbert`) scores the universe's FNSPID headlines with FinBERT (ProsusAI/finbert; it needs the `neural` and `finbert` extras and downloads the model, about 440 MB, from Hugging Face on first use). Each distinct headline is scored once and the scores are kept in `interim/finbert/scores.parquet`, with the model's revision in the provenance record.
+
+- **Timing:** as for all news, a headline published after the close of *t* counts for *t*+1, and one with only a date counts for the first session after it. The same headline twice for a stock at the same time counts once.
+- **Indicators** (`processed/finbert/<id>.parquet`), over the last 1 and 5 sessions: `finbert_attention` = log(1 + headlines) and `finbert_sentiment` = the mean of P(positive) − P(negative). Sessions after the last day FNSPID covers have no value, rather than zero news.
+- **Use:** the rungs `A0-FB` and `A1-FB` (and the best rung, once known) add these four indicators to the sentiment branch (as `sa:finbert_...`), for 2019–2023, as decided (option B). FNSPID's two files cover different years (`All_external.csv` to 2020, `nasdaq_exteral_data.csv` to 2023), so headline counts shift between periods; the scaling on each training window absorbs part of this.
 

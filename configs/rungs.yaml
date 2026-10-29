@@ -41,3 +41,7 @@ rungs:
           weights: {C: 1.0}}
   GP-SA: {extends: GP-FA, sources: [SA]}
   GP-TA: {extends: GP-FA, sources: [TA]}
+  # Robustness check (option B): FinBERT headline sentiment from FNSPID joins the sentiment
+  # branch, 2019-2023. The best rung of the main results gets the same treatment once known.
+  A0-FB: {extends: A0, finbert: true}
+  A1-FB: {extends: A1, finbert: true}

@@ -33,6 +33,8 @@ ml = [
 ]
 # The neural benchmarks (src/regime_fusion/ml/neural.py and tft.py).
 neural = ["torch>=2.2"]
+# FinBERT headline sentiment for the robustness check (needs "neural" too).
+finbert = ["transformers>=4.40"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

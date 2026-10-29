@@ -106,3 +106,19 @@ def test_a_source_without_usable_indicators_is_reported(data_dir):
     with pytest.raises(ValueError, match="no SA indicator"):
         load_panel("XYZ", train, test, ("FA", "SA", "TA"))
     assert load_panel("XYZ", train, test, ("FA", "TA")).names()["SA"] == []
+
+
+def test_robustness_rungs_add_finbert_to_the_sentiment_branch(data_dir):
+    days = pd.read_parquet(data_dir / "processed/sa/XYZ.parquet").index
+    (data_dir / "processed" / "finbert").mkdir()
+    pd.DataFrame({"finbert_sentiment_1": np.linspace(-1, 1, len(days))}, index=days).to_parquet(
+        data_dir / "processed/finbert/XYZ.parquet")
+    rungs = load_rungs()
+    assert rungs["A0-FB"].finbert and not rungs["A0"].finbert and rungs["A1-FB"].fusion == rungs["A1"].fusion
+    train, test = DateRange(pd.Timestamp("2015-01-01").date(), pd.Timestamp("2017-12-31").date()), \
+        DateRange(pd.Timestamp("2018-01-01").date(), pd.Timestamp("2018-12-31").date())
+    panel = load_panel("XYZ", train, test, ("FA", "SA", "TA"), finbert=True)
+    assert "sa:finbert_sentiment_1" in panel.names()["SA"] and len(panel.names()["SA"]) == 3
+    record = run(RunSpec("XYZ", 2019, 0, 1, 10, 0.02), rungs["A0-FB"], load_config(), write=False,
+                 overrides=SMALL)
+    assert record["indicators"]["SA"] == 3
