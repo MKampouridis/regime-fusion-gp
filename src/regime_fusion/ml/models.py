@@ -1,4 +1,4 @@
-"""Models of the machine-learning benchmarks and their settings (``configs/ml.yaml``).
+"""Models of the machine-learning benchmarks, and the settings of all benchmarks (``configs/benchmarks.yaml``).
 
 Each model predicts the probability that the trade a buy signal would open
 gains (``regime_fusion.ml.labels``):
@@ -25,8 +25,9 @@ from typing import Any
 import numpy as np
 import yaml
 
-DEFAULT_SETTINGS = Path(__file__).resolve().parents[3] / "configs" / "ml.yaml"
+DEFAULT_SETTINGS = Path(__file__).resolve().parents[3] / "configs" / "benchmarks.yaml"
 KINDS = ("logistic", "lightgbm", "regime_lightgbm")
+RULE_KINDS = ("buy_and_hold", "always", "moving_average", "momentum")
 BOOSTING = {"min_child_samples": 20, "subsample": 0.8, "subsample_freq": 1, "colsample_bytree": 0.8,
             "reg_lambda": 1.0, "deterministic": True, "force_row_wise": True, "n_jobs": 1, "verbose": -1}
 
@@ -53,7 +54,12 @@ class Settings:
     quantiles: tuple[float, ...]
     min_trades: int
     models: dict[str, ModelSpec]
+    rules: dict[str, ModelSpec]
     raw: dict[str, Any]
+
+    def methods(self) -> dict[str, ModelSpec]:
+        """Every benchmark that runs like a rung: rules and models."""
+        return {**self.rules, **self.models}
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.raw, sort_keys=True).encode()).hexdigest()[:12]
@@ -61,15 +67,19 @@ class Settings:
 
 def load_settings(path: str | Path = DEFAULT_SETTINGS) -> Settings:
     raw = yaml.safe_load(Path(path).read_text())
-    models = {}
+    models, rules = {}, {}
     for name, entry in raw["models"].items():
         if entry["kind"] not in KINDS:
             raise ValueError(f"{name}: kind must be one of {KINDS}")
         models[name] = ModelSpec(name, entry["kind"], int(entry["runs"]), dict(entry["grid"]),
                                  int(entry.get("min_rows", 100)))
+    for name, entry in raw.get("rules", {}).items():
+        if entry["kind"] not in RULE_KINDS:
+            raise ValueError(f"{name}: kind must be one of {RULE_KINDS}")
+        rules[name] = ModelSpec(name, entry["kind"], 1, dict(entry.get("grid", {})))
     features = raw["features"]
     return Settings(tuple(features["sources"]), features.get("regimes"), features["scaling"],
-                    tuple(float(q) for q in raw["quantiles"]), int(raw["min_trades"]), models, raw)
+                    tuple(float(q) for q in raw["quantiles"]), int(raw["min_trades"]), models, rules, raw)
 
 
 def build(spec: ModelSpec, params: dict[str, Any], seed: int):

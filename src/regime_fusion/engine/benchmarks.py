@@ -15,16 +15,32 @@ execution and costs, exactly like the GP models.
 * Time-series momentum: buy while the return over the look-back is positive.
 
 Signals use data up to the close of each day only.
+
+``run_rule`` runs a rule like a GP rung (``configs/benchmarks.yaml``): the
+parameters of a rule with a grid are chosen on the validation year by Sharpe
+ratio (fewer than ``min_trades`` trades score zero), and stage 2 trades the test
+year with them. Results are written like GP runs, so campaigns and the analysis
+treat rules, machine-learning benchmarks and rungs alike.
 """
 
 from __future__ import annotations
 
+import time
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
+from regime_fusion import provenance
+from regime_fusion.config import StudyConfig
+from regime_fusion.data import store
 from regime_fusion.engine import metrics
-from regime_fusion.engine.backtest import _simulate, backtest
+from regime_fusion.engine.backtest import Result, _simulate, backtest
 from regime_fusion.engine.fitness import sharpe as fast_sharpe
+from regime_fusion.engine.run import RunSpec, result_path
+from regime_fusion.windows import walk_forward
+
+PRICE_COLUMNS = ["adj_open", "adj_high", "adj_low", "adj_close"]
 
 
 def buy_and_hold(prices: pd.DataFrame, cost_bps: float) -> pd.Series:
@@ -90,3 +106,80 @@ def evaluate_signal(signal: np.ndarray, prices: pd.DataFrame, days: int, rate: f
                     costs: tuple[float, ...]) -> dict[str, dict[str, float]]:
     """Metrics of a benchmark signal at every cost level."""
     return {f"{cost:g}bps": metrics.summary(backtest(signal, prices, days, rate, cost)) for cost in costs}
+
+
+def buy_and_hold_result(prices: pd.DataFrame, cost_bps: float) -> Result:
+    """Buy-and-hold as a backtest result with one trade, for the common measures."""
+    daily = buy_and_hold(prices, cost_bps)
+    held = pd.Series(True, index=prices.index)
+    held.iloc[-1] = False
+    trades = pd.DataFrame({"entry": [prices.index[0]], "exit": [prices.index[-1]],
+                           "entry_price": [prices["adj_open"].iloc[0]], "exit_price": [prices["adj_close"].iloc[-1]],
+                           "reason": ["end"], "net_return": [float((1 + daily).prod() - 1)]})
+    return Result(daily, held, trades)
+
+
+def rule_signal(kind: str, prices: pd.DataFrame, params: dict[str, Any]) -> pd.Series:
+    """A rule's buy signal on every day of ``prices`` (computed on the whole history, causally)."""
+    if kind == "always":
+        values = always(prices)
+    elif kind == "moving_average":
+        values = moving_average_crossover(prices, int(params["fast"]), int(params["slow"]))
+    elif kind == "momentum":
+        values = time_series_momentum(prices, int(params["lookback"]))
+    else:
+        raise ValueError(f"no signal for rule kind {kind!r}")
+    return pd.Series(values, index=prices.index)
+
+
+def run_rule(spec: RunSpec, rule, settings, config: StudyConfig, *, campaign: str = "dev",
+             write: bool = True) -> dict[str, Any]:
+    """Choose a rule's parameters on the validation year and trade the evaluation period."""
+    started = time.perf_counter()
+    window = next(w for w in walk_forward(config) if w.test_year == spec.test_year)
+    prices = pd.read_parquet(store.layer("interim", "prices", f"{spec.stock}.parquet"))
+    prices = prices.loc[prices["adj_close"].notna(), PRICE_COLUMNS]
+    validation = prices.loc[str(window.validation.start):str(window.validation.end)]
+    evaluated_on = window.validation if spec.stage == 1 else window.test
+    later = prices.loc[str(evaluated_on.start):str(evaluated_on.end)]
+    primary = config.primary_cost_bps_per_side
+    table, best = [], None
+    if rule.kind == "buy_and_hold":
+        best = {"params": {}, "sharpe": metrics.sharpe(buy_and_hold(validation, primary))}
+    else:
+        for params in rule.candidates():
+            result = backtest(rule_signal(rule.kind, prices, params).loc[validation.index], validation,
+                              spec.exit_days, spec.exit_rate, primary)
+            trades = len(result.trades)
+            score = metrics.sharpe(result.daily) if trades >= settings.min_trades else 0.0
+            table.append({**params, "sharpe": score, "trades": trades})
+            if best is None or score > best["sharpe"]:
+                best = {"params": params, "sharpe": score}
+    evaluation = {}
+    for cost in config.costs_bps_per_side:
+        if rule.kind == "buy_and_hold":
+            result = buy_and_hold_result(later, cost)
+        else:
+            signal = rule_signal(rule.kind, prices, best["params"]).loc[later.index]
+            result = backtest(signal, later, spec.exit_days, spec.exit_rate, cost)
+        evaluation[f"{cost:g}bps"] = metrics.summary(result)
+    record = {
+        **spec.__dict__,
+        "rung": rule.name,
+        "campaign": campaign,
+        "sources": [],
+        "train": [str(window.validation.start), str(window.validation.end)],  # where parameters were chosen
+        "evaluate": [str(evaluated_on.start), str(evaluated_on.end)],
+        "model": f"{rule.name} {best['params']}",
+        "fitness": best["sharpe"],
+        "validation_sharpe": best["sharpe"],
+        "candidates": table,
+        "evaluation": evaluation,
+        "branches": {},
+        "seconds": round(time.perf_counter() - started, 2),
+    }
+    if write:
+        record["provenance"] = provenance.collect(config, benchmarks_digest=settings.digest(), rule=rule.__dict__)
+        provenance.write(result_path(campaign, rule.name, spec), record)
+    return record
+

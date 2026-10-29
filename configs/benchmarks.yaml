@@ -1,4 +1,5 @@
-# Machine-learning benchmarks (src/regime_fusion/ml; docs/ENGINE.md, Machine-learning benchmarks).
+# Non-GP benchmarks (docs/ENGINE.md, Benchmarks): rule-based (src/regime_fusion/engine/benchmarks.py)
+# and machine-learning (src/regime_fusion/ml).
 #
 # Fairness rules (docs/RESEARCH_PLAN.md): the GP's features, windows, exit rule,
 # t+1 execution and costs; tuning on validation data only; labels that match
@@ -14,6 +15,18 @@ features:
 # of the model's predictions on its training rows; q is chosen on the validation year.
 quantiles: [0.5, 0.6, 0.7, 0.8, 0.9]
 min_trades: 3               # as the GP's fitness: fewer trades score a Sharpe ratio of zero
+
+rules:                      # parameters, where there are any, are chosen on the validation year
+  RB-BH:                    # buy-and-hold: buy at the first open, sell at the last close (no exit rule)
+    kind: buy_and_hold
+  RB-TS:                    # ActTrade's TS(d, r): buy whenever flat, so the exit rule alone decides
+    kind: always
+  RB-MA:                    # buy while the fast moving average of closes is above the slow one
+    kind: moving_average
+    grid: {fast: [5, 10, 20], slow: [50, 100, 200]}
+  RB-TSMOM:                 # time-series momentum: buy while the return over the look-back is positive
+    kind: momentum
+    grid: {lookback: [20, 60, 120, 250]}
 
 models:
   ML-LR:                    # logistic regression: is non-linear fusion needed at all?

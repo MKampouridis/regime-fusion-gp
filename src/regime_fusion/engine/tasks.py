@@ -7,9 +7,9 @@ number i (``python -m regime_fusion.engine run-task``). There are two kinds:
 * ``exits``: choose one stock-year's exit settings (d, r) with rung A0 on the
   validation year (every candidate of the grid, 5 runs each);
 * ``runs``: evolve and evaluate one rung on one stock, test year and stage, for
-  a block of run numbers (all 30 by default, about 8 minutes). A machine-learning
-  benchmark (``configs/ml.yaml``) takes a rung's place, with its own number of
-  runs (``regime_fusion.ml``).
+  a block of run numbers (all 30 by default, about 8 minutes). A rule-based or
+  machine-learning benchmark (``configs/benchmarks.yaml``) takes a rung's place,
+  with its own number of runs.
 
 Exit settings must exist before the runs of a stock-year can start. Tasks can be
 repeated safely: finished runs and exit choices are skipped, and result files
@@ -38,7 +38,7 @@ from regime_fusion.config import StudyConfig
 from regime_fusion.data import store
 from regime_fusion.engine.rungs import Rung, exit_grid
 from regime_fusion.engine.run import RunSpec, choose_exits, exits_path, result_path, run
-from regime_fusion.ml.models import load_settings as load_ml_settings
+from regime_fusion.ml.models import load_settings as load_benchmarks
 from regime_fusion.windows import DateRange, walk_forward
 
 KINDS = ("exits", "runs")
@@ -142,15 +142,26 @@ def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Run
         if result_path(campaign, task.rung, spec).exists():
             skipped += 1
             continue
-        if task.rung in rungs:
-            run(spec, rungs[task.rung], config, campaign=campaign)
-        else:
-            from regime_fusion.ml.run import run_ml
-
-            settings = load_ml_settings()
-            run_ml(spec, settings.models[task.rung], settings, config, campaign=campaign)
+        run_method(task.rung, spec, rungs, config, campaign)
         done += 1
     return {"done": done, "skipped": skipped}
+
+
+def run_method(name: str, spec: RunSpec, rungs: dict[str, Rung], config: StudyConfig,
+               campaign: str) -> dict[str, Any]:
+    """One run of a GP rung, a rule-based benchmark or a machine-learning benchmark."""
+    if name in rungs:
+        return run(spec, rungs[name], config, campaign=campaign)
+    settings = load_benchmarks()
+    if name in settings.rules:
+        from regime_fusion.engine.benchmarks import run_rule
+
+        return run_rule(spec, settings.rules[name], settings, config, campaign=campaign)
+    if name in settings.models:
+        from regime_fusion.ml.run import run_ml
+
+        return run_ml(spec, settings.models[name], settings, config, campaign=campaign)
+    raise ValueError(f"unknown rung or benchmark {name!r}")
 
 
 def finished(task: Task, campaign: str) -> bool:

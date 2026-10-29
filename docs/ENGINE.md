@@ -84,21 +84,22 @@ python -m regime_fusion.engine collect --campaign pilot     # results/pilot/runs
 - `collect` gives one row per run: rung, stock, test year, stage, run, exit settings, training fitness, every evaluation measure at every cost (such as `sharpe_10bps`), each branch's Sharpe ratio and trades, and the model in readable form.
 - A run whose stock has no usable indicator of a needed type (values on fewer than half of the training days) stops with a message, as A0 does now for sentiment until the GDELT extraction is finished.
 
-## Rule-based benchmarks (`engine/benchmarks.py`)
+## Benchmarks (`configs/benchmarks.yaml`)
 
-All of them trade through the same backtest, exit settings, *t*+1 execution and costs as the GP models:
+Rule-based and machine-learning benchmarks run like GP rungs: through the same commands (`run --rung RB-MA`, or as rungs of a campaign), backtest, exit settings, *t*+1 execution and costs, and their results go into the same tables. Parameters, where a benchmark has any, are chosen on the validation year by Sharpe ratio (fewer than 3 trades score zero, as in the GP's fitness); stage 2 trades the test year with them. Deterministic benchmarks get one run.
 
-- buy-and-hold;
-- ActTrade's TS(*d*, *r*), which buys whenever flat, so the exit rule alone decides;
-- random entry at the rate that matches the model's number of trades (1,000 draws), with the model's percentile in that distribution;
-- moving-average crossover;
-- time-series momentum.
+### Rule-based (`engine/benchmarks.py`)
 
-The machine-learning benchmarks follow in a later step.
+| Benchmark | Rule |
+| --- | --- |
+| RB-BH | Buy-and-hold: buy at the first open, sell at the last close (no exit rule) |
+| RB-TS | ActTrade's TS(*d*, *r*): buy whenever flat, so the exit rule alone decides |
+| RB-MA | Buy while the fast moving average of closes is above the slow one; fast 5, 10 or 20 sessions, slow 50, 100 or 200 |
+| RB-TSMOM | Time-series momentum: buy while the return over the look-back (20, 60, 120 or 250 sessions) is positive |
 
-## Machine-learning benchmarks (`src/regime_fusion/ml`, `configs/ml.yaml`)
+Random entry at the model's trade frequency (1,000 draws, `benchmarks.random_entry`) is computed for each model in the analysis, since its rate depends on the model.
 
-They follow the plan's fairness rules and run through the same commands as the GP rungs (`run --rung ML-LGBM`, or as rungs of a campaign):
+### Machine-learning (`src/regime_fusion/ml`)
 
 | Benchmark | Model |
 | --- | --- |
