@@ -1,0 +1,24 @@
+#!/bin/bash
+# One element of an SGE job array: does task (SGE_TASK_ID - 1) x COUNT of a campaign's plan,
+# and the COUNT - 1 tasks after it. Submit from the repository folder, for example:
+#
+#   mkdir -p logs
+#   qsub -t 1-850 -tc 100 -v CAMPAIGN=pilot,PLAN=runs scripts/ceres/tasks.sge
+#
+# -t 1-N runs N elements (N is printed when the plan is made), -tc 100 at most 100 at once.
+# Tasks are safe to repeat: finished runs are skipped, so a failed or stopped element is
+# simply submitted again (qsub -t 17 ... for element 17 alone).
+#$ -N rfgp
+#$ -cwd
+#$ -j y
+#$ -o logs/
+#$ -l h_rt=04:00:00
+set -euo pipefail
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
+conda activate rfgp
+export RFGP_DATA_DIR="${RFGP_DATA_DIR:-$HOME/rfgp-data}"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1
+export NUMBA_CACHE_DIR="${TMPDIR:-/tmp}/numba-cache-$USER"   # compiled code kept on the node, not on NFS
+COUNT="${COUNT:-1}"
+INDEX=$(( (SGE_TASK_ID - 1) * COUNT ))
+python -m regime_fusion.engine run-task --campaign "$CAMPAIGN" --plan "$PLAN" --index "$INDEX" --count "$COUNT"

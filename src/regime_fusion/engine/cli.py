@@ -202,8 +202,10 @@ def tasks_command(args: argparse.Namespace) -> int:
             log.info("%s: a fixed exit for %d stock-years", args.campaign, fixed)
     except (ValueError, FileExistsError) as error:
         raise SystemExit(str(error)) from None
-    log.info("%s: %d %s tasks (indices 0 to %d) in %s", args.campaign, len(planned), args.plan or args.kind,
-             len(planned) - 1, path)
+    name = args.plan or args.kind
+    log.info("%s: %d %s tasks (indices 0 to %d) in %s", args.campaign, len(planned), name, len(planned) - 1, path)
+    log.info("on CERES: mkdir -p logs && qsub -t 1-%d -tc 100 -v CAMPAIGN=%s,PLAN=%s scripts/ceres/tasks.sge",
+             len(planned), args.campaign, name)
     return 0
 
 

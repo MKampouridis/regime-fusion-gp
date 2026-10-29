@@ -23,7 +23,8 @@ Set-up and the directional-change module are done. Data pipeline (Phase 2): buil
 | `configs/data_sources.yaml` | Settings for the data pipeline (download range, rate limits, contacts) |
 | `configs/rungs.yaml` | GP parameters, the ablation ladder and the exit-setting grid |
 | `configs/benchmarks.yaml` | Rule-based and machine-learning benchmarks |
-| `docs/` | Research plan, decision log, data pipeline (`DATA.md`), engine (`ENGINE.md`) and the analysis protocol (`PROTOCOL.md`, a draft until the pilot ends) |
+| `docs/` | Research plan, decision log, data pipeline (`DATA.md`), engine (`ENGINE.md`), the analysis protocol (`PROTOCOL.md`, a draft until the pilot ends) and running on CERES (`CERES.md`) |
+| `scripts/ceres/` | Environment set-up and the Sun Grid Engine job-array script for CERES |
 | `tests/` | Automated tests, including look-ahead checks and a cross-check against the group's earlier Java DC code |
 
 ## Set-up
