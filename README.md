@@ -17,6 +17,7 @@ Set-up and the directional-change module are done. The data pipeline (Phase 2) i
 | `src/regime_fusion/data/` | Data pipeline: downloads, trading calendar, point-in-time alignment, checks |
 | `src/regime_fusion/engine/` | Typed GP (ActTrade and the ablation ladder), backtester, metrics, runs; see `docs/ENGINE.md` |
 | `src/regime_fusion/regimes/` | Market regimes: Gaussian HMMs with filtered probabilities, per walk-forward window |
+| `src/regime_fusion/analysis/` | Statistics: Wilcoxon-Holm, Friedman-Conover, Deflated Sharpe Ratio, PBO, Hansen's SPA |
 | `configs/study.yaml` | Settled study design: periods, walk-forward windows, runs, costs, base seed |
 | `configs/data_sources.yaml` | Settings for the data pipeline (download range, rate limits, contacts) |
 | `configs/rungs.yaml` | GP parameters, the ablation ladder and the exit-setting grid |

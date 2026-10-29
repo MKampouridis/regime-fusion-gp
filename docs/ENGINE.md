@@ -64,6 +64,18 @@ An individual has one **branch** per analysis type and a **fusion tree** that co
 - **Results.** Each run writes `$RFGP_DATA_DIR/results/<campaign>/<rung>/<stock>/<year>.stage<k>.run<NN>.json`. It holds the model in readable form, training statistics, evaluation metrics at each cost, each branch's evaluation, the generation history and a provenance record (code version, configuration and rung digests, seed keys, package versions).
 - **Speed.** A full ActTrade-size run (1,000 × 50) on Apple with FA and TA took 6.9 s, about 0.14 ms per tree. The plan's budget is 0.25 ms per tree (16 s per run).
 
+## Rule-based benchmarks (`engine/benchmarks.py`)
+
+All of them trade through the same backtest, exit settings, *t*+1 execution and costs as the GP models:
+
+- buy-and-hold;
+- ActTrade's TS(*d*, *r*), which buys whenever flat, so the exit rule alone decides;
+- random entry at the rate that matches the model's number of trades (1,000 draws), with the model's percentile in that distribution;
+- moving-average crossover;
+- time-series momentum.
+
+The machine-learning benchmarks follow in a later step.
+
 ## Choices to review
 
 1. **Backtest.** ActTrade's code opens a new trade on every day with a true signal, even when trades overlap, and buys at that day's close. A0 uses the corrected backtest above, as the plan intends.
