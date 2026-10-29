@@ -138,3 +138,26 @@ def test_pilot_alternatives_are_rungs_of_their_own():
     coarse = market.inputs(close, "dc", settings)
     assert list(fine.columns) == list(coarse.columns)
     assert fine["log_events"].mean() > coarse["log_events"].mean()  # more events at a smaller threshold
+
+
+def test_gp_pilot_candidates_share_one_budget():
+    rungs = load_rungs()
+    for name, population, generations, tournament in (("A1-p250-t2", 250, 400, 2), ("A3-p2000-t4", 2000, 50, 4),
+                                                     ("A1-p1000-t4", 1000, 100, 4)):
+        gp = rungs[name].gp
+        assert (gp.population, gp.generations, gp.tournament) == (population, generations, tournament)
+    assert rungs["A3-p500-t2"].regimes == "dc" and rungs["A1-p500-t2"].fusion == rungs["A1"].fusion
+    assert rungs["A1-p500-t2"].spec["gp"]["population"] == 500  # recorded in the provenance too
+    assert rungs["A1"].gp.population == 1000 and rungs["A1-p500-t2"].digest() != rungs["A1-p500-t4"].digest()
+
+
+def test_validation_checkpoints_are_kept_in_stage_one_only(data_dir):
+    rung, config = load_rungs()["A1"], load_config()
+    small = {"population": 30, "generations": 25}
+    record = run(RunSpec("XYZ", 2019, 0, 1, 10, 0.02), rung, config, write=False, overrides=small)
+    assert [c["generation"] for c in record["checkpoints"]] == [0, 10, 20, 25]
+    last = record["checkpoints"][-1]
+    assert last["best_fitness"] == record["fitness"]
+    assert last["sharpe"] == pytest.approx(record["evaluation"]["10bps"]["sharpe"])  # the model itself
+    test_year = run(RunSpec("XYZ", 2019, 0, 2, 10, 0.02), rung, config, write=False, overrides=small)
+    assert test_year["checkpoints"] == []

@@ -75,13 +75,12 @@ Every rung and benchmark is reported, whatever its result. The confirmatory fami
 
 ## 9. Decisions the pilot makes
 
-Each is settled on 2015–2018 data only (stage 1 of the 2019 window), by the rule given here, and every option tried counts as a trial for the Deflated Sharpe Ratio.
+Each is settled on 2015–2018 data only (stage 1 of the 2019 window), by the rule given here, and every option tried counts as a trial for the Deflated Sharpe Ratio. The GP parameters are settled first, in a smaller pilot of their own (§9.1); the other decisions then use them.
 
 | Decision | Options | Rule |
 | --- | --- | --- |
 | Runs per configuration | 30 or 50 | 100 runs of A0 and A1 on 10 stocks (ABT, DIS, GD, MS, NFLX, NSC, SO, SPG, UPS, WFC, drawn with the study's seed on 29 October 2026). Keep 30 if the median distance (95th percentile) between a 30-run median and the 100-run median is at most 0.05 in annualised Sharpe ratio, half the smallest difference of interest (0.1); otherwise 50 (`analysis pilot`) |
-| Generations | 50 or 75 | Keep 50 unless more than a quarter of A1's runs still raise their best training fitness by more than 1% over the last 10 generations, and the time budget allows 75 |
-| Population | 1,000 or 500 | Keep 1,000 unless the median full run takes more than 30 seconds (twice the plan's budget) |
+| Population, generations and tournament size | Populations of 250, 500, 1,000 or 2,000, each with tournaments of 2 or 4 | The GP-parameter pilot, §9.1 |
 | DC threshold of the price regimes (A3) | 0.5% (`A3-fine`) or 1% (`A3`) | Options whose fitted regimes give a state less than 15% of the 2015–2017 days are dropped; of the rest, the higher median validation Sharpe ratio of A3 over the 50 stocks, 10 runs each; ties go to the smaller threshold |
 | Threshold of the news-attention DC (A4) | 0.25 (`A4`) or 0.5 (`A4-wide`), in log units | As for A3, with A4, after its price threshold is set to A3's choice |
 | Scaling of the indicators | min-max (`A1`) or rank (`A1-rank`) | The higher median validation Sharpe ratio of A1, 10 runs each |
@@ -89,7 +88,29 @@ Each is settled on 2015–2018 data only (stage 1 of the 2019 window), by the ru
 | Sentiment indicators | The twelve GDELT indicators | Open in `DECISIONS.md` until Michael decides |
 | GDELT name rules | `configs/news_names.yaml` | Revised on the 2015–2018 names report, before any pilot run |
 
-### Running the pilot
+### 9.1 The GP-parameter pilot
+
+A large population usually needs fewer generations, and a small one more; the tournament size should grow with the population (MK). So the population, the number of generations and the tournament size are chosen together, with fitness convergence as the criterion, before the rest of the pilot.
+
+- **Candidates:** populations of 250, 500, 1,000 and 2,000, each with tournaments of 2 and 4 (8 candidates). Every candidate gets the same budget of 100,000 evaluations (population × generations: 400, 200, 100 and 50 generations), twice ActTrade's 1,000 × 50, so that each can run to convergence.
+- **Runs:** rungs A1 (evolvable fusion) and A3 (with regimes), on the 10 stocks of the 100-run check, 10 runs each, evaluated on 2018. Every run uses one fixed exit setting (20 days, 3%), the middle of the exit grid, so that this pilot needs no exit selection first. That is 1,600 runs.
+- **Convergence:** a run has converged at the first generation by which its best training fitness has made 99% of its total rise. A candidate's number of generations is the median convergence generation of its runs, rounded up to a multiple of 10; its *converged fitness* is each run's best training fitness at that generation.
+- **Choice:** of the candidates whose converged fitness is within 0.05 of the best candidate's (median paired difference over the same stocks, rungs and seeds), the one with the fewest evaluations wins; ties go to the higher validation Sharpe ratio. The validation Sharpe ratio at the chosen generation is reported for every candidate; if the winner's is more than 0.1 below the best, Michael decides.
+- **Use:** the chosen population, generations and tournament size become the GP settings of every rung (A0 included, so each rung still changes one thing only). Lexicase selection (A5) has no tournament and takes the population and generations.
+
+```bash
+E="python -m regime_fusion.engine"
+$E tasks --campaign gp-pilot --kind runs --years 2019 --stages 1 --runs 10 --development --exit 20 0.03 \
+    --stocks ABT DIS GD MS NFLX NSC SO SPG UPS WFC --rungs \
+    A1-p250-t2 A1-p250-t4 A1-p500-t2 A1-p500-t4 A1-p1000-t2 A1-p1000-t4 A1-p2000-t2 A1-p2000-t4 \
+    A3-p250-t2 A3-p250-t4 A3-p500-t2 A3-p500-t4 A3-p1000-t2 A3-p1000-t4 A3-p2000-t2 A3-p2000-t4
+$E run-all --campaign gp-pilot --kind runs --workers 7
+python -m regime_fusion.analysis gp-params --campaign gp-pilot
+```
+
+The chosen values then go into `configs/rungs.yaml` (`gp:`), and the decision is logged.
+
+### 9.2 Running the rest of the pilot
 
 Once the GDELT days of 2015–2018 are extracted and the name rules revised:
 
@@ -110,5 +131,5 @@ python -m regime_fusion.analysis pilot --campaign pilot
 python -m regime_fusion.analysis compare --campaign pilot --stage 1 --rungs A0 A1 A2 A3 A4 A5
 ```
 
-At the plan's speed this is about 60 CPU hours (exit settings about 18, runs about 30, the 100-run check about 9), roughly 9 hours on seven cores. Every run evaluates on 2018 only; the planning refuses anything later.
+Measured on Michael's MacBook Air (Apple M1: four fast and four slow cores) on 29 October 2026, a full-size run takes 4–6 seconds alone (A0 to A4), 13–15 seconds with lexicase or DALex, and about three times as long when seven run at once (with the GDELT extraction also running). Seven at a time, the GP-parameter pilot takes about 2 hours and the rest about 10 (exit settings about 3, the runs about 6, the 100-run check about 1.5): some 12–16 hours in all, as a fanless laptop slows under long loads. Every run evaluates on 2018 only; the planning refuses anything later.
 

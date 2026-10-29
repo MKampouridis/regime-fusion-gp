@@ -10,11 +10,14 @@ parent of a crossover always comes from the selection method.
 
 The run's model is the individual with the best weighted-sum fitness in the
 last generation, whatever the selection method, so that every rung picks its
-model the same way.
+model the same way. An optional checkpoint sees the best individual every few
+generations (the GP-parameter pilot evaluates it on the validation year, to
+see what stopping there would give).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -51,22 +54,30 @@ class GPConfig:
 class Evolution:
     best: Individual
     history: list[dict] = field(default_factory=list)
+    checkpoints: list[dict] = field(default_factory=list)
 
 
-def evolve(grammar: Grammar, evaluator: Evaluator, config: GPConfig,
-           rng: np.random.Generator) -> Evolution:
+def evolve(grammar: Grammar, evaluator: Evaluator, config: GPConfig, rng: np.random.Generator,
+           checkpoint: Callable[[Individual], dict] | None = None, every: int = 10) -> Evolution:
+    """Evolve a population; ``checkpoint`` (if given) sees the best individual of generation 0,
+    of every ``every``-th generation and of the last one, and its results are kept."""
     if config.active_trading and len(grammar.sources) != 3:
         raise ValueError("the active trading operator needs ActTrade's three branches")
     population = grammar.ramped_population(config.population, config.initial_depth, rng)
     _evaluate(population, evaluator)
     history = [_summary(0, population)]
-    for generation in range(1, config.generations + 1):
-        population = _next_generation(population, grammar, evaluator, config, rng)
-        _evaluate(population, evaluator)
-        evaluator.retain(population)
-        history.append(_summary(generation, population))
+    checkpoints = []
+    for generation in range(0, config.generations + 1):
+        if generation:
+            population = _next_generation(population, grammar, evaluator, config, rng)
+            _evaluate(population, evaluator)
+            evaluator.retain(population)
+            history.append(_summary(generation, population))
+        if checkpoint and (generation % every == 0 or generation == config.generations):
+            best = max(population, key=lambda individual: individual.fitness)
+            checkpoints.append({"generation": generation, "best_fitness": best.fitness, **checkpoint(best)})
     best = max(population, key=lambda individual: individual.fitness)
-    return Evolution(best, history)
+    return Evolution(best, history, checkpoints)
 
 
 def active_trading_offspring(population: list[Individual], fusion: list) -> list[Individual]:

@@ -23,6 +23,15 @@ fitness:
 
 scaling: minmax             # or rank; see src/regime_fusion/engine/panel.py
 
+# The GP-parameter pilot (docs/PROTOCOL.md, section 9), on 2015-2018 data only: each population
+# size, with tournaments of 2 and 4, at the same budget of evaluations, for the rungs below. The
+# candidates are generated as rungs named <rung>-p<population>-t<tournament> (A1-p500-t2, ...).
+gp_pilot:
+  rungs: [A1, A3]
+  populations: [250, 500, 1000, 2000]
+  tournaments: [2, 4]
+  evaluations: 100000       # population x generations (twice ActTrade's 1,000 x 50)
+
 exit_grid:                  # candidates for (d, r), chosen per stock-year on the validation year
   days: [5, 10, 20, 30]
   rates: [0.01, 0.02, 0.03, 0.05]

@@ -137,6 +137,27 @@ def check_roles(stocks: list[str]) -> None:
         raise ValueError(f"development-only work may not use hold-out stocks: {held_out}")
 
 
+def fix_exits(campaign: str, stock_years: list[tuple[str, int]], days: int, rate: float, scheme: str) -> int:
+    """Give stock-years one fixed exit setting instead of choosing it (the GP-parameter pilot).
+
+    Existing settings are kept when equal and refused when different, so a
+    campaign never mixes fixed and chosen exits. Returns how many were written.
+    """
+    written = 0
+    for stock, year in stock_years:
+        path = exits_path(campaign, stock, year)
+        if path.exists():
+            current = json.loads(path.read_text())
+            if (int(current["days"]), float(current["rate"])) != (int(days), float(rate)):
+                raise ValueError(f"{stock} {year} already exits after {current['days']} days or at "
+                                 f"{current['rate']:+.1%}; a fixed exit needs a campaign of its own")
+            continue
+        provenance.write(path, {"stock": stock, "test_year": year, "days": int(days), "rate": float(rate),
+                                "fixed": True, "scheme": scheme})
+        written += 1
+    return written
+
+
 def plan_path(campaign: str, name: str) -> Path:
     return store.data_dir() / "results" / campaign / f"tasks.{name}.json"
 

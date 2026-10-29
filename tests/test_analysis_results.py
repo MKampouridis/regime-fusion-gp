@@ -202,3 +202,37 @@ def test_regime_breakdown_and_random_entry(monkeypatch, tmp_path):
                                          prices_of=lambda stock: prices)
     assert check.loc[0, "trades"] == 20 and check.loc[0, "sharpe"] == 4.0
     assert check.loc[0, "percentile"] > 0.9  # a Sharpe ratio of 4 beats almost every random entry
+
+
+def test_gp_parameter_pilot_picks_the_cheapest_converged_setting():
+    def candidate(population, tournament, converge_at, final):
+        cap = 100_000 // population
+        rows, marks = [], []
+        for base in ("A1", "A3"):
+            for stock in ("S1", "S2", "S3"):
+                for run in range(3):
+                    shift = 0.1 * run + (0.2 if stock == "S2" else 0.0)  # the same for every candidate
+                    for g in range(cap + 1):
+                        fitness = final * min(g / converge_at, 1.0) + shift
+                        rows.append({"rung": f"{base}-p{population}-t{tournament}", "stock": stock,
+                                     "test_year": 2019, "stage": 1, "run": run, "generation": g,
+                                     "best_fitness": fitness})
+                        if g % 10 == 0 or g == cap:
+                            marks.append({**rows[-1], "sharpe": 0.5 if population == 500 else 0.6})
+        return rows, marks
+
+    rows, marks = [], []
+    for args in ((250, 4, 40, 0.8),     # converges early but lower: premature
+                 (500, 2, 100, 1.0),    # 50,000 evaluations to converge
+                 (1000, 2, 60, 1.0),    # 60,000
+                 (2000, 4, 50, 1.02)):  # the highest fitness, but 100,000 evaluations
+        r, m = candidate(*args)
+        rows += r
+        marks += m
+    table, choice = pilot.gp_parameters(pd.DataFrame(rows), pd.DataFrame(marks))
+    assert table.loc[(250, 4), "generations"] == 40 and table.loc[(500, 2), "generations"] == 100
+    assert table.loc[(250, 4), "fitness_vs_best"] == pytest.approx(-0.22)
+    assert (choice["population"], choice["tournament"], choice["generations"]) == (500, 2, 100)
+    assert choice["validation_sharpe"] == 0.5 and choice["flag"] is False  # 0.1 below the best is no flag yet
+    with pytest.raises(ValueError, match="candidates"):
+        pilot.gp_parameters(pd.DataFrame(rows).assign(rung="A1"), pd.DataFrame(marks))

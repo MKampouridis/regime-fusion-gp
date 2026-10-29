@@ -197,3 +197,16 @@ def test_a_campaign_keeps_to_one_scheme_and_pilots_keep_off_the_hold_out(fake_en
         tasks.save_plan("dev", "exits", planned, development_only=True)
     with pytest.raises(ValueError, match="hold-out"):
         tasks.execute(planned[0], "dev", config, {}, development_only=True)
+
+
+def test_fixed_exits_for_the_gp_parameter_pilot(fake_engine, tmp_path):
+    assert cli.main(["tasks", "--campaign", "gpp", "--kind", "runs", "--rungs", "A1-p250-t2", "A1-p2000-t4",
+                     "--stocks", "AAPL", "F", "--years", "2019", "--stages", "1", "--runs", "2", "--development",
+                     "--exit", "20", "0.03"]) == 0
+    saved = json.loads(exits_path("gpp", "F", 2019).read_text())
+    assert (saved["days"], saved["rate"], saved["fixed"]) == (20, 0.03, True)
+    assert cli.main(["run-all", "--campaign", "gpp", "--kind", "runs"]) == 0
+    assert sorted({c[0] for c in fake_engine["runs"]}) == ["A1-p2000-t4", "A1-p250-t2"]
+    with pytest.raises(SystemExit, match="campaign of its own"):
+        cli.main(["tasks", "--campaign", "gpp", "--kind", "runs", "--plan", "other", "--rungs", "A1",
+                  "--stocks", "F", "--years", "2019", "--stages", "1", "--development", "--exit", "10", "0.02"])

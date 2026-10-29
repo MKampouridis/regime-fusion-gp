@@ -69,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--scheme", choices=("rolling", "expanding"), default="rolling",
                      help="walk-forward windows (expanding for the robustness check)")
     sub.add_argument("--plan", help="a name for the plan, for several plans of runs (default: the kind)")
+    sub.add_argument("--exit", nargs=2, metavar=("DAYS", "RATE"),
+                     help="one fixed exit setting for every stock-year instead of chosen ones (runs only)")
     sub.add_argument("--replace", action="store_true", help="plan again although tasks exist")
     sub.set_defaults(handler=tasks_command)
 
@@ -192,6 +194,12 @@ def tasks_command(args: argparse.Namespace) -> int:
                              runs=runs, block=args.block, development_only=args.development, pooled=pooled)
         path = tasks.save_plan(args.campaign, args.kind, planned, development_only=args.development,
                                replace=args.replace, stocks=stocks, scheme=args.scheme, name=args.plan)
+        if args.exit:
+            if args.kind != "runs":
+                raise ValueError("--exit fixes the exit setting of runs")
+            fixed = tasks.fix_exits(args.campaign, [(s, y) for y in years for s in stocks], int(args.exit[0]),
+                                    float(args.exit[1]), args.scheme)
+            log.info("%s: a fixed exit for %d stock-years", args.campaign, fixed)
     except (ValueError, FileExistsError) as error:
         raise SystemExit(str(error)) from None
     log.info("%s: %d %s tasks (indices 0 to %d) in %s", args.campaign, len(planned), args.plan or args.kind,

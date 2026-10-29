@@ -73,7 +73,17 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
     evaluator = Evaluator(panel.arrays(panel.train),
                           panel.market(panel.train, spec.exit_days, spec.exit_rate, primary), rung.fitness)
     rng = make_rng(config.base_seed, "run", spec.stock, spec.test_year, spec.run, spec.stage)
-    evolution = evolve(grammar, evaluator, gp_config, rng)
+    primary_market = panel.prices.loc[panel.evaluate]
+    evaluation_data = panel.arrays(panel.evaluate)
+
+    def checkpoint(individual) -> dict:
+        """What stopping now would give on the validation year (primary cost); it never feeds back
+        into evolution. Test-year runs (stage 2) record none, so no one can tune on them."""
+        result = backtest(signals(individual, evaluation_data)["C"], primary_market, spec.exit_days,
+                          spec.exit_rate, primary)
+        return {"sharpe": metrics.sharpe(result.daily), "trades": len(result.trades)}
+
+    evolution = evolve(grammar, evaluator, gp_config, rng, checkpoint=checkpoint if spec.stage == 1 else None)
     best = evolution.best
 
     later = signals(best, panel.arrays(panel.evaluate))
@@ -102,6 +112,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
         "listening": listening(best, panel),
         "branches": branches,
         "history": evolution.history,
+        "checkpoints": evolution.checkpoints,
         "seconds": round(time.perf_counter() - started, 2),
     }
     if write:

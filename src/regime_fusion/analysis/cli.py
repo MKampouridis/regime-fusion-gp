@@ -6,6 +6,7 @@ Commands (each has --help):
   portfolio  daily returns of each method's equal-weight portfolio; SPA, Deflated Sharpe, PBO, by regime
   random     each method's percentile among random entries with the same exit rule and trades
   pilot      timing, convergence and the 100-run check of the pilot
+  gp-params  the GP-parameter pilot: population, generations and tournament size
 
 Both read results/<campaign>/runs.parquet (``python -m regime_fusion.engine collect``)
 and write tables to results/<campaign>/analysis/.
@@ -61,6 +62,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--stage", type=int, choices=(1, 2), default=2)
     sub.add_argument("--draws", type=int, default=1000)
     sub.set_defaults(handler=random_command)
+
+    sub = commands.add_parser("gp-params", help="the GP-parameter pilot's table and choice")
+    sub.add_argument("--campaign", required=True)
+    sub.set_defaults(handler=gp_params_command)
 
     sub = commands.add_parser("pilot", help="timing, convergence and the 100-run check")
     sub.add_argument("--campaign", required=True)
@@ -178,6 +183,25 @@ def random_command(args: argparse.Namespace) -> int:
         log.info("%s: above the 95th percentile of random entry in %.1f%% of %d stock-years "
                  "(median percentile %.2f)", method, 100 * (table["percentile"] > 0.95).mean(), len(table),
                  table["percentile"].median())
+    return 0
+
+
+def gp_params_command(args: argparse.Namespace) -> int:
+    history = pilot.histories(args.campaign)
+    if history.empty:
+        raise SystemExit(f"no GP runs in campaign {args.campaign!r}")
+    try:
+        table, choice = pilot.gp_parameters(history, pilot.histories(args.campaign, field="checkpoints"))
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+    folder = output(args.campaign)
+    table.to_csv(folder / "gp_params.csv")
+    (folder / "gp_params_choice.json").write_text(json.dumps(choice, indent=2) + "\n")
+    log.info("GP-parameter pilot:\n%s", table.round(3).to_string())
+    log.info("choice: population %d, %d generations, tournament %d (%d evaluations)%s", choice["population"],
+             choice["generations"], choice["tournament"], choice["evaluations"],
+             "; its validation Sharpe ratio is more than 0.1 below the best candidate's: discuss" if choice["flag"]
+             else "")
     return 0
 
 

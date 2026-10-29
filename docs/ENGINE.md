@@ -19,7 +19,7 @@ An individual has one **branch** per analysis type and a **fusion tree** that co
 
 | Item | Setting |
 | --- | --- |
-| Population, generations | 1000, 50 |
+| Population, generations | 1000, 50 (ActTrade's), until the GP-parameter pilot sets them with the tournament size (`PROTOCOL.md`, §9.1). A rung may override them (`gp:` in `configs/rungs.yaml`) |
 | Initialisation | Ramped half-and-half, branch depth up to 2 (ActTrade's depth 3 counts its root) |
 | Maximum branch depth | 5 (ActTrade: 6 with the root) |
 | Crossover | Probability 0.95. Subtree crossover in each branch in turn (FA, SA, TA, then the fusion tree when it evolves), with points of the same type and class; function nodes 90% of the time. A child that is too deep keeps the first parent's tree |
@@ -61,6 +61,7 @@ An individual has one **branch** per analysis type and a **fusion tree** that co
 - **Fitness and evaluation.** Fitness uses the primary cost (10 bp per side); the model is evaluated at 0, 5, 10 and 25 bp.
 - **Seeds** depend on stock, test year, run number and stage, never on the rung, so every configuration sees the same seeds.
 - **Exit settings** (*d*, *r*) are chosen per stock and test year on the validation year with A0. Each candidate of a grid (`exit_grid` in `configs/rungs.yaml`) gets 5 runs, and the best median validation Sharpe wins. Every method then uses the choice.
+- **Checkpoints.** Stage-1 runs also record, every 10 generations, the best individual's training fitness and its Sharpe ratio and trades on the validation year: what stopping there would give. They never feed back into evolution, and test-year runs (stage 2) record none.
 - **Results.** Each run writes `$RFGP_DATA_DIR/results/<campaign>/<rung>/<stock>/<year>.stage<k>.run<NN>.json`. It holds the model in readable form, training statistics, evaluation metrics at each cost, each branch's evaluation, the generation history and a provenance record (code version, configuration and rung digests, seed keys, package versions).
 - **Speed.** A full ActTrade-size run (1,000 × 50) on Apple with FA and TA took 6.9 s, about 0.14 ms per tree. The plan's budget is 0.25 ms per tree (16 s per run).
 

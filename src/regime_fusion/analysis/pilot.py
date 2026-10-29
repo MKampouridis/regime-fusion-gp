@@ -10,11 +10,22 @@
 * ``run_count_check``: from stock-years with many runs (the plan's 100-run
   check), how much the median of n runs varies around the median of all of
   them, for several n; it says whether 30 runs are enough or 50 are needed.
+* ``gp_parameters``: the GP-parameter pilot's decision (docs/PROTOCOL.md,
+  section 9). For each population and tournament size (candidates named
+  ``<rung>-p<population>-t<tournament>``, all with the same budget of
+  evaluations), the generations are the median convergence generation of its
+  runs, rounded up to a multiple of 10; its converged fitness is each run's
+  best training fitness at that generation. Of the candidates whose converged
+  fitness is, in median paired difference, within ``margin`` of the best
+  candidate's, the one with the fewest evaluations (population x generations)
+  wins. The validation Sharpe ratio at that generation is reported beside it.
 """
 
 from __future__ import annotations
 
 import json
+import math
+import re
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +34,7 @@ import pandas as pd
 from regime_fusion.data import store
 
 CELL = ["rung", "stock", "test_year", "stage"]
+CANDIDATE = re.compile(r"^(?P<base>.+)-p(?P<population>\d+)-t(?P<tournament>\d+)$")
 
 
 def timing(runs: pd.DataFrame, *, stocks: int = 50, years: int = 7, runs_for: dict[str, int] | int = 30,
@@ -48,15 +60,15 @@ def timing(runs: pd.DataFrame, *, stocks: int = 50, years: int = 7, runs_for: di
     return pd.DataFrame(rows).T
 
 
-def histories(campaign: str, root: Path | None = None) -> pd.DataFrame:
-    """The generation-by-generation history of every GP run of a campaign."""
+def histories(campaign: str, root: Path | None = None, field: str = "history") -> pd.DataFrame:
+    """The generation-by-generation ``history`` (or validation ``checkpoints``) of every GP run."""
     base = (root or store.data_dir()) / "results" / campaign
     frames = []
     for path in sorted(base.glob("*/*/*.stage*.run*.json")):
         record = json.loads(path.read_text())
-        if not record.get("history"):
-            continue  # benchmarks have no generations
-        frame = pd.DataFrame(record["history"])
+        if not record.get(field):
+            continue  # benchmarks have no generations; test-year runs no checkpoints
+        frame = pd.DataFrame(record[field])
         for key in CELL + ["run"]:
             frame[key] = record[key]
         frames.append(frame)
@@ -122,3 +134,44 @@ def run_count_check(runs: pd.DataFrame, measure: str, rng: np.random.Generator,
     frame = pd.DataFrame(rows)
     return frame.groupby("n").agg(cells=("cell", "nunique"), sd=("sd", "median"),
                                   p95_distance=("p95_distance", "median"))
+
+
+def gp_parameters(history: pd.DataFrame, checkpoints: pd.DataFrame, *, tolerance: float = 0.01,
+                  margin: float = 0.05, every: int = 10) -> tuple[pd.DataFrame, dict]:
+    """The GP-parameter pilot's table (one row per population and tournament size) and its choice."""
+    parts = history["rung"].str.extract(CANDIDATE)
+    if parts["base"].isna().all():
+        raise ValueError("no GP-parameter pilot candidates (rungs named <rung>-p<population>-t<tournament>)")
+    history = history.assign(**parts)[parts["base"].notna()]
+    history = history.astype({"population": int, "tournament": int})
+    reached = convergence_generation(history, tolerance).rename("generation").reset_index()
+    units = ["base", "stock", "test_year", "stage", "run"]
+    rows, fitness = {}, {}
+    for (population, tournament), group in history.groupby(["population", "tournament"]):
+        cap = int(group["generation"].max())
+        mine = reached[reached["rung"].isin(group["rung"].unique())]
+        generations = min(cap, max(every, every * math.ceil(mine["generation"].median() / every)))
+        at = group[group["generation"] == generations]
+        fitness[(population, tournament)] = at.set_index(units)["best_fitness"]
+        marks = checkpoints[(checkpoints["rung"].isin(group["rung"].unique()))
+                            & (checkpoints["generation"] == generations)]
+        rows[(population, tournament)] = {
+            "population": population, "tournament": tournament, "runs": len(at),
+            "generations": generations, "evaluations": population * generations,
+            "converged_fitness": float(at["best_fitness"].median()),
+            "validation_sharpe": float(marks["sharpe"].median()) if len(marks) else float("nan"),
+            "still_rising_at_cap": float((mine["generation"] >= cap - every).mean()),
+        }
+    table = pd.DataFrame(rows.values()).set_index(["population", "tournament"]).sort_index()
+    best = table["converged_fitness"].idxmax()
+    table["fitness_vs_best"] = [float((fitness[key] - fitness[best]).median()) for key in table.index]
+    eligible = table[table["fitness_vs_best"] >= -margin]
+    chosen = eligible.sort_values(["evaluations", "validation_sharpe"], ascending=[True, False]).index[0]
+    row = table.loc[chosen]
+    choice = {"population": int(chosen[0]), "tournament": int(chosen[1]), "generations": int(row["generations"]),
+              "evaluations": int(row["evaluations"]), "converged_fitness": float(row["converged_fitness"]),
+              "validation_sharpe": float(row["validation_sharpe"]),
+              "best_validation_sharpe": float(table["validation_sharpe"].max()),
+              "flag": bool(table["validation_sharpe"].max() - row["validation_sharpe"] > 0.1)}
+    return table, choice
+
