@@ -31,7 +31,7 @@ from regime_fusion.config import StudyConfig
 from regime_fusion.engine import metrics
 from regime_fusion.engine.backtest import backtest
 from regime_fusion.engine.panel import Panel, load_panel
-from regime_fusion.engine.run import RunSpec, regimes_file, result_path
+from regime_fusion.engine.run import RunSpec, pack_signal, regimes_file, result_path
 from regime_fusion.ml.labels import trade_returns
 from regime_fusion.ml.models import ModelSpec, Settings, build
 from regime_fusion.seeds import make_rng
@@ -74,6 +74,7 @@ def run_ml(spec: RunSpec, model: ModelSpec, settings: Settings, config: StudyCon
         "validation_sharpe": choice["sharpe"],
         "candidates": choice["table"],
         "evaluation": evaluation,
+        "signal": pack_signal(signal),
         "branches": {},
         "seconds": round(time.perf_counter() - started, 2),
     }

@@ -94,3 +94,57 @@ def test_commands_write_the_tables(monkeypatch, tmp_path):
         cli.main(["compare", "--campaign", "pilot", "--stage", "1", "--rungs", "A"])
     with pytest.raises(SystemExit, match="collect"):
         cli.main(["compare", "--campaign", "other"])
+
+
+def test_portfolio_returns_are_rebuilt_from_the_stored_signals(monkeypatch, tmp_path):
+    from regime_fusion.analysis import portfolio
+    from regime_fusion.engine.backtest import backtest
+    from regime_fusion.engine.run import pack_signal, unpack_signal
+
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    rng = np.random.default_rng(7)
+    days = pd.bdate_range("2018-01-01", "2020-12-31")
+    rows = []
+    (tmp_path / "interim" / "prices").mkdir(parents=True)
+    for stock in ("S1", "S2"):
+        close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.01, len(days))))
+        prices = pd.DataFrame({"adj_open": close, "adj_high": close * 1.01, "adj_low": close * 0.99,
+                               "adj_close": close}, index=days)
+        prices.to_parquet(tmp_path / "interim" / "prices" / f"{stock}.parquet")
+        for year in (2019, 2020):
+            n = int((days.year == year).sum())
+            for rung in ("A0", "A1", "RB-BH"):
+                for run in range(2):
+                    signal = rng.random(n) < 0.2
+                    rows.append({"rung": rung, "stock": stock, "test_year": year, "stage": 2, "run": run,
+                                 "exit_days": 5, "exit_rate": 0.02, "evaluate_start": f"{year}-01-01",
+                                 "evaluate_end": f"{year}-12-31", "fitness": 0.0, "seconds": 1.0,
+                                 "signal": None if rung == "RB-BH" else pack_signal(signal)})
+    runs = pd.DataFrame(rows)
+    assert (unpack_signal(rows[0]["signal"]) == unpack_signal(pack_signal(unpack_signal(rows[0]["signal"])))).all()
+    first = runs.iloc[0]
+    prices = portfolio.stock_prices("S1")
+    expected = backtest(unpack_signal(first["signal"]), prices.loc["2019"], 5, 0.02, 10).daily
+    pd.testing.assert_series_equal(portfolio.run_returns(first, prices, 10), expected)
+    returns = portfolio.method_returns(runs, 10)
+    assert list(returns.columns) == ["A0", "A1", "RB-BH"] and len(returns) == int((days.year >= 2019).sum())
+    cell = runs[(runs.rung == "A1") & (runs.stock == "S2") & (runs.test_year == 2020)]
+    s2 = pd.concat([portfolio.run_returns(r, portfolio.stock_prices("S2"), 10) for _, r in cell.iterrows()],
+                   axis=1).mean(axis=1)
+    s1 = pd.concat([portfolio.run_returns(r, prices, 10) for _, r in
+                    runs[(runs.rung == "A1") & (runs.stock == "S1") & (runs.test_year == 2020)].iterrows()],
+                   axis=1).mean(axis=1)
+    assert returns.loc["2020", "A1"].to_numpy() == pytest.approx(((s1 + s2) / 2).to_numpy())
+    outcome = portfolio.tests(returns, "RB-BH", ["A0", "A1"], n_trials=3, rng=np.random.default_rng(1),
+                              bootstraps=200)
+    assert 0 <= outcome["spa"]["p"] <= 1 and set(outcome["deflated_sharpe"]) == {"A0", "A1", "RB-BH"}
+    assert "pbo" in outcome
+    with pytest.raises(ValueError, match="no stored signal"):
+        portfolio.run_returns(first.copy().replace({first["signal"]: None}), prices, 10)
+
+    folder = tmp_path / "results" / "main"
+    folder.mkdir(parents=True)
+    runs.to_parquet(folder / "runs.parquet")
+    assert cli.main(["portfolio", "--campaign", "main"]) == 0
+    saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
+    assert saved["spa"]["benchmark"] == "RB-BH" and saved["n_trials"] == 3

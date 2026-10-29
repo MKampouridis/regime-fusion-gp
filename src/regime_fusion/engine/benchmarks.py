@@ -37,7 +37,7 @@ from regime_fusion.data import store
 from regime_fusion.engine import metrics
 from regime_fusion.engine.backtest import Result, _simulate, backtest
 from regime_fusion.engine.fitness import sharpe as fast_sharpe
-from regime_fusion.engine.run import RunSpec, result_path
+from regime_fusion.engine.run import RunSpec, pack_signal, result_path
 from regime_fusion.windows import walk_forward
 
 PRICE_COLUMNS = ["adj_open", "adj_high", "adj_low", "adj_close"]
@@ -155,12 +155,13 @@ def run_rule(spec: RunSpec, rule, settings, config: StudyConfig, *, campaign: st
             table.append({**params, "sharpe": score, "trades": trades})
             if best is None or score > best["sharpe"]:
                 best = {"params": params, "sharpe": score}
-    evaluation = {}
+    evaluation, signal = {}, None
+    if rule.kind != "buy_and_hold":
+        signal = rule_signal(rule.kind, prices, best["params"]).loc[later.index].to_numpy(dtype=bool)
     for cost in config.costs_bps_per_side:
         if rule.kind == "buy_and_hold":
             result = buy_and_hold_result(later, cost)
         else:
-            signal = rule_signal(rule.kind, prices, best["params"]).loc[later.index]
             result = backtest(signal, later, spec.exit_days, spec.exit_rate, cost)
         evaluation[f"{cost:g}bps"] = metrics.summary(result)
     record = {
@@ -175,6 +176,7 @@ def run_rule(spec: RunSpec, rule, settings, config: StudyConfig, *, campaign: st
         "validation_sharpe": best["sharpe"],
         "candidates": table,
         "evaluation": evaluation,
+        "signal": None if signal is None else pack_signal(signal),  # buy-and-hold has no signal
         "branches": {},
         "seconds": round(time.perf_counter() - started, 2),
     }

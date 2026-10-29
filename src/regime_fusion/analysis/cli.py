@@ -2,8 +2,9 @@
 
 Commands (each has --help):
 
-  compare  per-stock-year medians of a campaign's methods and the paired tests between them
-  pilot    timing, convergence and the 100-run check of the pilot
+  compare    per-stock-year medians of a campaign's methods and the paired tests between them
+  portfolio  daily returns of each method's equal-weight portfolio; SPA, Deflated Sharpe, PBO
+  pilot      timing, convergence and the 100-run check of the pilot
 
 Both read results/<campaign>/runs.parquet (``python -m regime_fusion.engine collect``)
 and write tables to results/<campaign>/analysis/.
@@ -18,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from regime_fusion.analysis import pilot, results
+from regime_fusion.analysis import pilot, portfolio, results
 from regime_fusion.config import load_config
 from regime_fusion.data import store
 from regime_fusion.seeds import make_rng
@@ -38,6 +39,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--against", help="also compare every method with this one")
     sub.add_argument("--stage", type=int, choices=(1, 2), default=2, help="1 for the pilot (validation year)")
     sub.set_defaults(handler=compare_command)
+
+    sub = commands.add_parser("portfolio", help="portfolio returns of each method; SPA, Deflated Sharpe, PBO")
+    sub.add_argument("--campaign", required=True)
+    sub.add_argument("--cost", type=float, help="basis points per side (default: the primary cost)")
+    sub.add_argument("--stage", type=int, choices=(1, 2), default=2)
+    sub.add_argument("--benchmark", help="SPA benchmark (default: the best rule-based or ML benchmark)")
+    sub.add_argument("--trials", type=int, help="configurations tried, for the Deflated Sharpe "
+                                                "(default: the methods in the campaign)")
+    sub.set_defaults(handler=portfolio_command)
 
     sub = commands.add_parser("pilot", help="timing, convergence and the 100-run check")
     sub.add_argument("--campaign", required=True)
@@ -91,6 +101,32 @@ def compare_command(args: argparse.Namespace) -> int:
              medians.median().round(3).to_string())
     log.info("Wilcoxon-Holm:\n%s", tests["pairs"].round(4).to_string(index=False))
     log.info("tables in %s", folder)
+    return 0
+
+
+def portfolio_command(args: argparse.Namespace) -> int:
+    config = load_config()
+    cost = config.primary_cost_bps_per_side if args.cost is None else args.cost
+    runs = load_runs(args.campaign)
+    runs = runs[runs["stage"] == args.stage]
+    returns = portfolio.method_returns(runs, cost)
+    benchmarks = [m for m in returns.columns if m.startswith(("RB-", "ML-"))]
+    benchmark = args.benchmark or (max(benchmarks, key=lambda m: returns[m].mean() / returns[m].std())
+                                   if benchmarks else None)
+    if benchmark is None:
+        raise SystemExit("no benchmark in the campaign; pass --benchmark")
+    candidates = [m for m in returns.columns if m not in benchmarks]
+    if not candidates:
+        raise SystemExit("no GP rung in the campaign to test against the benchmark")
+    rng = make_rng(config.base_seed, "analysis", "spa", args.campaign)
+    outcome = portfolio.tests(returns, benchmark, candidates, args.trials or returns.shape[1], rng)
+    folder, name = output(args.campaign), f"{cost:g}bps.stage{args.stage}"
+    store.write_parquet(folder / f"portfolio.{name}.parquet", returns, campaign=args.campaign, cost_bps=cost)
+    (folder / f"portfolio_tests.{name}.json").write_text(json.dumps(outcome, indent=2, default=float) + "\n")
+    log.info("%s at %g bps: annualised Sharpe of each portfolio %s", args.campaign, cost,
+             outcome["annualised_sharpe"])
+    log.info("SPA against %s: p = %.4f; Deflated Sharpe: %s", benchmark, outcome["spa"]["p"],
+             {k: round(v, 3) for k, v in outcome["deflated_sharpe"].items()})
     return 0
 
 

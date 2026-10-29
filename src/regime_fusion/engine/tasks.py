@@ -183,6 +183,7 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
             continue
         row = {key: record.get(key) for key in ("rung", "stock", "test_year", "stage", "run", "exit_days",
                                                 "exit_rate", "fitness", "seconds")}
+        row["evaluate_start"], row["evaluate_end"] = record.get("evaluate", [None, None])
         for cost in costs:
             for measure, value in record["evaluation"][f"{cost:g}bps"].items():
                 row[f"{measure}_{cost:g}bps"] = value
@@ -190,5 +191,6 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
             row[f"{source.lower()}_sharpe_{primary:g}bps"] = measures["sharpe"]
             row[f"{source.lower()}_trades_{primary:g}bps"] = measures["trades"]
         row["model"] = record.get("model")
+        row["signal"] = record.get("signal")
         rows.append(row)
     return pd.DataFrame(rows)

@@ -20,6 +20,7 @@ then uses them, so any advantage of tuning goes to the baseline.
 
 from __future__ import annotations
 
+import base64
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,6 +77,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
     best = evolution.best
 
     later = signals(best, panel.arrays(panel.evaluate))
+    signal = np.asarray(later["C"], dtype=bool)
     prices = panel.prices.loc[panel.evaluate]
     outcome = {}
     for cost in config.costs_bps_per_side:
@@ -95,6 +97,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
         "fitness": best.fitness,
         "train_stats": {c: v for c, v in best.stats.items() if c != "cases"},
         "evaluation": outcome,
+        "signal": pack_signal(signal),
         "branches": branches,
         "history": evolution.history,
         "seconds": round(time.perf_counter() - started, 2),
@@ -104,6 +107,18 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
                                                   overrides=overrides or {})
         provenance.write(result_path(campaign, rung.name, spec), record)
     return record
+
+
+def pack_signal(signal) -> str:
+    """A daily buy signal in compact text (one bit per day), so that daily returns can be rebuilt."""
+    values = np.asarray(signal, dtype=bool)
+    return f"{len(values)}:" + base64.b64encode(np.packbits(values).tobytes()).decode()
+
+
+def unpack_signal(text: str) -> np.ndarray:
+    length, _, payload = text.partition(":")
+    bits = np.unpackbits(np.frombuffer(base64.b64decode(payload), dtype=np.uint8))
+    return bits[:int(length)].astype(bool)
 
 
 def regimes_file(name: str | None, stock: str, test_year: int, stage: int) -> Path | None:
