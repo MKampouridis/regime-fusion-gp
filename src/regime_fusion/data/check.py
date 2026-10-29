@@ -8,7 +8,9 @@ reads them and lists, per stock, what needs a look:
 * SEC filings: the flags of the sec step (such as years with fewer than four
   10-K and 10-Q filings);
 * fundamental and technical indicators: indicators with values on too few days;
-* sentiment: the share of sessions with news and the indicators' coverage;
+* sentiment: the share of sessions with news, the indicators' coverage, and how
+  well GDELT's articles follow FNSPID's headlines in 2015-2018 (a check of the
+  company matching, from the sa step);
 * regimes: probability files missing for an input set, test year or stage.
 
 Missing reports are listed rather than treated as failures, so the check can
@@ -27,6 +29,7 @@ REPORTS = {"prices": "price_checks.json", "sec": "sec_checks.json", "fa": "fa_co
            "ta": "ta_coverage.json", "sa": "sa_coverage.json"}
 BIG_MOVE = 0.25
 THIN_NEWS = 0.5  # share of sessions with at least one article
+WEAK_AGREEMENT = 0.2  # rank correlation of weekly GDELT articles and FNSPID headlines
 
 
 def load_reports(root: Path | None = None) -> dict[str, dict[str, Any]]:
@@ -66,6 +69,11 @@ def stock_issues(stock: str, reports: dict[str, dict[str, Any]]) -> dict[str, li
             out["sa"] = ["no session with news coverage yet"]
         else:
             out["sa"] = [f"news on {share:.0%} of sessions"] if share < THIN_NEWS else []
+            agreement = news.get("fnspid_agreement") or {}
+            correlation = agreement.get("weekly_rank_correlation")
+            if correlation is not None and correlation < WEAK_AGREEMENT:
+                out["sa"].append(f"GDELT follows FNSPID weakly (weekly rank correlation {correlation:.2f} "
+                                 f"over {agreement['weeks']} weeks)")
     return out
 
 

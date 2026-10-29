@@ -44,6 +44,7 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -195,6 +196,20 @@ def coverage(stamps: pd.DatetimeIndex, calendar: TradingCalendar) -> pd.Series:
     counts = counts.reindex(calendar.sessions, fill_value=0.0)
     slots = pd.Series(calendar.closes, index=calendar.sessions).diff() / SLOT
     return (counts / slots).clip(upper=1.0).rename("coverage")
+
+
+def fnspid_agreement(articles: pd.Series, headlines: pd.Series, min_weeks: int = 20) -> dict[str, Any]:
+    """How well a stock's GDELT articles follow its FNSPID headlines, over the sessions given (those
+    both sources cover): the rank correlation of their weekly counts, and the share of the sessions
+    with an FNSPID headline on which GDELT has news too. A check of GDELT's company matching."""
+    both = pd.DataFrame({"gdelt": articles, "fnspid": headlines}).dropna()
+    weeks = both.groupby(both.index.to_period("W-FRI")).sum()
+    correlation = (weeks["gdelt"].corr(weeks["fnspid"], method="spearman")
+                   if len(weeks) >= min_weeks and weeks.nunique().min() > 1 else np.nan)
+    with_headline = both["fnspid"] > 0
+    share = (both.loc[with_headline, "gdelt"] > 0).mean() if with_headline.any() else np.nan
+    return {"weeks": len(weeks), "weekly_rank_correlation": None if np.isnan(correlation) else round(float(correlation), 3),
+            "fnspid_days_with_gdelt_news": None if np.isnan(share) else round(float(share), 3)}
 
 
 def scaled_articles(sums: pd.DataFrame, cover: pd.Series) -> pd.Series:

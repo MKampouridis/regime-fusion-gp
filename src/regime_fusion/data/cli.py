@@ -764,6 +764,8 @@ def run_sa(args: argparse.Namespace) -> int:
     details = {"names_digest": rules.digest, "extraction": gdelt.EXTRACTION, "gdelt_days_used": used,
                "gdelt_days_pending": pending}
     report, names_by_stock = {}, name_report(names)
+    headlines = fnspid_counts(calendar, stocks)
+    checked = covered[covered <= development_end]  # the cross-check with FNSPID uses 2015-2018 only
     for stock in stocks:
         own = (sums.xs(stock, level="stock") if stock in sums.index.get_level_values("stock")
                else pd.DataFrame(columns=list(gdelt.SUM_COLUMNS), dtype="float64"))
@@ -779,6 +781,11 @@ def run_sa(args: argparse.Namespace) -> int:
             "share_of_days": table.reindex(study).notna().mean().round(4).to_dict(),
             **names_by_stock.get(stock, {}),
         }
+        if stock in headlines:
+            counts, years = headlines[stock]
+            both = checked[checked.year.isin(years)]
+            report[stock]["fnspid_agreement"] = sa.fnspid_agreement(articles.reindex(both),
+                                                                    counts.reindex(both, fill_value=0))
     report["_coverage"] = {"gdelt_days_used": used, "gdelt_days_pending": pending,
                            "sessions_covered": round(len(covered) / len(study), 4),
                            "sessions_not_covered": [str(d.date()) for d in study.difference(covered)][:200]}
@@ -788,6 +795,16 @@ def run_sa(args: argparse.Namespace) -> int:
              "news on fewer than half of the sessions: %s", len(stocks), used, pending,
              100 * report["_coverage"]["sessions_covered"], thin)
     return 0
+
+
+def fnspid_counts(calendar: TradingCalendar, stocks: list[str]) -> dict[str, tuple[pd.Series, list[int]]]:
+    """FNSPID headlines per session of each stock, and the years FNSPID covers it (none without FNSPID)."""
+    files = sorted(store.layer("raw", "fnspid").glob("*.parquet"))
+    if not files:
+        return {}
+    items = finbert.fnspid_headlines((pd.read_parquet(path) for path in files), calendar)
+    return {stock: (own.groupby("session").size(), finbert.covered_years(own, calendar.sessions))
+            for stock, own in items[items["stock"].isin(stocks)].groupby("stock")}
 
 
 def name_report(names: Counter, top: int = 15) -> dict[str, dict[str, Any]]:

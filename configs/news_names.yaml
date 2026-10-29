@@ -19,9 +19,11 @@
 # "access investor kit for apple inc" is read as "apple inc".
 #
 # First version, drafted from the most frequent names in the first months of
-# GDELT. The `sa` command reports each firm's most frequent names left out, in
-# the development period (to 2018) only; names adopted later come from the
-# firms' public renamings, listed with their dates.
+# GDELT; the main firms' rules were reviewed on 29 October 2026 on the news of
+# 2015 to May 2016 (docs/DATA.md). The `sa` command reports each firm's most
+# frequent names counted and left out, in the development period (to 2018) only;
+# names adopted later come from the firms' public renamings, listed with their
+# dates.
 
 prefixes: [access investor kit for, name search watch service, trend analysis report, research report,
            analysts at, shares of, closing bell reports, business wire, risers, fallers, drugmaker,
@@ -31,14 +33,15 @@ stocks:
   # Main universe
   AAPL:
     accept: ["apple{S}", "apple computers?{S}", "apple inc .*",
-             "apple (iphone|ipad|watch|music|pay|store|stores|tv|maps|retail|worldwide developers conference|developers conference|app store|itunes|icloud|siri|macbook|card|arcade|news|fitness|vision pro)( .*)?",
+             "apple (iphone|ipad|ipod|imac|mac|airpods|homepod|watch|music|pay|store|stores|tv|maps|retail|worldwide developers conference|developers conference|app|apps|app store|appstore|itunes|icloud|siri|macbook|carplay|pencil|card|arcade|news|fitness|vision pro)( .*)?",
              "apple (chief executive|ceo|chief|chairman|co-?founder|founder|executives?|spokes(man|woman|person)|engineers?|employees?|shares|stock|suppliers?)( .*)?"]
   ABBV: all
   ABT:
     accept: ["(.* )?abbott (laboratories|labs|nutrition|diagnostics|vascular|diabetes care|medical optics|molecular|point of care|rapid diagnostics|structural heart|healthcare|india)( .*)?"]
   AMZN:
     accept: ["amazon{S}", "(.* )?amazon ?(\\.|dot)? ?com( .*)?",
-             "(.* )?amazon (web services?|prime|echo|kindle|fresh|studios|home services|marketplace|logistics|alexa|music|video|fire|seller services|inc|go|books|pharmacy|air|robotics|publishing|game studios|games|pay|business|devices|basics|fulfillment|fulfilment|warehouses?|delivery|drones?|mgm studios|one medical)( .*)?"]
+             "(.* )?amazon (web services?|prime|echo|kindle|fresh|studios|home services|marketplace|logistics|alexa|music|video|fire|seller services|inc|go|books|pharmacy|air|robotics|publishing|game studios|games|pay|business|devices|basics|fulfillment|fulfilment|warehouses?|delivery|drones?|mgm studios|one medical|instant video|appstore|india|united kingdom|uk|germany|japan|france|canada|australia|mexico|italy|spain|china)( .*)?"]
+    reject: ["(.* )?amazon india fashion week( .*)?"]
   AXP:
     accept: ["(.* )?american express( .*)?", "amex{S}", "amex (card|cards|gbt|global business travel)( .*)?"]
     reject: ["(.* )?american express (community stadium|box office|arena|presents)( .*)?"]
@@ -46,19 +49,23 @@ stocks:
     accept: ["(.* )?baxter (international|healthcare)( .*)?"]
   BMY: all
   CL:
-    accept: ["(.* )?colgate ?-?palmolive( .*)?", "palmolive company colgate"]
+    accept: ["(.* )?colgate ?-?palmolive( .*)?", "palmolive company colgate", "(.* )?[a-z]+-based colgate( .*)?",
+             "(.* )?colgate (total|optic white|max fresh|luminous white|sensitive|360|toothpaste|toothbrush)( .*)?"]
   COF:
     accept: ["(.* )?capital one( .*)?"]
     reject: ["(.* )?capital one (arena|cup|bowl|orange bowl|league cup|hall|jamsports)( .*)?"]
   COP: all
-  CVS: all
+  CVS:
+    accept: ["cvs( .*)?", "(.* )?cvs (health|caremark|pharmacy|corp|corporation|inc|store|stores|minuteclinic|specialty)( .*)?"]
   CVX:
-    accept: ["(.* )?chevron( .*)?"]
+    accept: ["(.* )?chevron( .*)?", "(.* )?chevron-(operated|run|led|owned|controlled|backed)( .*)?"]
     reject: ["(.* )?chevron (doctrine|deference)( .*)?"]
   DD:
     accept: ["(.* )?dowdupont( .*)?", "(e ?i )?du ?pont{S}", "(.* )?(e ?i )?du ?pont de nemours( .*)?",
              "du ?pont (nutrition|pioneer|crop protection|performance materials|safety|sustainable solutions|electronics|industrial biosciences|tate|danisco|teijin films|specialty products|water)( .*)?"]
-  DIS: all
+  DIS:
+    accept: [".*"]
+    reject: ["(.* )?walt disney (concert hall|family museum)( .*)?"]
   EBAY: all
   EL:
     accept: ["(.* )?est(e|é)e lauder( .*)?", "(.* )?lauder (companies|cos)( .*)?"]
@@ -68,40 +75,45 @@ stocks:
              "ford (fusion|fiesta|focus|mustang|f-?150|f-series|explorer|escape|edge|expedition|ranger|bronco|transit|taurus|ecosport|kuga|maverick|lightning|mach-e|super duty|ecoboost)( .*)?",
              "ford (chief executive|ceo|chairman|executive chairman|spokes(man|woman|person)|executives?|shares|stock|dealers?|dealerships?)( .*)?"]
   FCX:
-    accept: ["(.* )?freeport ?-?mc ?moran( .*)?", "(.* )?pt freeport indonesia( .*)?"]
+    accept: ["(.* )?freeport ?-?mc ?moran( .*)?", "(.* )?(pt )?freeport indonesia( .*)?"]
   FDX:
     accept: [".*"]
     reject: ["(.* )?fedex (field|cup|forum|st jude classic|st jude invitational|open)( .*)?"]
   GD: all
   GE:
     accept: ["(.* )?general electric( .*)?", "ge{S}",
-             "ge (capital|healthcare|aviation|power|digital|oil (and )?gas|energy|transportation|appliances|lighting|renewable energy|vernova|aerospace|research|global research|foundation|additive|water|current|money|plastics)( .*)?",
+             "ge (capital|healthcare|aviation|power|digital|oil|oil (and )?gas|energy|transportation|appliances|lighting|renewable energy|vernova|aerospace|research|global research|foundation|additive|water|current|money|plastics|hitachi|measurement|medical|intelligent platforms|ventures|grid|wind)( .*)?",
              "ge (chief executive|ceo|chairman|spokes(man|woman|person)|executives?|shares|stock)( .*)?"]
+    reject: ["(.* )?portland general electric( .*)?"]
   GM:
     accept: ["(.* )?general motors( .*)?", "gm{S}", "(shanghai |saic ?-?)gm( .*)?",
              "gm (korea|holden|financial|international|europe|china|daewoo|cruise|defense|tech center|foundation|canada|brazil|india|south africa)( .*)?",
              "gm (chief executive|ceo|chairman|president|spokes(man|woman|person)|executives?|shares|stock|dealers?|dealerships?)( .*)?"]
   GOOGL:
-    accept: ["(.* )?google( .*)?", "alphabet{S}", "alphabet inc .*"]
+    accept: ["(.* )?google( .*)?", "(.* )?google-(owned|backed|led|run|funded|parent)( .*)?", "alphabet{S}", "(.* )?alphabet inc( .*)?"]
   GS:
-    accept: ["(.* )?goldman sachs( .*)?"]
-  HAL: all
+    accept: ["(.* )?goldman sachs?( .*)?"]
+  HAL:   # not people called Halliburton
+    accept: ["halliburton(-[a-z]+)?( .*)?", "(.* )?[a-z]+-based halliburton( .*)?",
+             "(.* )?halliburton (co|cos|company|corp|corporation|inc|energy services|chairman|chief executive|ceo|spokes(man|woman|person)|shares|stock)( .*)?"]
   IBM: all
   INTC:
     accept: [".*"]
     reject: ["(.* )?(senate|house|military|defense|defence|us|u s) intel( .*)?", "intel committee( .*)?"]
   KO:
-    accept: ["(.* )?coca ?-?cola( .*)?"]
+    accept: ["(.* )?coca ?-?cola( .*)?", "(.* )?(diet|cherry|vanilla) coke( .*)?", "(.* )?coke (zero|life|energy)( .*)?"]
     reject: ["(.* )?coca ?-?cola (european partners|europacific partners|enterprises|femsa|hbc|hellenic|amatil|icecek|consolidated|bottling|bottlers japan|beverages africa|west|600|zero sugar 400)( .*)?"]
   KODK:
     accept: [".*"]
-    reject: ["(.* )?kodak black( .*)?"]
+    reject: ["(.* )?kodak black( .*)?", "(.* )?kodak (theat(er|re)|hall|center|centre|alaris)( .*)?"]
   LLY:
     accept: ["(.* )?eli lilly( .*)?", "lilly (usa|research laboratories|oncology|diabetes|bio-?medicines|foundation)( .*)?"]
-  LMT: all
+  LMT:
+    accept: [".*"]
+    reject: ["(.* )?lockheed electra( .*)?"]   # the 1930s aircraft
   MCD:
-    accept: ["(.* )?mc ?donald ?s( .*)?"]
-    reject: ["(.* )?ronald mc ?donald house( .*)?"]
+    accept: ["(.* )?mc ?donald ?s( .*)?", "(.* )?mc ?donald (corp|corporation)( .*)?"]   # "McDonald's Corp" loses its apostrophe
+    reject: ["(.* )?ronald mc ?donald house( .*)?", "(.* )?laquan mc ?donald ?s?( .*)?"]
   MET:
     accept: [".*"]
     reject: ["(.* )?metlife stadium( .*)?"]
@@ -115,16 +127,17 @@ stocks:
   PFE: all
   PM:
     accept: [".*"]
-    reject: ["(.* )?philip morris usa( .*)?"]
+    reject: ["(.* )?philip morris (usa|united states)( .*)?"]   # Altria's; GDELT writes USA as "united states"
   SLB:
-    accept: ["(.* )?schlumberger( .*)?", "slb{S}"]
+    accept: ["(.* )?schlumberger( .*)?", "(.* )?schlumberger-[a-z]+( .*)?", "slb{S}"]
+    reject: ["(.* )?jean schlumberger( .*)?"]
   SO:
     accept: ["(.* )?southern (company|co)( .*)?"]
     reject: ["(.* )?(norfolk|kansas city|fidelity|fairfield) southern( .*)?", "a southern (company|co)( .*)?"]
   SPG: all
   TSLA:
-    accept: ["tesla{S}", "(.* )?tesla motors( .*)?",
-             "tesla (inc|energy|gigafactory|giga|model [3sxy]|semi|roadster|autopilot|cybertruck|powerwall|megapack|supercharger|solar|china|shanghai|berlin|grohmann)( .*)?"]
+    accept: ["tesla{S}", "(.* )?tesla motors?( .*)?", "(.* )?[a-z]+-based tesla( .*)?",
+             "tesla (inc|energy|gigafactory|giga|model|semi|roadster|autopilot|cybertruck|powerwall|megapack|supercharger|solar|china|shanghai|berlin|grohmann)( .*)?"]
   UPS:
     accept: ["(.* )?united parcel( .*)?", "ups{S}", "ups (store|freight|airlines|supply chain solutions|foundation|capital|healthcare)( .*)?"]
   UTX:
@@ -136,12 +149,14 @@ stocks:
       - {pattern: "rtx (corp|corporation|inc)( .*)?", since: "2020-04-03"}
   VZ:
     accept: [".*"]
-    reject: ["(.* )?verizon (center|centre|arena|amphitheatre|amphitheater|wireless amphitheater|indycar series)( .*)?"]
+    reject: ["(.* )?verizon (wireless )?(center|centre|arena|amphitheatre|amphitheater|theat(er|re)|hall|music hall|stadium|pavilion|indycar|indycar series)( .*)?"]
   WFC:
     accept: [".*"]
-    reject: ["(.* )?wells fargo (center|centre|arena|championship|stadium)( .*)?"]
+    reject: ["(.* )?wells fargo (center|centre|arena|championship|stadium)( .*)?", "(.* )?home builders wells fargo( .*)?"]   # the NAHB/Wells Fargo housing index
   WMT: all
-  XRX: all
+  XRX:
+    accept: [".*"]
+    reject: ["(.* )?xerox rochester (international )?jazz( .*)?"]
   # Hold-out stocks
   AMG: all
   AMT: all

@@ -97,6 +97,12 @@ def test_repository_rules_cover_the_universe_and_known_cases():
         ("NYT", "new york times"): False, ("NYT", "new york times co"): True,
         ("SO", "atlanta-based southern company"): True, ("SO", "norfolk southern co"): False,
         ("SO", "kansas city southern co"): False, ("SO", "southern co-operative"): False,
+        ("MCD", "mcdonald corp"): True, ("MCD", "laquan mcdonalds"): False, ("MCD", "robert mcdonald"): False,
+        ("GE", "portland general electric"): False, ("PM", "philip morris united states"): False,
+        ("WFC", "national association of home builders wells fargo"): False, ("KO", "diet coke"): True,
+        ("TSLA", "tesla model"): True, ("TSLA", "nikola tesla"): False, ("AAPL", "apple carplay"): True,
+        ("AMZN", "amazon india"): True, ("AMZN", "peruvian amazon"): False, ("HAL", "benjamin halliburton"): False,
+        ("HAL", "houston-based halliburton"): True, ("VZ", "verizon wireless arena"): False,
     }
     for (stock, name), expected in cases.items():
         assert rules.counts(stock, name, day) is expected, (stock, name)
@@ -260,3 +266,14 @@ def test_sa_command_builds_indicators_from_extracted_days(monkeypatch, tmp_path)
     assert report["AAPL"]["top_names_left_out"] == {"apple daily": 8}
     assert report["F"]["top_names_left_out"] == {"ford foundation": 4}
     assert report["_coverage"]["gdelt_days_pending"] == 1
+
+
+def test_agreement_with_fnspid_is_the_rank_correlation_of_weekly_counts():
+    days = pd.bdate_range("2016-01-04", periods=150)
+    weekly = np.repeat(np.arange(30) % 7, 5).astype(float)          # news volume that rises and falls
+    agreed = sa.fnspid_agreement(pd.Series(weekly * 10, days), pd.Series(weekly, days))
+    assert agreed == {"weeks": 30, "weekly_rank_correlation": 1.0, "fnspid_days_with_gdelt_news": 1.0}
+    reverse = sa.fnspid_agreement(pd.Series(6 - weekly, days), pd.Series(weekly, days))
+    assert reverse["weekly_rank_correlation"] == -1.0 and reverse["fnspid_days_with_gdelt_news"] < 1
+    short = sa.fnspid_agreement(pd.Series(weekly[:50], days[:50]), pd.Series(weekly[:50], days[:50]))
+    assert short["weeks"] == 10 and short["weekly_rank_correlation"] is None   # too few weeks to say

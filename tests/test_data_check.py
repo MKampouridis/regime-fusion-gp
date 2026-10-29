@@ -26,6 +26,11 @@ def test_issues_are_gathered_per_stock_and_source(tmp_path):
     assert kodk["prices"] == ["zero volume: 1", "2 sessions without a bar", "moves over 25%: 2020-07-29 +318%"]
     assert kodk["sec"] == ["few filings in 2016"] and kodk["fa"] == ["thin: ebitda"]
     assert kodk["ta"] == ["no coverage report"] and kodk["sa"] == ["news on 30% of sessions"]
+    reports["sa"]["AAPL"]["fnspid_agreement"] = {"weeks": 200, "weekly_rank_correlation": 0.12}
+    assert check.stock_issues("AAPL", reports)["sa"] == [
+        "GDELT follows FNSPID weakly (weekly rank correlation 0.12 over 200 weeks)"]
+    reports["sa"]["AAPL"]["fnspid_agreement"]["weekly_rank_correlation"] = 0.45
+    assert not check.stock_issues("AAPL", reports)["sa"]
     reports["sa"]["AAPL"]["sessions_with_news"] = float("nan")
     assert check.stock_issues("AAPL", reports)["sa"] == ["no session with news coverage yet"]
     text = check.markdown([{"stock": "KODK", "role": "main", "issues": kodk},

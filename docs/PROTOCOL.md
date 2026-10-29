@@ -85,8 +85,8 @@ Each is settled on 2015–2018 data only (stage 1 of the 2019 window), by the ru
 | Threshold of the news-attention DC (A4) | 0.25 (`A4`) or 0.5 (`A4-wide`), in log units | As for A3, with A4, after its price threshold is set to A3's choice |
 | Scaling of the indicators | min-max (`A1`) or rank (`A1-rank`) | The higher median validation Sharpe ratio of A1, 10 runs each |
 | Fitness weights | Equal (0.25 each) | Kept unless ActTrade's own values are found |
-| Sentiment indicators | The twelve GDELT indicators | Open in `DECISIONS.md` until Michael decides |
-| GDELT name rules | `configs/news_names.yaml` | Revised on the 2015–2018 names report, before any pilot run |
+| Sentiment indicators | The twelve GDELT indicators | Decided by Michael (29 October 2026) |
+| GDELT name rules | `configs/news_names.yaml` | Revised on the 2015–2018 names report and the cross-check with FNSPID, before any pilot run (the main firms' rules were first reviewed on the 2015–16 news, 29 October 2026) |
 
 ### 9.1 The GP-parameter pilot
 
