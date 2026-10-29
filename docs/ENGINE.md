@@ -84,6 +84,17 @@ python -m regime_fusion.engine collect --campaign pilot     # results/pilot/runs
 - `collect` gives one row per run: rung, stock, test year, stage, run, exit settings, training fitness, every evaluation measure at every cost (such as `sharpe_10bps`), each branch's Sharpe ratio and trades, and the model in readable form.
 - A run whose stock has no usable indicator of a needed type (values on fewer than half of the training days) stops with a message, as A0 does now for sentiment until the GDELT extraction is finished.
 
+## Analysis (`src/regime_fusion/analysis`)
+
+`python -m regime_fusion.analysis` reads a campaign's `runs.parquet` and writes tables to `results/<campaign>/analysis/`, following [`PROTOCOL.md`](PROTOCOL.md):
+
+- `compare`: per-stock-year medians, the paired Wilcoxon-Holm tests with bootstrap intervals (`--confirmatory` for the protocol's six), Friedman and Conover, best-fitness runs, results by year, a summary of secondary measures, and the trust map.
+- `portfolio`: each method's equal-weight portfolio, rebuilt from the runs' stored buy signals; Hansen's SPA against the best benchmark, Deflated Sharpe Ratios, PBO, and results by regime.
+- `random`: each method's percentile among 1,000 random entries with its exit rule and number of trades, per stock-year.
+- `pilot`: timing, convergence and the 100-run check.
+
+**Trust map** (research question 4). For each evaluation day, a branch is *listened to* when its leaf lies on the path the model's IF nodes choose that day. Each run records the share of days each branch is listened to, overall and in each regime state; the trust map averages these per method and state.
+
 ## Benchmarks (`configs/benchmarks.yaml`)
 
 Rule-based and machine-learning benchmarks run like GP rungs: through the same commands (`run --rung RB-MA`, or as rungs of a campaign), backtest, exit settings, *t*+1 execution and costs, and their results go into the same tables. Parameters, where a benchmark has any, are chosen on the validation year by Sharpe ratio (fewer than 3 trades score zero, as in the GP's fitness); stage 2 trades the test year with them. Deterministic benchmarks get one run.

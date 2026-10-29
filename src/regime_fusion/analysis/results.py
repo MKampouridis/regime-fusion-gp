@@ -16,6 +16,8 @@ training fitness and evaluation measures at every cost.
   confidence interval for the median paired difference, and the Friedman test
   with Conover's comparisons across all methods, on stock-years that every
   method covers. ``CONFIRMATORY`` holds the six comparisons of docs/PROTOCOL.md.
+* ``trust_map``: per method and regime state, the mean share of days on which
+  each branch is on the model's active path (research question 4).
 """
 
 from __future__ import annotations
@@ -102,3 +104,15 @@ def compare(table: pd.DataFrame, pairs: list[tuple[str, str]],
 def by_year(runs: pd.DataFrame, measure: str) -> pd.DataFrame:
     """Median over stocks of the stock-year medians, per test year and method."""
     return stock_year_medians(runs, measure).groupby(level="test_year").median()
+
+
+def trust_map(runs: pd.DataFrame) -> pd.DataFrame:
+    """Rows: (method, regime state); columns: branches; values: mean share of days listened to."""
+    columns = [c for c in runs.columns if c.startswith("listen_") and "_state" in c]
+    if not columns:
+        return pd.DataFrame()
+    long = runs.melt(id_vars=["rung"], value_vars=columns, var_name="column", value_name="share").dropna()
+    parts = long["column"].str.extract(r"listen_(?P<source>[a-z]+)_state(?P<state>\d+)")
+    long = pd.concat([long, parts], axis=1)
+    return long.pivot_table(index=["rung", "state"], columns="source", values="share", aggfunc="mean")
+

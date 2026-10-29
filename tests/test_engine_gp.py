@@ -180,3 +180,19 @@ def test_short_runs_are_reproducible_and_find_the_planted_edge(selection_method,
     assert len(first.history) == 9
     assert first.best.stats["TA"]["sharpe"] > 1.0  # the TA branch found the indicator that sees ahead
     assert "ta:edge" in text(first.best.branches["TA"])
+
+
+def test_active_sources_follow_the_regime_gates():
+    from regime_fusion.engine.tree import active_sources
+
+    branch = {s: [("GT", s, None), (VAR, s, f"{s.lower()}:x"), (ERC, None, 0.0)] for s in SOURCES}
+    data = {"rg:p1": np.array([0.5, -0.5, np.nan, 0.9]),
+            **{f"{s.lower()}:x": np.zeros(4) for s in SOURCES}}
+    gate = [("IF", FUSION, None), ("GT", REGIME, None), (VAR, REGIME, "rg:p1"), (ERC, None, 0.0),
+            (LEAF, FUSION, "FA"), ("OR", FUSION, None), (LEAF, FUSION, "SA"), (LEAF, FUSION, "TA")]
+    active = active_sources(Individual(gate, branch), data)
+    assert active["FA"].tolist() == [True, False, False, True]   # where the regime condition holds
+    assert active["SA"].tolist() == [False, True, True, False]   # otherwise (a missing value is false)
+    assert active["TA"].tolist() == active["SA"].tolist()
+    fixed = active_sources(Individual(acttrade_fusion(), branch), data)
+    assert all(v.all() for v in fixed.values())

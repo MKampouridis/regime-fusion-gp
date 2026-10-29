@@ -190,6 +190,12 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
         for source, measures in record.get("branches", {}).items():
             row[f"{source.lower()}_sharpe_{primary:g}bps"] = measures["sharpe"]
             row[f"{source.lower()}_trades_{primary:g}bps"] = measures["trades"]
+        listening = record.get("listening") or {}
+        for source, share in listening.get("all", {}).items():
+            row[f"listen_{source.lower()}"] = share
+        for state, shares in listening.get("by_state", {}).items():
+            for source, share in shares.items():
+                row[f"listen_{source.lower()}_state{state}"] = share
         row["model"] = record.get("model")
         row["signal"] = record.get("signal")
         rows.append(row)

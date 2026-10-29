@@ -3,7 +3,8 @@
 Commands (each has --help):
 
   compare    per-stock-year medians of a campaign's methods and the paired tests between them
-  portfolio  daily returns of each method's equal-weight portfolio; SPA, Deflated Sharpe, PBO
+  portfolio  daily returns of each method's equal-weight portfolio; SPA, Deflated Sharpe, PBO, by regime
+  random     each method's percentile among random entries with the same exit rule and trades
   pilot      timing, convergence and the 100-run check of the pilot
 
 Both read results/<campaign>/runs.parquet (``python -m regime_fusion.engine collect``)
@@ -49,7 +50,16 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--benchmark", help="SPA benchmark (default: the best rule-based or ML benchmark)")
     sub.add_argument("--trials", type=int, help="configurations tried, for the Deflated Sharpe "
                                                 "(default: the methods in the campaign)")
+    sub.add_argument("--regimes", default="dc", help="market regimes for the breakdown (default dc, A3's)")
     sub.set_defaults(handler=portfolio_command)
+
+    sub = commands.add_parser("random", help="percentiles among random entries (1,000 draws)")
+    sub.add_argument("--campaign", required=True)
+    sub.add_argument("--methods", nargs="+", required=True)
+    sub.add_argument("--cost", type=float, help="basis points per side (default: the primary cost)")
+    sub.add_argument("--stage", type=int, choices=(1, 2), default=2)
+    sub.add_argument("--draws", type=int, default=1000)
+    sub.set_defaults(handler=random_command)
 
     sub = commands.add_parser("pilot", help="timing, convergence and the 100-run check")
     sub.add_argument("--campaign", required=True)
@@ -98,6 +108,9 @@ def compare_command(args: argparse.Namespace) -> int:
     medians.to_csv(folder / f"medians.{name}.csv")
     results.best_fitness(runs, args.measure)[rungs].to_csv(folder / f"best_fitness.{name}.csv")
     results.by_year(runs, args.measure)[rungs].to_csv(folder / f"by_year.{name}.csv")
+    trust = results.trust_map(runs)
+    if not trust.empty:
+        trust.to_csv(folder / f"trust_map.stage{args.stage}.csv")
     cost = args.measure.rsplit("_", 1)[-1] if args.measure.endswith("bps") else "10bps"
     results.summary(runs, cost).loc[rungs].to_csv(folder / f"summary.stage{args.stage}.{cost}.csv")
     tests["pairs"].to_csv(folder / f"wilcoxon.{name}.csv", index=False)
@@ -136,6 +149,32 @@ def portfolio_command(args: argparse.Namespace) -> int:
              outcome["annualised_sharpe"])
     log.info("SPA against %s: p = %.4f; Deflated Sharpe: %s", benchmark, outcome["spa"]["p"],
              {k: round(v, 3) for k, v in outcome["deflated_sharpe"].items()})
+    if args.stage == 2:
+        years = sorted(int(y) for y in runs["test_year"].unique())
+        try:
+            states = portfolio.regime_states(args.regimes, years)
+        except FileNotFoundError as error:
+            log.warning("no breakdown by regime: %s", error)
+        else:
+            portfolio.by_regime(returns, states).to_csv(folder / f"by_regime.{args.regimes}.{name}.csv")
+    return 0
+
+
+def random_command(args: argparse.Namespace) -> int:
+    config = load_config()
+    cost = config.primary_cost_bps_per_side if args.cost is None else args.cost
+    runs = load_runs(args.campaign)
+    runs = runs[runs["stage"] == args.stage]
+    folder = output(args.campaign)
+    for method in args.methods:
+        rng = make_rng(config.base_seed, "analysis", "random", args.campaign, method)
+        table = portfolio.random_entry_check(runs, method, cost, rng, draws=args.draws)
+        if table.empty:
+            raise SystemExit(f"no stage-{args.stage} runs of {method}")
+        table.to_csv(folder / f"random_entry.{method}.{cost:g}bps.stage{args.stage}.csv", index=False)
+        log.info("%s: above the 95th percentile of random entry in %.1f%% of %d stock-years "
+                 "(median percentile %.2f)", method, 100 * (table["percentile"] > 0.95).mean(), len(table),
+                 table["percentile"].median())
     return 0
 
 

@@ -13,6 +13,9 @@ so its daily returns can be rebuilt exactly with the backtest, at any cost.
   Sharpe Ratio of each method given every configuration tried, and the
   probability of backtest overfitting across the methods
   (``regime_fusion.analysis.stats``).
+* ``by_regime``: each portfolio's results on the days of each regime state.
+* ``random_entry_check``: for each stock-year, where a method's median Sharpe
+  ratio falls among random entries with the same exit rule and number of trades.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ import pandas as pd
 from regime_fusion.analysis import stats
 from regime_fusion.data import store
 from regime_fusion.engine.backtest import backtest
+from regime_fusion.engine import benchmarks
 from regime_fusion.engine.benchmarks import PRICE_COLUMNS, buy_and_hold
 from regime_fusion.engine.run import unpack_signal
 from regime_fusion.ml.models import load_settings as load_benchmarks
@@ -91,3 +95,45 @@ def tests(returns: pd.DataFrame, benchmark: str, candidates: list[str], n_trials
     if complete.shape[1] >= 2 and len(complete) >= 2 * blocks:
         out["pbo"] = stats.pbo(complete.to_numpy(), blocks=blocks)
     return out
+
+
+def regime_states(name: str, years: list[int], root=None) -> pd.Series:
+    """Most probable regime state of each test-year day (stage-2 probabilities, market regimes)."""
+    parts = []
+    for year in years:
+        path = store.layer("processed", "regimes", name, f"{year}.stage2.parquet", root=root)
+        probabilities = pd.read_parquet(path).loc[str(year)]
+        parts.append(probabilities.idxmax(axis=1).str.removeprefix("p_state").astype(int))
+    return pd.concat(parts).rename("state")
+
+
+def by_regime(returns: pd.DataFrame, states: pd.Series) -> pd.DataFrame:
+    """Rows: (method, state): days, annualised Sharpe ratio and annualised mean return."""
+    rows = []
+    aligned = states.reindex(returns.index)
+    for method in returns.columns:
+        for state, days in returns[method].groupby(aligned):
+            spread = days.std(ddof=1)
+            rows.append({"method": method, "state": int(state), "days": len(days),
+                         "sharpe": float(days.mean() / spread * np.sqrt(252)) if spread > 0 else 0.0,
+                         "annual_return": float(days.mean() * 252)})
+    return pd.DataFrame(rows).set_index(["method", "state"])
+
+
+def random_entry_check(runs: pd.DataFrame, method: str, cost_bps: float, rng: np.random.Generator,
+                       draws: int = 1000, prices_of: Callable[[str], pd.DataFrame] = stock_prices) -> pd.DataFrame:
+    """Per stock-year: the method's median Sharpe ratio and its percentile among random entries."""
+    rows = []
+    cost = f"{cost_bps:g}bps"
+    for (stock, year), cell in runs[runs["rung"] == method].groupby(["stock", "test_year"]):
+        first = cell.iloc[0]
+        days = prices_of(stock).loc[str(first["evaluate_start"]):str(first["evaluate_end"])]
+        trades = int(round(cell[f"trades_{cost}"].median()))
+        sharpe = float(cell[f"sharpe_{cost}"].median())
+        draw = benchmarks.random_entry(days, int(first["exit_days"]), float(first["exit_rate"]), cost_bps,
+                                       trades, rng, draws)
+        rows.append({"stock": stock, "test_year": year, "trades": trades, "sharpe": sharpe,
+                     "random_mean_sharpe": draw["mean_sharpe"],
+                     "percentile": benchmarks.percentile_of(sharpe, draw["sharpes"])})
+    return pd.DataFrame(rows)
+

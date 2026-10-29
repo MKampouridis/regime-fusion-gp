@@ -152,3 +152,45 @@ def test_portfolio_returns_are_rebuilt_from_the_stored_signals(monkeypatch, tmp_
     assert cli.main(["portfolio", "--campaign", "main"]) == 0
     saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
     assert saved["spa"]["benchmark"] == "RB-BH" and saved["n_trials"] == 3
+
+
+def test_trust_map_averages_listening_by_regime():
+    runs = pd.DataFrame({"rung": ["A3", "A3", "A1"], "listen_fa_state0": [1.0, 0.5, np.nan],
+                         "listen_ta_state0": [0.0, 0.5, np.nan], "listen_fa_state1": [0.2, 0.4, np.nan],
+                         "listen_fa": [0.6, 0.45, 1.0]})
+    trust = results.trust_map(runs)
+    assert trust.loc[("A3", "0"), "fa"] == 0.75 and trust.loc[("A3", "1"), "fa"] == pytest.approx(0.3)
+    assert trust.loc[("A3", "0"), "ta"] == 0.25 and "A1" not in trust.index.get_level_values(0)
+    assert results.trust_map(runs[["rung", "listen_fa"]]).empty
+
+
+def test_regime_breakdown_and_random_entry(monkeypatch, tmp_path):
+    from regime_fusion.analysis import portfolio
+    from regime_fusion.engine.run import pack_signal
+
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    days = pd.bdate_range("2018-01-01", "2020-12-31")
+    folder = tmp_path / "processed" / "regimes" / "dc"
+    folder.mkdir(parents=True)
+    p1 = (np.arange(len(days)) % 10 < 3).astype(float)
+    for year in (2019, 2020):
+        pd.DataFrame({"p_state0": 1 - p1, "p_state1": p1}, index=days).to_parquet(folder / f"{year}.stage2.parquet")
+    states = portfolio.regime_states("dc", [2019, 2020])
+    assert states.index.min() == pd.Timestamp("2019-01-01") and set(states.unique()) == {0, 1}
+    returns = pd.DataFrame({"A3": np.where(p1 == 1, 0.01, -0.001)}, index=days).loc["2019":]
+    table = portfolio.by_regime(returns, states)
+    assert table.loc[("A3", 1), "annual_return"] == pytest.approx(2.52)
+    assert table.loc[("A3", 0), "days"] + table.loc[("A3", 1), "days"] == len(returns)
+
+    rng = np.random.default_rng(2)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, len(days))))
+    prices = pd.DataFrame({"adj_open": close, "adj_high": close * 1.01, "adj_low": close * 0.99,
+                           "adj_close": close}, index=days)
+    runs = pd.DataFrame([{"rung": "A3", "stock": "S1", "test_year": 2019, "stage": 2, "run": r, "exit_days": 5,
+                          "exit_rate": 0.02, "evaluate_start": "2019-01-01", "evaluate_end": "2019-12-31",
+                          "sharpe_10bps": 3.0 + r, "trades_10bps": 20.0, "signal": pack_signal([True])}
+                         for r in range(3)])
+    check = portfolio.random_entry_check(runs, "A3", 10, np.random.default_rng(3), draws=50,
+                                         prices_of=lambda stock: prices)
+    assert check.loc[0, "trades"] == 20 and check.loc[0, "sharpe"] == 4.0
+    assert check.loc[0, "percentile"] > 0.9  # a Sharpe ratio of 4 beats almost every random entry

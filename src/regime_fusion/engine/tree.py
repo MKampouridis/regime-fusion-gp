@@ -223,6 +223,35 @@ def signals(individual: Individual, data: Mapping[str, np.ndarray]) -> dict[str,
     return out
 
 
+def active_sources(individual: Individual, data: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """For each branch, the days on which the whole signal depends on it.
+
+    A branch is active on a day when its leaf lies on the path that the IF nodes
+    of the fusion tree choose that day; without IF nodes every branch in the
+    fusion tree is always active. This is the study's measure of which analysis
+    type a strategy listens to, and when (research question 4).
+    """
+    n = len(next(iter(data.values()))) if data else 0
+    out = {s: np.zeros(n, dtype=bool) for s in individual.branches}
+    _active(individual.fusion, data, 0, np.ones(n, dtype=bool), out)
+    return out
+
+
+def _active(tree, data, start, mask, out) -> int:
+    kind, _, payload = tree[start]
+    if kind == LEAF:
+        out[payload] |= mask
+        return start + 1
+    if kind == F_IF:
+        condition, i = boolean(tree, data, start + 1)
+        i = _active(tree, data, i, mask & condition, out)
+        return _active(tree, data, i, mask & ~condition, out)
+    i = start + 1
+    for _ in range(ARITY[kind]):
+        i = _active(tree, data, i, mask, out)
+    return i
+
+
 # Printing ------------------------------------------------------------------------------
 def text(tree: Sequence[Node], start: int = 0) -> str:
     return _text(tree, start)[0]

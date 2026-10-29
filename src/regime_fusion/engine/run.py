@@ -37,7 +37,7 @@ from regime_fusion.engine.fitness import Evaluator
 from regime_fusion.engine.gp import evolve
 from regime_fusion.engine.panel import load_panel
 from regime_fusion.engine.rungs import Rung
-from regime_fusion.engine.tree import Grammar, describe, signals
+from regime_fusion.engine.tree import Grammar, active_sources, describe, signals
 from regime_fusion.regimes import market as regime_inputs
 from regime_fusion.seeds import make_rng
 from regime_fusion.windows import walk_forward
@@ -98,6 +98,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
         "train_stats": {c: v for c, v in best.stats.items() if c != "cases"},
         "evaluation": outcome,
         "signal": pack_signal(signal),
+        "listening": listening(best, panel),
         "branches": branches,
         "history": evolution.history,
         "seconds": round(time.perf_counter() - started, 2),
@@ -107,6 +108,24 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
                                                   overrides=overrides or {})
         provenance.write(result_path(campaign, rung.name, spec), record)
     return record
+
+
+def listening(individual, panel) -> dict[str, Any]:
+    """Share of evaluation days on which each branch is on the model's active path, overall and
+    in each regime (the most probable state of the run's regime probabilities)."""
+    data = panel.arrays(panel.evaluate)
+    active = active_sources(individual, data)
+    out: dict[str, Any] = {"all": {s: float(v.mean()) for s, v in active.items()}}
+    columns = panel.names()["RG"]
+    if columns:
+        values = np.column_stack([data[c] for c in columns])
+        known = ~np.isnan(values).all(axis=1)
+        state = np.full(len(values), -1)
+        state[known] = np.nan_to_num(values[known], nan=-np.inf).argmax(axis=1)
+        out["by_state"] = {str(k): {s: float(v[state == k].mean()) for s, v in active.items()}
+                           for k in range(len(columns)) if (state == k).any()}
+        out["state_share"] = {str(k): float((state == k).mean()) for k in range(len(columns))}
+    return out
 
 
 def pack_signal(signal) -> str:
