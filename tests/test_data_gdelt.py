@@ -12,9 +12,10 @@ from regime_fusion.data.store import DATA_DIR_ENV
 
 
 def record(date, orgs, tone="2.5,4.0,1.5,5.5,20.0,1.0,200", gcam="wc:200,c6.4:4,c6.5:6,c6.6:2",
-           title=None, url="https://example.org/a", source="example.org"):
+           title=None, url="https://example.org/a", source="example.org", all_names=""):
     """One GKG 2.1 record with the fields the extractor reads."""
     fields = [""] * gdelt.N_FIELDS
+    fields[gdelt.ALL_NAMES] = all_names
     fields[gdelt.RECORD_ID], fields[gdelt.DATE] = f"{date}-1", str(date)
     fields[gdelt.SOURCE], fields[gdelt.URL] = source, url
     fields[gdelt.ORGANIZATIONS] = ";".join(name for name, _ in orgs)
@@ -154,3 +155,15 @@ def test_gdelt_command_resumes_and_guards_the_disk(monkeypatch, tmp_path):
         path.unlink()
     monkeypatch.setattr(cli.shutil, "disk_usage", lambda path: type("U", (), {"free": 1e9})())
     assert cli.main(args) == 1 and len(fetched) == 4  # stopped before fetching anything
+
+
+def test_firms_named_only_in_the_all_names_field_are_found(tmp_path):
+    path = tmp_path / "aliases.yaml"
+    path.write_text(yaml.safe_dump({"stocks": {"GM": ["general motors", "gm"], "F": ["ford"]}}))
+    matcher = gdelt.load_matcher(path)
+    line = record(20150302143000, [("toyota", 400)], all_names="Tata Motors,1219;General Motors,90")
+    sums, titles = {}, []
+    assert gdelt.extract(zipped([line]), matcher, sums, titles) == 1
+    rows = {key: dict(zip(gdelt.SUM_COLUMNS, values)) for key, values in sums.items()}
+    gm = rows[("2015030214", "GM", "general motors")]
+    assert gm["records"] == 1 and gm["first_mentions"] == 1  # offset 90 comes before toyota's 400

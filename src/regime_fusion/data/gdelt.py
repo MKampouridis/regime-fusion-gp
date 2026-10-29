@@ -6,10 +6,13 @@ GDELT publishes one GKG file every 15 minutes, the first at 23:00 UTC on
 The files are streamed one at a time into memory, checked against their MD5,
 and discarded: about 2.75 TB pass over the network, but almost nothing is kept.
 
-From each file only the records whose organisations match a firm's anchors
-(``configs/news_aliases.yaml``) are used, and they are summed per UTC hour,
-stock and *variant set*: the organisation names that matched the stock's
-anchors in the record (for example "apple inc" or "apple inc|apple daily").
+From each file only the records that name a firm are used: a firm's anchors
+(``configs/news_aliases.yaml``) are matched against the record's organisations
+and against its "all names" field (every proper name GDELT found). GDELT's
+organisation tagger misses some large firms (General Motors, for one), which
+the all-names field catches. The records are summed per UTC hour, stock and
+*variant set*: the lower-case names, from either field, that matched the
+stock's anchors in the record (for example "apple inc" or "apple inc|apple daily").
 Keeping the variant sets apart lets the exact matching be decided later
 (dropping "apple daily", say) without downloading GDELT again. The sums cover
 article counts, first mentions (the stock is the first organisation named),
@@ -48,7 +51,8 @@ DEFAULT_ALIASES = Path(__file__).resolve().parents[3] / "configs" / "news_aliase
 
 # Positions of the fields used, in a GKG 2.1 record of 27 tab-separated fields.
 RECORD_ID, DATE, SOURCE, URL = 0, 1, 3, 4
-ORGANIZATIONS, V2_ORGANIZATIONS, TONE, GCAM, EXTRAS = 13, 14, 15, 17, 26
+ORGANIZATIONS, V2_ORGANIZATIONS, TONE, GCAM, ALL_NAMES, EXTRAS = 13, 14, 15, 17, 23, 26
+EXTRACTION = 2  # 1: organisations only; 2: organisations and all names
 N_FIELDS = 27
 LM_CODES = {"c6.1": "lm_litigious", "c6.2": "lm_modal_strong", "c6.3": "lm_modal_weak",
             "c6.4": "lm_negative", "c6.5": "lm_positive", "c6.6": "lm_uncertainty"}
@@ -127,10 +131,11 @@ def extract(content: bytes, matcher: Matcher, sums: dict, titles: list) -> int:
         fields = line.split("\t")
         if len(fields) < N_FIELDS:
             continue
-        stocks = matcher.match(fields[ORGANIZATIONS])
+        names = _names(fields)
+        stocks = matcher.match(";".join(names))
         if stocks:
             used += 1
-            _add(fields, stocks, matcher, sums, titles)
+            _add(fields, names, stocks, matcher, sums, titles)
     return used
 
 
@@ -180,7 +185,7 @@ def process_day(day: str, files: list[tuple[str, str]], matcher: Matcher,
     titled = pd.DataFrame(titles, columns=list(TITLE_COLUMNS)).astype({"date": "int64"})
     summary = {"day": day, "files": len(files), "failed": failed, "records_used": used,
                "hourly_rows": len(hourly), "titled_records": len(titled), "bytes": fetched,
-               "anchors_digest": matcher.digest}
+               "anchors_digest": matcher.digest, "extraction": EXTRACTION}
     return day, hourly.reset_index(drop=True), titled, summary
 
 
@@ -195,15 +200,31 @@ def _words(alternatives: list[str]) -> re.Pattern:
     return re.compile(r"\b(?:" + "|".join(alternatives) + r")\b")
 
 
-def _add(fields: list[str], stocks: list[str], matcher: Matcher, sums: dict, titles: list) -> None:
+def _names(fields: list[str]) -> list[str]:
+    """Distinct lower-case names from the organisations and all-names fields."""
+    names = dict.fromkeys(name for name in fields[ORGANIZATIONS].lower().split(";") if name)
+    for item in fields[ALL_NAMES].lower().split(";"):
+        name = item.rpartition(",")[0]
+        if name:
+            names.setdefault(name)
+    return list(names)
+
+
+def _first_name(fields: list[str]) -> str | None:
+    """The name mentioned first in the article, over both fields' character offsets."""
+    first = None
+    for field in (fields[V2_ORGANIZATIONS], fields[ALL_NAMES]):
+        for item in field.lower().split(";"):
+            name, _, offset = item.rpartition(",")
+            if name and offset.isdigit() and (first is None or int(offset) < first[0]):
+                first = (int(offset), name)
+    return first[1] if first else None
+
+
+def _add(fields: list[str], names: list[str], stocks: list[str], matcher: Matcher, sums: dict,
+         titles: list) -> None:
     hour = fields[DATE][:10]
-    names = [name for name in fields[ORGANIZATIONS].lower().split(";") if name]
-    offsets = []
-    for item in fields[V2_ORGANIZATIONS].lower().split(";"):
-        name, _, offset = item.rpartition(",")
-        if name and offset.isdigit():
-            offsets.append((int(offset), name))
-    first = min(offsets)[1] if offsets else None
+    first = _first_name(fields)
     tone = fields[TONE].split(",")
     tone_values = [_number(tone[i]) if i < len(tone) else np.nan for i in range(len(TONE_FIELDS))]
     gcam = dict(_GCAM.findall(fields[GCAM]))
