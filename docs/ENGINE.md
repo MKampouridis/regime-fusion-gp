@@ -64,6 +64,26 @@ An individual has one **branch** per analysis type and a **fusion tree** that co
 - **Results.** Each run writes `$RFGP_DATA_DIR/results/<campaign>/<rung>/<stock>/<year>.stage<k>.run<NN>.json`. It holds the model in readable form, training statistics, evaluation metrics at each cost, each branch's evaluation, the generation history and a provenance record (code version, configuration and rung digests, seed keys, package versions).
 - **Speed.** A full ActTrade-size run (1,000 × 50) on Apple with FA and TA took 6.9 s, about 0.14 ms per tree. The plan's budget is 0.25 ms per tree (16 s per run).
 
+## Campaigns (`engine/tasks.py`)
+
+A campaign is planned once as numbered tasks, which job-array elements on CERES (or a loop on one machine) then run by number:
+
+```bash
+python -m regime_fusion.engine tasks --campaign pilot --kind exits --years 2019 --development
+python -m regime_fusion.engine tasks --campaign pilot --kind runs --rungs A0 A1 A2 A3 \
+    --years 2019 --stages 1 --development
+python -m regime_fusion.engine run-task --campaign pilot --kind exits --index 0   # one per array element
+python -m regime_fusion.engine status --campaign pilot
+python -m regime_fusion.engine collect --campaign pilot     # results/pilot/runs.parquet
+```
+
+- **Tasks.** An `exits` task chooses one stock-year's exit settings (the grid's 16 candidates, 5 runs each). A `runs` task evolves one rung on one stock, test year and stage, for all its runs (30, about 8 minutes at full size) or a block of them (`--block`). The exit settings of a stock-year must exist before its runs start.
+- **Restarts.** Finished runs and exit choices are skipped, and result files are written whole or not at all, so a task stopped by a time limit is simply submitted again. `status` lists unfinished tasks.
+- **Development-only campaigns** (`--development`, the pilot) may evaluate on data up to the end of 2018 only: planning refuses any task that would evaluate later (stage 2 of 2019, or anything for 2020 on), and running checks again.
+- **Plans are fixed.** The numbering is saved in `results/<campaign>/tasks.<kind>.json` and is not overwritten while jobs may be using it (`--replace` plans again).
+- `collect` gives one row per run: rung, stock, test year, stage, run, exit settings, training fitness, every evaluation measure at every cost (such as `sharpe_10bps`), each branch's Sharpe ratio and trades, and the model in readable form.
+- A run whose stock has no usable indicator of a needed type (values on fewer than half of the training days) stops with a message, as A0 does now for sentiment until the GDELT extraction is finished.
+
 ## Rule-based benchmarks (`engine/benchmarks.py`)
 
 All of them trade through the same backtest, exit settings, *t*+1 execution and costs as the GP models:

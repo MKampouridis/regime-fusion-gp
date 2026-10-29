@@ -1,0 +1,170 @@
+"""Campaigns as numbered tasks, for job arrays on CERES or a loop on one machine.
+
+A campaign's tasks are planned once and saved to
+``results/<campaign>/tasks.<kind>.json``; a job-array element then runs task
+number i (``python -m regime_fusion.engine run-task``). There are two kinds:
+
+* ``exits``: choose one stock-year's exit settings (d, r) with rung A0 on the
+  validation year (every candidate of the grid, 5 runs each);
+* ``runs``: evolve and evaluate one rung on one stock, test year and stage, for
+  a block of run numbers (all 30 by default, about 8 minutes).
+
+Exit settings must exist before the runs of a stock-year can start. Tasks can be
+repeated safely: finished runs and exit choices are skipped, and result files
+are written whole or not at all, so a task stopped by a time limit is simply
+submitted again. ``collect`` gathers a campaign's runs into one table.
+
+A campaign planned as development-only (the pilot) may evaluate on data up to
+``period.development_end`` only: planning refuses any task that would look at
+later data, and running checks again.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import datetime as dt
+import json
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from regime_fusion import provenance
+from regime_fusion.config import StudyConfig
+from regime_fusion.data import store
+from regime_fusion.engine.rungs import Rung, exit_grid
+from regime_fusion.engine.run import RunSpec, choose_exits, exits_path, result_path, run
+from regime_fusion.windows import DateRange, walk_forward
+
+KINDS = ("exits", "runs")
+log = logging.getLogger("regime_fusion.engine")
+
+
+@dataclass(frozen=True)
+class Task:
+    kind: str
+    stock: str
+    test_year: int
+    rung: str
+    stage: int
+    runs: tuple[int, ...] = ()
+
+
+def evaluation_range(config: StudyConfig, test_year: int, stage: int) -> DateRange:
+    """The data a task is evaluated on: the validation year (stage 1) or the test year (stage 2)."""
+    window = next((w for w in walk_forward(config) if w.test_year == test_year), None)
+    if window is None:
+        raise ValueError(f"{test_year} is not a test year of the study")
+    return window.validation if stage == 1 else window.test
+
+
+def plan(kind: str, stocks: list[str], years: list[int], config: StudyConfig, *, rungs: list[str] = (),
+         stages: tuple[int, ...] = (2,), runs: int = 30, block: int | None = None,
+         development_only: bool = False) -> list[Task]:
+    """The tasks of one kind, ordered by rung, test year, stage, stock and run block."""
+    if kind == "exits":
+        tasks = [Task("exits", stock, year, "A0", 1) for year in years for stock in stocks]
+    elif kind == "runs":
+        if not rungs:
+            raise ValueError("runs need at least one rung")
+        block = block or runs
+        tasks = [Task("runs", stock, year, rung, stage, tuple(range(first, min(first + block, runs))))
+                 for rung in rungs for year in years for stage in stages for stock in stocks
+                 for first in range(0, runs, block)]
+    else:
+        raise ValueError(f"kind must be one of {KINDS}")
+    if development_only:
+        for task in tasks:
+            check_development(task, config)
+    return tasks
+
+
+def check_development(task: Task, config: StudyConfig) -> None:
+    end = evaluation_range(config, task.test_year, task.stage).end
+    if end > config.period.development_end:
+        raise ValueError(f"{task.kind} for {task.test_year} stage {task.stage} evaluates up to {end}, "
+                         f"after the development period (to {config.period.development_end})")
+
+
+def plan_path(campaign: str, kind: str) -> Path:
+    return store.data_dir() / "results" / campaign / f"tasks.{kind}.json"
+
+
+def save_plan(campaign: str, kind: str, tasks: list[Task], *, development_only: bool,
+              replace: bool = False) -> Path:
+    path = plan_path(campaign, kind)
+    if path.exists() and not replace:
+        raise FileExistsError(f"{path} exists; running jobs use its numbering (pass replace to plan again)")
+    record = {"campaign": campaign, "kind": kind, "development_only": development_only,
+              "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+              "git": provenance.git_state(), "tasks": [dataclasses.asdict(t) for t in tasks]}
+    provenance.write(path, record)
+    return path
+
+
+def load_plan(campaign: str, kind: str) -> tuple[bool, list[Task]]:
+    """Whether the campaign is development-only, and its tasks."""
+    path = plan_path(campaign, kind)
+    if not path.exists():
+        raise FileNotFoundError(f"no {kind} tasks planned for campaign {campaign!r} ({path})")
+    record = json.loads(path.read_text())
+    tasks = [Task(**{**t, "runs": tuple(t["runs"])}) for t in record["tasks"]]
+    return bool(record["development_only"]), tasks
+
+
+def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Rung], *,
+            development_only: bool) -> dict[str, int]:
+    """Do what is left of one task; returns how many items were done and skipped."""
+    if development_only:
+        check_development(task, config)
+    if task.kind == "exits":
+        if exits_path(campaign, task.stock, task.test_year).exists():
+            return {"done": 0, "skipped": 1}
+        choose_exits(task.stock, task.test_year, rungs["A0"], config, exit_grid(), campaign=campaign)
+        return {"done": 1, "skipped": 0}
+    exits = exits_path(campaign, task.stock, task.test_year)
+    if not exits.exists():
+        raise FileNotFoundError(f"{task.stock} {task.test_year}: no exit settings at {exits}; "
+                                "run the exits tasks first")
+    chosen = json.loads(exits.read_text())
+    done = skipped = 0
+    for number in task.runs:
+        spec = RunSpec(task.stock, task.test_year, number, task.stage, chosen["days"], chosen["rate"])
+        if result_path(campaign, task.rung, spec).exists():
+            skipped += 1
+            continue
+        run(spec, rungs[task.rung], config, campaign=campaign)
+        done += 1
+    return {"done": done, "skipped": skipped}
+
+
+def finished(task: Task, campaign: str) -> bool:
+    if task.kind == "exits":
+        return exits_path(campaign, task.stock, task.test_year).exists()
+    folder = store.data_dir() / "results" / campaign / task.rung / task.stock
+    return all((folder / f"{task.test_year}.stage{task.stage}.run{n:02d}.json").exists() for n in task.runs)
+
+
+def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
+    """One row per run of the campaign: its settings, fitness and evaluation measures."""
+    root = store.data_dir() / "results" / campaign
+    rows = []
+    for path in sorted(root.glob("*/*/*.stage*.run*.json")):
+        try:
+            record = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            log.warning("collect: %s is not readable; skipped", path)
+            continue
+        row = {key: record.get(key) for key in ("rung", "stock", "test_year", "stage", "run", "exit_days",
+                                                "exit_rate", "fitness", "seconds")}
+        for cost in costs:
+            for measure, value in record["evaluation"][f"{cost:g}bps"].items():
+                row[f"{measure}_{cost:g}bps"] = value
+        for source, measures in record.get("branches", {}).items():
+            row[f"{source.lower()}_sharpe_{primary:g}bps"] = measures["sharpe"]
+            row[f"{source.lower()}_trades_{primary:g}bps"] = measures["trades"]
+        row["model"] = record.get("model")
+        rows.append(row)
+    return pd.DataFrame(rows)

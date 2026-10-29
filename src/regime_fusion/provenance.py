@@ -66,6 +66,12 @@ def collect(config: StudyConfig | None = None, **extra: Any) -> dict[str, Any]:
 
 
 def write(path: str | Path, record: dict[str, Any]) -> None:
+    """Write a record as JSON, whole or not at all (a stopped job leaves no partial file)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, indent=2, sort_keys=True, default=str) + "\n")
+    tmp = path.with_name(path.name + ".part")
+    try:
+        tmp.write_text(json.dumps(record, indent=2, sort_keys=True, default=str) + "\n")
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)

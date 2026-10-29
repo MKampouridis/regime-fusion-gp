@@ -83,6 +83,10 @@ def load_panel(stock: str, train: DateRange, evaluate: DateRange, sources: tuple
     raw = raw.loc[:, [c for c in raw.columns if c.split(":", 1)[0] in {s.lower() for s in sources}
                       and not c.endswith(("market_value", "diluted_shares"))]]
     scaled = scale(raw, train_days, scaling)
+    empty = [s for s in sources if not any(c.startswith(f"{s.lower()}:") for c in scaled.columns)]
+    if empty:
+        raise ValueError(f"{stock}: no {' or '.join(empty)} indicator has values on at least "
+                         f"{MIN_COVERAGE:.0%} of the training days {train.start} to {train.end}")
     if regimes is not None:
         probabilities = pd.read_parquet(regimes).reindex(sessions)
         scaled = pd.concat([scaled, (2.0 * probabilities - 1.0).add_prefix("rg:")], axis=1)

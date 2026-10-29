@@ -114,6 +114,10 @@ def result_path(campaign: str, rung: str, spec: RunSpec) -> Path:
     return store.data_dir() / "results" / campaign / rung / spec.stock / name
 
 
+def exits_path(campaign: str, stock: str, test_year: int) -> Path:
+    return store.data_dir() / "results" / campaign / "exits" / f"{stock}.{test_year}.json"
+
+
 def choose_exits(stock: str, test_year: int, rung: Rung, config: StudyConfig, grid: dict[str, Any], *,
                  campaign: str = "dev", sources: tuple[str, ...] | None = None,
                  overrides: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -133,6 +137,6 @@ def choose_exits(stock: str, test_year: int, rung: Rung, config: StudyConfig, gr
     best = max(scores, key=lambda s: (s["median_sharpe"], -s["days"]))
     choice = {"stock": stock, "test_year": test_year, "days": best["days"], "rate": best["rate"],
               "rung": rung.name, "candidates": scores}
-    path = store.data_dir() / "results" / campaign / "exits" / f"{stock}.{test_year}.json"
-    provenance.write(path, {**choice, "provenance": provenance.collect(config, rung_digest=rung.digest())})
+    provenance.write(exits_path(campaign, stock, test_year),
+                     {**choice, "provenance": provenance.collect(config, rung_digest=rung.digest())})
     return choice

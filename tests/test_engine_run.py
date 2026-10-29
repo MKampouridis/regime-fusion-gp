@@ -96,3 +96,13 @@ def test_exit_settings_are_chosen_on_the_validation_year(data_dir):
     assert len(choice["candidates"]) == 2
     assert cli.main(["run", "--rung", "A0", "--stock", "XYZ", "--test-year", "2019", "--campaign", "test",
                      "--population", "20", "--generations", "2"]) == 0
+
+
+def test_a_source_without_usable_indicators_is_reported(data_dir):
+    days = pd.read_parquet(data_dir / "processed/sa/XYZ.parquet").index
+    pd.DataFrame({"x0": np.nan}, index=days).to_parquet(data_dir / "processed/sa/XYZ.parquet")
+    train, test = DateRange(pd.Timestamp("2015-01-01").date(), pd.Timestamp("2017-12-31").date()), \
+        DateRange(pd.Timestamp("2018-01-01").date(), pd.Timestamp("2018-12-31").date())
+    with pytest.raises(ValueError, match="no SA indicator"):
+        load_panel("XYZ", train, test, ("FA", "SA", "TA"))
+    assert load_panel("XYZ", train, test, ("FA", "TA")).names()["SA"] == []
