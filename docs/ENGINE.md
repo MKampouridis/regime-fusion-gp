@@ -81,6 +81,7 @@ python -m regime_fusion.engine collect --campaign pilot     # results/pilot/runs
 - **Restarts.** Finished runs and exit choices are skipped, and result files are written whole or not at all, so a task stopped by a time limit is simply submitted again. `status` lists unfinished tasks.
 - **Development-only campaigns** (`--development`, the pilot) may evaluate on data up to the end of 2018 only: planning refuses any task that would evaluate later (stage 2 of 2019, or anything for 2020 on), and running checks again.
 - **Plans are fixed.** The numbering is saved in `results/<campaign>/tasks.<kind>.json` and is not overwritten while jobs may be using it (`--replace` plans again).
+- **Expanding windows** (the robustness check): `tasks --scheme expanding` plans a campaign whose training windows all start at the beginning of the data. Every task of the campaign follows it, exit settings included. It needs the regimes fitted on the same windows: `python -m regime_fusion.data regimes --scheme expanding` keeps them apart, in `processed/regimes/<inputs>/expanding/`.
 - `collect` gives one row per run: rung, stock, test year, stage, run, exit settings, training fitness, every evaluation measure at every cost (such as `sharpe_10bps`), each branch's Sharpe ratio and trades, and the model in readable form.
 - A run whose stock has no usable indicator of a needed type (values on fewer than half of the training days) stops with a message, as A0 does now for sentiment until the GDELT extraction is finished.
 

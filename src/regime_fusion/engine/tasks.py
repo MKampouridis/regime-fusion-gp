@@ -20,7 +20,9 @@ submitted again. ``collect`` gathers a campaign's runs into one table.
 
 A campaign planned as development-only (the pilot) may evaluate on data up to
 ``period.development_end`` only: planning refuses any task that would look at
-later data, and running checks again.
+later data, and running checks again. A campaign may use expanding instead of
+rolling walk-forward windows (the robustness check); the plan records which,
+and every task of the campaign follows it.
 """
 
 from __future__ import annotations
@@ -104,11 +106,11 @@ def plan_path(campaign: str, kind: str) -> Path:
 
 
 def save_plan(campaign: str, kind: str, tasks: list[Task], *, development_only: bool,
-              replace: bool = False, stocks: list[str] | None = None) -> Path:
+              replace: bool = False, stocks: list[str] | None = None, scheme: str = "rolling") -> Path:
     path = plan_path(campaign, kind)
     if path.exists() and not replace:
         raise FileExistsError(f"{path} exists; running jobs use its numbering (pass replace to plan again)")
-    record = {"campaign": campaign, "kind": kind, "development_only": development_only,
+    record = {"campaign": campaign, "kind": kind, "development_only": development_only, "scheme": scheme,
               "stocks": sorted(stocks if stocks is not None else {t.stock for t in tasks} - {"*"}),
               "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
               "git": provenance.git_state(), "tasks": [dataclasses.asdict(t) for t in tasks]}
@@ -124,6 +126,11 @@ def load_plan(campaign: str, kind: str) -> tuple[bool, list[Task]]:
     record = json.loads(path.read_text())
     tasks = [Task(**{**t, "runs": tuple(t["runs"])}) for t in record["tasks"]]
     return bool(record["development_only"]), tasks
+
+
+def plan_scheme(campaign: str, kind: str) -> str:
+    """The walk-forward scheme of a campaign's plan (rolling unless planned otherwise)."""
+    return str(json.loads(plan_path(campaign, kind).read_text()).get("scheme", "rolling"))
 
 
 def plan_stocks(campaign: str, kind: str) -> list[str]:

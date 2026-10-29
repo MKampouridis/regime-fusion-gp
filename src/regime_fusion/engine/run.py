@@ -62,7 +62,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
     train, evaluate = ((window.train, window.validation) if spec.stage == 1
                        else (window.final_train, window.test))
     sources = tuple(sources or rung.sources)
-    regimes = regimes_file(rung.regimes, spec.stock, spec.test_year, spec.stage)
+    regimes = regimes_file(rung.regimes, spec.stock, spec.test_year, spec.stage, config.windows.scheme)
     panel = load_panel(spec.stock, train, evaluate, sources, regimes, rung.scaling, finbert=rung.finbert)
     grammar = Grammar(panel.names(), fusion_functions=rung.fusion, sources=sources,
                       max_branch_depth=rung.max_branch_depth)
@@ -140,12 +140,13 @@ def unpack_signal(text: str) -> np.ndarray:
     return bits[:int(length)].astype(bool)
 
 
-def regimes_file(name: str | None, stock: str, test_year: int, stage: int) -> Path | None:
+def regimes_file(name: str | None, stock: str, test_year: int, stage: int,
+                 scheme: str = "rolling") -> Path | None:
     """The filtered regime probabilities a run of ``stock`` uses (none without regimes)."""
     if not name:
         return None
     own = stock if regime_inputs.per_stock(name, regime_inputs.load_settings()) else None
-    return regime_inputs.probabilities_path(name, test_year, stage, own)
+    return regime_inputs.probabilities_path(name, test_year, stage, own, scheme=scheme)
 
 
 def result_path(campaign: str, rung: str, spec: RunSpec) -> Path:

@@ -111,3 +111,34 @@ def test_result_files_are_written_whole(tmp_path):
     provenance.write(path, {"x": 1})
     assert json.loads(path.read_text()) == {"x": 1}
     assert list(path.parent.iterdir()) == [path]  # no temporary file left behind
+
+
+def test_expanding_campaigns_use_expanding_windows_throughout(fake_engine, tmp_path, monkeypatch):
+    from regime_fusion.config import ConfigError, with_scheme
+    from regime_fusion.regimes import market
+    from regime_fusion.windows import walk_forward
+
+    config = load_config()
+    expanding = with_scheme(config, "expanding")
+    window = next(w for w in walk_forward(expanding) if w.test_year == 2021)
+    assert str(window.train.start) == "2015-02-01" and str(window.final_train.end) == "2020-12-31"
+    with pytest.raises(ConfigError):
+        with_scheme(config, "sideways")
+    assert market.probabilities_path("dc", 2021, 2, root=tmp_path, scheme="expanding") == \
+        tmp_path / "processed" / "regimes" / "dc" / "expanding" / "2021.stage2.parquet"
+    seen = []
+    real = tasks.run_method
+
+    def spy(name, spec, rungs, config, campaign):
+        seen.append(config.windows.scheme)
+        return real(name, spec, rungs, config, campaign)
+
+    monkeypatch.setattr(tasks, "run_method", spy)
+    assert cli.main(["tasks", "--campaign", "wide", "--kind", "exits", "--stocks", "AAPL", "--years", "2021",
+                     "--scheme", "expanding"]) == 0
+    assert cli.main(["tasks", "--campaign", "wide", "--kind", "runs", "--rungs", "A0", "--stocks", "AAPL",
+                     "--years", "2021", "--runs", "1", "--scheme", "expanding"]) == 0
+    assert tasks.plan_scheme("wide", "runs") == "expanding"
+    assert cli.main(["run-task", "--campaign", "wide", "--kind", "exits", "--index", "0"]) == 0
+    assert cli.main(["run-task", "--campaign", "wide", "--kind", "runs", "--index", "0"]) == 0
+    assert seen == ["expanding"]

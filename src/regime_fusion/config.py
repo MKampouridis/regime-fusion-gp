@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +87,14 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> StudyConfig:
         raise ConfigError(f"{path}: missing configuration key {missing}") from None
     validate(config)
     return config
+
+
+def with_scheme(config: StudyConfig, scheme: str) -> StudyConfig:
+    """The same study with another walk-forward scheme (rolling for the main results,
+    expanding for the robustness check)."""
+    changed = replace(config, windows=replace(config.windows, scheme=scheme))
+    validate(changed)
+    return changed
 
 
 def validate(config: StudyConfig) -> None:

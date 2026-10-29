@@ -189,3 +189,16 @@ def test_regimes_command_fits_shared_or_per_stock_news_regimes(monkeypatch, tmp_
     store.layer("interim", "news", "F.parquet").unlink()
     with pytest.raises(SystemExit, match="sa command"):
         cli.main(["regimes", "--stocks", "F"])
+
+
+def test_regimes_command_keeps_expanding_windows_apart(monkeypatch, tmp_path):
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    store.write_parquet(store.layer("interim", "market", "GSPC.parquet"), market_close().to_frame("close"))
+    settings = {**market.load_settings(), "restarts": 1}
+    settings["inputs"] = {"volatility": settings["inputs"]["volatility"]}
+    monkeypatch.setattr(market, "load_settings", lambda path=None: settings)
+    assert cli.main(["regimes", "--scheme", "expanding"]) == 0
+    path = market.probabilities_path("volatility", 2021, 2, scheme="expanding")
+    assert path.exists() and not market.probabilities_path("volatility", 2021, 2).exists()
+    assert pd.read_parquet(path).index[0] == pd.Timestamp("2015-02-02")  # fitted from the start of the data
+    assert json.loads(store.layer("reports", "regimes_expanding.json").read_text())

@@ -87,9 +87,10 @@ def per_stock(name: str, settings: dict[str, Any]) -> bool:
 
 
 def probabilities_path(name: str, test_year: int, stage: int, stock: str | None = None,
-                       root: Path | None = None) -> Path:
-    """Where the filtered probabilities of a window are kept (per stock for per-stock regimes)."""
-    folder = (name, stock) if stock else (name,)
+                       root: Path | None = None, scheme: str = "rolling") -> Path:
+    """Where the filtered probabilities of a window are kept: per stock for per-stock regimes,
+    and in a folder of their own for windows other than the main, rolling ones."""
+    folder = (name, *(() if scheme == "rolling" else (scheme,)), *((stock,) if stock else ()))
     return store.layer("processed", "regimes", *folder, f"{test_year}.stage{stage}.parquet", root=root)
 
 

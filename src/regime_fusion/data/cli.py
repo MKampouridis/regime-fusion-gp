@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 
 from regime_fusion import __version__
-from regime_fusion.config import StudyConfig, load_config
+from regime_fusion.config import StudyConfig, load_config, with_scheme
 from regime_fusion.data import (
     check, constituents, draw, fa, finbert, fnspid, fundamentals, gdelt, market, prices, sa, sec, store, ta,
 )
@@ -115,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub = commands.add_parser("regimes", help="market regimes per walk-forward window")
     sub.add_argument("--inputs", nargs="+", default=None, help="input sets (default: all in the settings)")
+    sub.add_argument("--scheme", choices=("rolling", "expanding"), default=None,
+                     help="walk-forward windows (default: the study's, rolling; expanding for robustness)")
     add_stock_options(sub, refresh=False)  # for regimes from each stock's news (rung A4)
     sub.set_defaults(run=run_regimes)
 
@@ -803,6 +805,9 @@ def run_regimes(args: argparse.Namespace) -> int:
     from regime_fusion.windows import walk_forward
 
     config = load_config()
+    if args.scheme:
+        config = with_scheme(config, args.scheme)
+    scheme = config.windows.scheme
     settings = regimes.load_settings()
     source = store.layer("interim", "market", f"{settings['series']}.parquet")
     close = pd.read_parquet(source)["close"]
@@ -811,23 +816,24 @@ def run_regimes(args: argparse.Namespace) -> int:
     for name in args.inputs or list(settings["inputs"]):
         if not regimes.uses_news(name, settings):
             fits = regimes.walk_forward(regimes.inputs(close, name, settings), windows, settings, config.base_seed)
-            report.update(save_regimes(name, fits, settings))
+            report.update(save_regimes(name, fits, settings, scheme=scheme))
         elif regimes.per_stock(name, settings):
             for stock in selected_stocks(args):
                 features = regimes.inputs(close, name, settings, news_articles(stock.id))
                 fits = regimes.walk_forward(features, windows, settings, config.base_seed, stock=stock.id)
-                per_stock_report.update(save_regimes(name, fits, settings, stock=stock.id))
+                per_stock_report.update(save_regimes(name, fits, settings, stock=stock.id, scheme=scheme))
         else:  # one set of regimes from the news of all main-universe stocks
             main = load_universe(UNIVERSE_FILE).select("main")
             articles = news_regimes.market_articles({s.id: news_articles(s.id) for s in main})
             features = regimes.inputs(close, name, settings, articles)
             fits = regimes.walk_forward(features, windows, settings, config.base_seed)
-            report.update(save_regimes(name, fits, settings))
+            report.update(save_regimes(name, fits, settings, scheme=scheme))
         log.info("regimes: %s fitted for %d test years", name, len(config.period.test_years))
+    suffix = "" if scheme == "rolling" else f"_{scheme}"
     if report:
-        write_report("regimes.json", report, merge=False)
+        write_report(f"regimes{suffix}.json", report, merge=False)
     if per_stock_report:
-        write_report("regimes_per_stock.json", per_stock_report)
+        write_report(f"regimes_per_stock{suffix}.json", per_stock_report)
     return 0
 
 
@@ -894,14 +900,15 @@ def news_articles(stock_id: str) -> pd.Series:
     return pd.read_parquet(path)["articles"]
 
 
-def save_regimes(name: str, fits: list, settings: dict[str, Any], stock: str | None = None) -> dict[str, Any]:
+def save_regimes(name: str, fits: list, settings: dict[str, Any], stock: str | None = None,
+                 scheme: str = "rolling") -> dict[str, Any]:
     """Write each window's filtered probabilities; returns a summary of the fitted models."""
     from regime_fusion.regimes import market as regimes
 
     report = {}
     for fit in fits:
-        path = regimes.probabilities_path(name, fit.test_year, fit.stage, stock)
-        store.write_parquet(path, fit.probabilities, inputs=name, stock=stock, test_year=fit.test_year,
+        path = regimes.probabilities_path(name, fit.test_year, fit.stage, stock, scheme=scheme)
+        store.write_parquet(path, fit.probabilities, inputs=name, stock=stock, scheme=scheme, test_year=fit.test_year,
                             stage=fit.stage, fitted_on=[str(fit.fitted_on.start), str(fit.fitted_on.end)],
                             settings=settings)
         model = fit.model

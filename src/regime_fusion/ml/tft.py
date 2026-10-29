@@ -82,9 +82,10 @@ class Pooled:
 
 
 def assemble(stocks: list[str], train, evaluate, settings: Settings, test_year: int, stage: int,
-             exits: dict[str, tuple[int, float]]) -> Pooled:
-    panels = {s: load_panel(s, train, evaluate, settings.sources, regimes_file(settings.regimes, s, test_year, stage),
-                            settings.scaling) for s in stocks}
+             exits: dict[str, tuple[int, float]], scheme: str = "rolling") -> Pooled:
+    panels = {s: load_panel(s, train, evaluate, settings.sources,
+                            regimes_file(settings.regimes, s, test_year, stage, scheme), settings.scaling)
+              for s in stocks}
     columns = sorted({c for panel in panels.values() for c in panel.indicators.columns})
     blocks, offsets, first = [], {}, 0
     for stock in stocks:
@@ -290,7 +291,8 @@ def run_tft(test_year: int, stage: int, run: int, stocks: list[str], exits: dict
     started = time.perf_counter()
     window = next(w for w in walk_forward(config) if w.test_year == test_year)
     primary = config.primary_cost_bps_per_side
-    tuning = assemble(stocks, window.train, window.validation, settings, test_year, 1, exits)
+    scheme = config.windows.scheme
+    tuning = assemble(stocks, window.train, window.validation, settings, test_year, 1, exits, scheme)
     candidates = []
     for params in model.candidates():
         predicted = predictions(train(tuning, params, seed(config, test_year, run, 1), primary), tuning)
@@ -301,7 +303,7 @@ def run_tft(test_year: int, stage: int, run: int, stocks: list[str], exits: dict
     if stage == 1:
         final, predicted, evaluated_on, fitted_on = tuning, best["predicted"], window.validation, window.train
     else:
-        final = assemble(stocks, window.final_train, window.test, settings, test_year, 2, exits)
+        final = assemble(stocks, window.final_train, window.test, settings, test_year, 2, exits, scheme)
         predicted = predictions(train(final, best["params"], seed(config, test_year, run, 2), primary), final)
         evaluated_on, fitted_on = window.test, window.final_train
     seconds = round(time.perf_counter() - started, 2)

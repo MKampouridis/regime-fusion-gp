@@ -44,14 +44,14 @@ def run_ml(spec: RunSpec, model: ModelSpec, settings: Settings, config: StudyCon
     started = time.perf_counter()
     window = next(w for w in walk_forward(config) if w.test_year == spec.test_year)
     primary = config.primary_cost_bps_per_side
-    tuning = panel_for(spec, settings, window.train, window.validation, stage=1)
+    tuning = panel_for(spec, settings, window.train, window.validation, stage=1, scheme=config.windows.scheme)
     choice = tune(tuning, spec, model, settings, primary,
                   seed(config, spec, stage=1))
     if spec.stage == 1:
         final, signal, fitted_on, evaluated_on = tuning, choice["validation_signal"], window.train, window.validation
         train_signal = choice["train_signal"]
     else:
-        final = panel_for(spec, settings, window.final_train, window.test, stage=2)
+        final = panel_for(spec, settings, window.final_train, window.test, stage=2, scheme=config.windows.scheme)
         fitted = fit(final, spec, model, choice["params"], primary, seed(config, spec, stage=2))
         threshold = float(np.quantile(fitted["train_prediction"], choice["quantile"]))
         signal = fitted["evaluate_prediction"] >= threshold
@@ -90,8 +90,8 @@ def seed(config: StudyConfig, spec: RunSpec, stage: int) -> int:
     return int(rng.integers(2**31 - 1))
 
 
-def panel_for(spec: RunSpec, settings: Settings, train, evaluate, stage: int) -> Panel:
-    regimes = regimes_file(settings.regimes, spec.stock, spec.test_year, stage)
+def panel_for(spec: RunSpec, settings: Settings, train, evaluate, stage: int, scheme: str = "rolling") -> Panel:
+    regimes = regimes_file(settings.regimes, spec.stock, spec.test_year, stage, scheme)
     return load_panel(spec.stock, train, evaluate, settings.sources, regimes, settings.scaling)
 
 

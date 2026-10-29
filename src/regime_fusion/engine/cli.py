@@ -19,7 +19,7 @@ import argparse
 import json
 import logging
 
-from regime_fusion.config import load_config
+from regime_fusion.config import load_config, with_scheme
 from regime_fusion.data import store
 from regime_fusion.data.universe import DEFAULT_UNIVERSE, load_universe
 from regime_fusion.engine import tasks
@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--run", type=int, default=0)
     sub.add_argument("--stage", type=int, choices=(1, 2), default=2)
     sub.add_argument("--exit", nargs=2, metavar=("DAYS", "RATE"), help="exit settings; default: chosen ones")
+    sub.add_argument("--scheme", choices=("rolling", "expanding"), help="walk-forward windows (default: rolling)")
     add_common(sub)
     sub.set_defaults(handler=run_command)
 
@@ -63,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--block", type=int, help="runs per task (default: all of them)")
     sub.add_argument("--development", action="store_true",
                      help="development-only campaign (the pilot): no data after the development period")
+    sub.add_argument("--scheme", choices=("rolling", "expanding"), default="rolling",
+                     help="walk-forward windows (expanding for the robustness check)")
     sub.add_argument("--replace", action="store_true", help="plan again although tasks exist")
     sub.set_defaults(handler=tasks_command)
 
@@ -104,6 +107,8 @@ def overrides(args: argparse.Namespace) -> dict:
 
 def run_command(args: argparse.Namespace) -> int:
     config, rungs, benchmarks = load_config(), load_rungs(), load_benchmarks()
+    if args.scheme:
+        config = with_scheme(config, args.scheme)
     if args.rung not in rungs and args.rung not in benchmarks.methods():
         raise SystemExit(f"unknown rung or benchmark {args.rung!r}")
     if args.exit:
@@ -139,7 +144,7 @@ def exits_command(args: argparse.Namespace) -> int:
 
 
 def tasks_command(args: argparse.Namespace) -> int:
-    config = load_config()
+    config = with_scheme(load_config(), args.scheme)
     universe = load_universe(DEFAULT_UNIVERSE)
     if args.stocks:
         chosen = [universe.get(stock) for stock in args.stocks]
@@ -161,7 +166,7 @@ def tasks_command(args: argparse.Namespace) -> int:
         planned = tasks.plan(args.kind, stocks, years, config, rungs=args.rungs, stages=tuple(args.stages),
                              runs=runs, block=args.block, development_only=args.development, pooled=pooled)
         path = tasks.save_plan(args.campaign, args.kind, planned, development_only=args.development,
-                               replace=args.replace, stocks=stocks)
+                               replace=args.replace, stocks=stocks, scheme=args.scheme)
     except (ValueError, FileExistsError) as error:
         raise SystemExit(str(error)) from None
     log.info("%s: %d %s tasks (indices 0 to %d) in %s", args.campaign, len(planned), args.kind,
@@ -170,8 +175,8 @@ def tasks_command(args: argparse.Namespace) -> int:
 
 
 def run_task_command(args: argparse.Namespace) -> int:
-    config, rungs = load_config(), load_rungs()
     development_only, planned = tasks.load_plan(args.campaign, args.kind)
+    config, rungs = with_scheme(load_config(), tasks.plan_scheme(args.campaign, args.kind)), load_rungs()
     chosen = planned[args.index:args.index + args.count]
     if not chosen:
         raise SystemExit(f"no task {args.index}: the {args.kind} plan has {len(planned)} tasks")
