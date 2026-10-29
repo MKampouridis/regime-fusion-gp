@@ -37,6 +37,7 @@ from regime_fusion.engine.gp import evolve
 from regime_fusion.engine.panel import load_panel
 from regime_fusion.engine.rungs import Rung
 from regime_fusion.engine.tree import Grammar, describe, signals
+from regime_fusion.regimes import market as regime_inputs
 from regime_fusion.seeds import make_rng
 from regime_fusion.windows import walk_forward
 
@@ -62,7 +63,8 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
     sources = tuple(sources or rung.sources)
     regimes = None
     if rung.regimes:
-        regimes = store.layer("processed", "regimes", rung.regimes, f"{spec.test_year}.stage{spec.stage}.parquet")
+        stock = spec.stock if regime_inputs.per_stock(rung.regimes, regime_inputs.load_settings()) else None
+        regimes = regime_inputs.probabilities_path(rung.regimes, spec.test_year, spec.stage, stock)
     panel = load_panel(spec.stock, train, evaluate, sources, regimes, rung.scaling)
     grammar = Grammar(panel.names(), fusion_functions=rung.fusion, sources=sources,
                       max_branch_depth=rung.max_branch_depth)

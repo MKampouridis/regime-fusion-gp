@@ -37,7 +37,7 @@ An individual has one **branch** per analysis type and a **fusion tree** that co
 | A1 | Evolvable fusion: AND, OR, ALL, ANY, VOTE | |
 | A2 | + IF gating on volatility regimes | Probabilities of the HMM on realised volatility |
 | A3 | DC regimes instead of volatility regimes | A3 vs A2 isolates "DC vs volatility" |
-| A4 | + news-attention DC in the regime inputs | Needs the GDELT data |
+| A4 | + news-attention DC in the regime inputs | Each stock's own news attention, so regimes are per stock (`configs/regimes.yaml`) |
 | A5 | + ε-lexicase selection | Cases: annualised mean daily return of each signal (whole tree, each branch) in each of 8 time blocks; ε = median absolute deviation |
 | A5-dalex | DALex instead of ε-lexicase | Particularity pressure 20 |
 | GP-FA, GP-SA, GP-TA | One branch only, fitness = its Sharpe ratio | No active-trading operator (it needs three branches) |
@@ -85,3 +85,4 @@ The machine-learning benchmarks follow in a later step.
 5. **Scaling.** ActTrade scaled indicators to [−1, 1]. Here the scaling is fitted on training rows only, with rank scaling available as a robust alternative for the pilot.
 6. **Regime rungs.** A3 replaces the volatility regimes rather than adding to them, so that A3 against A2 answers "do DC regimes beat volatility regimes?". The IF condition is a typed Boolean tree over regime probabilities.
 7. **Evaluation start.** Evaluation periods start without a position, so a model's first possible purchase is on the second day.
+8. **News regimes per stock.** A4's news attention is each stock's own, so its regimes differ by stock, while A2 and A3 regimes are shared by all stocks. Pooling the main stocks' news into shared regimes is one setting away (`scope: market`).

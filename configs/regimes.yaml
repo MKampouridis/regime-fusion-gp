@@ -13,3 +13,11 @@ inputs:
   dc:                   # rung A3: directional changes of the index at `threshold`
     threshold: 0.01     # at 1% one state is merely "no event in 20 sessions"; the pilot should try 0.5%
     window: 20
+  dc_news:              # rung A4: the dc inputs plus directional changes of news attention
+    threshold: 0.01
+    window: 20
+    attention:
+      scope: stock      # stock: each stock's own news, regimes per stock; market: all main-universe news
+      sessions: 5       # attention level: 1 + articles over the last `sessions` sessions
+      threshold: 0.25   # absolute, on the log level: a rise or fall of about 28%
+      window: 20

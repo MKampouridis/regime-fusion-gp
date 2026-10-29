@@ -8,6 +8,10 @@ dc          rung A3: directional changes of the index at ``threshold``: the
             number of events confirmed in the last ``window`` sessions, as
             log(1 + count), and the total move of the current trend, in
             threshold units
+dc_news     rung A4: the dc inputs plus the same two of news attention
+            (``regime_fusion.regimes.news``). With ``scope: stock`` each stock
+            gets its own regimes from its own news; with ``scope: market`` the
+            news of all main-universe stocks together gives shared regimes
 
 For each test year, an HMM is fitted on each training range of the year's
 window (``regime_fusion.windows``) and then run forward with fixed parameters:
@@ -27,8 +31,10 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from regime_fusion.data import store
 from regime_fusion.dc import dc_indicators
 from regime_fusion.regimes import hmm
+from regime_fusion.regimes.news import attention_inputs
 from regime_fusion.seeds import make_rng
 from regime_fusion.windows import DateRange, Window
 
@@ -52,13 +58,39 @@ def dc_inputs(close: pd.Series, threshold: float, window: int) -> pd.DataFrame:
     return pd.DataFrame({"log_events": np.log1p(frame["ndc"]), "trend_move": frame["tmv"]})
 
 
-def inputs(close: pd.Series, name: str, settings: dict[str, Any]) -> pd.DataFrame:
+def inputs(close: pd.Series, name: str, settings: dict[str, Any],
+           articles: pd.Series | None = None) -> pd.DataFrame:
+    """Inputs of one set; ``articles`` (news per session) is needed by sets with news attention."""
     spec = settings["inputs"][name]
     if name == "volatility":
         return realised_volatility(close, int(spec["window"])).to_frame()
-    if name == "dc":
-        return dc_inputs(close, float(spec["threshold"]), int(spec["window"]))
+    if name in ("dc", "dc_news"):
+        frame = dc_inputs(close, float(spec["threshold"]), int(spec["window"]))
+        if name == "dc":
+            return frame
+        if articles is None:
+            raise ValueError("dc_news needs the news articles per session")
+        news = spec["attention"]
+        attention = attention_inputs(articles.reindex(close.index), int(news["sessions"]),
+                                     float(news["threshold"]), int(news["window"]))
+        return pd.concat([frame, attention.add_prefix("news_")], axis=1)
     raise ValueError(f"unknown regime inputs {name!r}")
+
+
+def uses_news(name: str, settings: dict[str, Any]) -> bool:
+    return "attention" in settings["inputs"][name]
+
+
+def per_stock(name: str, settings: dict[str, Any]) -> bool:
+    """Whether an input set gives each stock its own regimes (news attention of the stock)."""
+    return uses_news(name, settings) and settings["inputs"][name]["attention"].get("scope") == "stock"
+
+
+def probabilities_path(name: str, test_year: int, stage: int, stock: str | None = None,
+                       root: Path | None = None) -> Path:
+    """Where the filtered probabilities of a window are kept (per stock for per-stock regimes)."""
+    folder = (name, stock) if stock else (name,)
+    return store.layer("processed", "regimes", *folder, f"{test_year}.stage{stage}.parquet", root=root)
 
 
 @dataclass(frozen=True)
@@ -82,13 +114,15 @@ def fit_window(features: pd.DataFrame, fitted_on: DateRange, through: pd.Timesta
 
 
 def walk_forward(features: pd.DataFrame, windows: list[Window], settings: dict[str, Any],
-                 base_seed: int) -> list[Fit]:
-    """Both stages of every window. Seeds depend on the test year and stage only."""
+                 base_seed: int, stock: str | None = None) -> list[Fit]:
+    """Both stages of every window. Seeds depend on the test year and stage (and the stock for
+    per-stock regimes) only."""
     fits = []
     for window in windows:
         stages = ((1, window.train, window.validation.end), (2, window.final_train, window.test.end))
         for stage, fitted_on, through in stages:
-            rng = make_rng(base_seed, "regimes", window.test_year, stage)
+            keys = (stock,) if stock else ()
+            rng = make_rng(base_seed, "regimes", *keys, window.test_year, stage)
             model, probabilities = fit_window(features, fitted_on, pd.Timestamp(through),
                                               int(settings["n_states"]), rng, int(settings["restarts"]))
             fits.append(Fit(window.test_year, stage, fitted_on, model, probabilities))

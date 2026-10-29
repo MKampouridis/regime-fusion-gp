@@ -113,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sub = commands.add_parser("regimes", help="market regimes per walk-forward window")
     sub.add_argument("--inputs", nargs="+", default=None, help="input sets (default: all in the settings)")
+    add_stock_options(sub, refresh=False)  # for regimes from each stock's news (rung A4)
     sub.set_defaults(run=run_regimes)
 
     sub = commands.add_parser("fnspid", help="stream FNSPID's news files; keep the universe's headlines")
@@ -788,30 +789,64 @@ def name_report(names: Counter, top: int = 15) -> dict[str, dict[str, Any]]:
 
 def run_regimes(args: argparse.Namespace) -> int:
     from regime_fusion.regimes import market as regimes
+    from regime_fusion.regimes import news as news_regimes
     from regime_fusion.windows import walk_forward
 
     config = load_config()
     settings = regimes.load_settings()
     source = store.layer("interim", "market", f"{settings['series']}.parquet")
     close = pd.read_parquet(source)["close"]
-    report = {}
+    windows = walk_forward(config)
+    report, per_stock_report = {}, {}
     for name in args.inputs or list(settings["inputs"]):
-        features = regimes.inputs(close, name, settings)
-        for fit in regimes.walk_forward(features, walk_forward(config), settings, config.base_seed):
-            path = store.layer("processed", "regimes", name, f"{fit.test_year}.stage{fit.stage}.parquet")
-            store.write_parquet(path, fit.probabilities, inputs=name, test_year=fit.test_year,
-                                stage=fit.stage, fitted_on=[str(fit.fitted_on.start), str(fit.fitted_on.end)],
-                                settings=settings)
-            model = fit.model
-            fitted = fit.probabilities.loc[str(fit.fitted_on.start):str(fit.fitted_on.end)]
-            report[f"{name} {fit.test_year} stage {fit.stage}"] = {
-                "fitted_on": [str(fit.fitted_on.start), str(fit.fitted_on.end)],
-                "means": model.means.round(4).tolist(),
-                "sds": np.sqrt(model.variances).round(4).tolist(),
-                "expected_duration_days": model.expected_durations().round(1).tolist(),
-                "share_of_fit_days": fitted.idxmax(axis=1).value_counts(normalize=True).round(3).to_dict(),
-                "log_likelihood": round(model.log_likelihood, 2),
-            }
+        if not regimes.uses_news(name, settings):
+            fits = regimes.walk_forward(regimes.inputs(close, name, settings), windows, settings, config.base_seed)
+            report.update(save_regimes(name, fits, settings))
+        elif regimes.per_stock(name, settings):
+            for stock in selected_stocks(args):
+                features = regimes.inputs(close, name, settings, news_articles(stock.id))
+                fits = regimes.walk_forward(features, windows, settings, config.base_seed, stock=stock.id)
+                per_stock_report.update(save_regimes(name, fits, settings, stock=stock.id))
+        else:  # one set of regimes from the news of all main-universe stocks
+            main = load_universe(UNIVERSE_FILE).select("main")
+            articles = news_regimes.market_articles({s.id: news_articles(s.id) for s in main})
+            features = regimes.inputs(close, name, settings, articles)
+            fits = regimes.walk_forward(features, windows, settings, config.base_seed)
+            report.update(save_regimes(name, fits, settings))
         log.info("regimes: %s fitted for %d test years", name, len(config.period.test_years))
-    write_report("regimes.json", report, merge=False)
+    if report:
+        write_report("regimes.json", report, merge=False)
+    if per_stock_report:
+        write_report("regimes_per_stock.json", per_stock_report)
     return 0
+
+
+def news_articles(stock_id: str) -> pd.Series:
+    path = store.layer("interim", "news", f"{stock_id}.parquet")
+    if not path.exists():
+        raise SystemExit(f"{stock_id}: no news per session at {path}; run the sa command first")
+    return pd.read_parquet(path)["articles"]
+
+
+def save_regimes(name: str, fits: list, settings: dict[str, Any], stock: str | None = None) -> dict[str, Any]:
+    """Write each window's filtered probabilities; returns a summary of the fitted models."""
+    from regime_fusion.regimes import market as regimes
+
+    report = {}
+    for fit in fits:
+        path = regimes.probabilities_path(name, fit.test_year, fit.stage, stock)
+        store.write_parquet(path, fit.probabilities, inputs=name, stock=stock, test_year=fit.test_year,
+                            stage=fit.stage, fitted_on=[str(fit.fitted_on.start), str(fit.fitted_on.end)],
+                            settings=settings)
+        model = fit.model
+        fitted = fit.probabilities.loc[str(fit.fitted_on.start):str(fit.fitted_on.end)]
+        label = " ".join(str(part) for part in (name, stock, fit.test_year) if part)
+        report[f"{label} stage {fit.stage}"] = {
+            "fitted_on": [str(fit.fitted_on.start), str(fit.fitted_on.end)],
+            "means": model.means.round(4).tolist(),
+            "sds": np.sqrt(model.variances).round(4).tolist(),
+            "expected_duration_days": model.expected_durations().round(1).tolist(),
+            "share_of_fit_days": fitted.idxmax(axis=1).value_counts(normalize=True).round(3).to_dict(),
+            "log_likelihood": round(model.log_likelihood, 2),
+        }
+    return report

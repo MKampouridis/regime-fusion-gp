@@ -30,10 +30,10 @@ python -m regime_fusion.data sec --include-holdout        # SEC company facts, a
 python -m regime_fusion.data fundamentals --include-holdout  # point-in-time accounting values
 python -m regime_fusion.data fa --include-holdout         # ActTrade's twelve fundamental indicators
 python -m regime_fusion.data ta --include-holdout         # ActTrade's twelve technical indicators
-python -m regime_fusion.data regimes                      # market regimes per walk-forward window
 python -m regime_fusion.data fnspid                       # FNSPID headlines, about an hour of streaming
 python -m regime_fusion.data gdelt --workers 12           # GDELT news, about 3 days of streaming
 python -m regime_fusion.data sa --include-holdout         # twelve sentiment indicators from the GDELT news
+python -m regime_fusion.data regimes --include-holdout    # regimes per walk-forward window (A4's need the news)
 ```
 
 Each step caches its downloads (`--refresh` fetches again), prints what needs a look, and writes its checks to `reports/`. `--stocks AAPL MSFT` limits a step to some stocks (ids are January 2015 tickers). `python -m regime_fusion.data constituents` and `draw` rebuilt the committed constituents list and universe; they are needed again only if those change.
@@ -129,7 +129,8 @@ The VIX is calculated until 16:15 New York time, a quarter of an hour after the 
 
 - **Model.** A Gaussian hidden Markov model with diagonal covariances, fitted by EM from ten random starts (seeds from `regime_fusion.seeds`, keyed by test year and stage only). States are ordered by the mean of the first input, so state 0 is the calmest.
 - **Only filtered probabilities:** each day's probabilities use the days up to it, never later ones. For each test year, stage 1 fits on the three training years and runs through the validation year, and stage 2 fits on all four years and runs through the test year, so test-day probabilities come from a model that never saw the test year.
-- **Inputs.** Rung A2 uses the log realised volatility of the index over 20 sessions. In the 2015–2018 fit it separates a calm state (about 8% annualised volatility, lasting about 88 days on average) from a turbulent one (about 18%, about 52 days). Rung A3 uses directional changes of the index at a 1% threshold: the number of events in the last 20 sessions and the move of the current trend. At this threshold one state is merely "no event in 20 sessions", so the pilot should try smaller thresholds. Rung A4 will add the news-attention DC once the GDELT data are in.
+- **Inputs.** Rung A2 uses the log realised volatility of the index over 20 sessions. In the 2015–2018 fit it separates a calm state (about 8% annualised volatility, lasting about 88 days on average) from a turbulent one (about 18%, about 52 days). Rung A3 uses directional changes of the index at a 1% threshold: the number of events in the last 20 sessions and the move of the current trend. At this threshold one state is merely "no event in 20 sessions", so the pilot should try smaller thresholds.
+- **News attention (rung A4).** A4 adds to A3's inputs the same two inputs computed on news attention (`regime_fusion.regimes.news`): directional changes of the log of 1 + the articles of the last 5 sessions, at an absolute threshold of 0.25 (a rise or fall of about 28%), counted over 20 sessions. Article counts come from the `sa` step, scaled up for missing GDELT files; sessions without enough files are left out of the 5-session mean. By default (`scope: stock`) each stock gets its own regimes from its own news, fitted per stock and window (`processed/regimes/dc_news/<id>/`, seeds keyed by stock, test year and stage): the question behind A4 is whether a strategy should listen to sentiment when its firm is in the news. `scope: market` instead pools the news of the 50 main stocks into one set of shared regimes. Both thresholds are drafts for the pilot.
 
 ## News
 

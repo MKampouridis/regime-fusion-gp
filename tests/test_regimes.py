@@ -1,11 +1,14 @@
 import itertools
+import json
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from regime_fusion.config import load_config
-from regime_fusion.regimes import hmm, market
+from regime_fusion.data import cli, store
+from regime_fusion.data.store import DATA_DIR_ENV
+from regime_fusion.regimes import hmm, market, news
 from regime_fusion.testing import check_no_lookahead
 from regime_fusion.windows import walk_forward
 
@@ -103,3 +106,75 @@ def test_test_year_probabilities_come_from_a_model_that_never_saw_it():
     pd.testing.assert_frame_equal(stage2.loc[:"2018-12-31"], restage2.loc[:"2018-12-31"])
     assert stage2.index[-1] == pd.Timestamp("2019-12-31")
     assert not stage2.loc["2019"].equals(restage2.loc["2019"])
+
+
+def news_articles(seed=9):
+    """Articles per session: busy months now and then; none before GDELT starts; a short outage."""
+    days = pd.bdate_range("2014-01-02", "2025-12-31")
+    rng = np.random.default_rng(seed)
+    articles = pd.Series(rng.poisson(np.where(days.month % 4 == 0, 40, 8)).astype(float), index=days)
+    articles[articles.index < "2015-02-19"] = np.nan
+    articles.iloc[1000:1004] = np.nan
+    return articles
+
+
+def test_attention_level_skips_uncovered_sessions_and_keeps_the_last_level():
+    level = news.attention_level(pd.Series([np.nan, 2.0, 4.0, np.nan, np.nan, np.nan, np.nan, np.nan, 6.0]), 3)
+    assert np.isnan(level[0])
+    assert level[1] == 1 + 3 * 2.0 and level[2] == 1 + 3 * 3.0
+    assert level[3] == 1 + 3 * 3.0  # the mean of the covered sessions in the window
+    assert level[4] == 1 + 3 * 4.0
+    assert level[5] == level[4]  # no covered session in the window: the last level is kept
+    assert level[8] == 1 + 3 * 6.0
+    together = news.market_articles({"A": pd.Series([1.0, np.nan]), "B": pd.Series([2.0, np.nan])})
+    assert together[0] == 3.0 and np.isnan(together[1])
+
+
+def test_news_inputs_never_look_ahead():
+    articles = news_articles().iloc[250:700]
+    check_no_lookahead(lambda a: news.attention_inputs(a, 5, 0.25, 20), articles, range(0, 450, 11))
+
+
+def test_dc_news_inputs_add_news_attention_to_the_dc_inputs():
+    settings = {"inputs": {"dc_news": {"threshold": 0.01, "window": 20, "attention": {
+        "scope": "stock", "sessions": 5, "threshold": 0.25, "window": 20}}, "dc": {"threshold": 0.01}}}
+    close = market_close()
+    features = market.inputs(close, "dc_news", settings, news_articles())
+    assert list(features.columns) == ["log_events", "trend_move", "news_log_events", "news_trend_move"]
+    assert features.loc[:"2015-02-18", "news_log_events"].isna().all()
+    assert features.loc["2016"].notna().all().all()
+    with pytest.raises(ValueError, match="articles"):
+        market.inputs(close, "dc_news", settings)
+    assert market.per_stock("dc_news", settings) and not market.per_stock("dc", settings)
+
+
+def test_per_stock_regimes_have_their_own_seeds_and_files(monkeypatch, tmp_path):
+    keys = []
+    real = market.make_rng
+    monkeypatch.setattr(market, "make_rng", lambda *k: keys.append(k) or real(*k))
+    config = load_config()
+    settings = {"n_states": 2, "restarts": 1, "inputs": {"volatility": {"window": 20}}}
+    features = market.inputs(market_close(), "volatility", settings)
+    market.walk_forward(features, walk_forward(config)[:1], settings, config.base_seed, stock="AAPL")
+    market.walk_forward(features, walk_forward(config)[:1], settings, config.base_seed)
+    assert keys[0][1:] == ("regimes", "AAPL", 2019, 1) and keys[2][1:] == ("regimes", 2019, 1)
+    assert (market.probabilities_path("dc_news", 2019, 2, "AAPL", root=tmp_path)
+            == tmp_path / "processed" / "regimes" / "dc_news" / "AAPL" / "2019.stage2.parquet")
+    assert (market.probabilities_path("dc", 2019, 2, root=tmp_path)
+            == tmp_path / "processed" / "regimes" / "dc" / "2019.stage2.parquet")
+
+
+def test_regimes_command_fits_regimes_from_each_stocks_news(monkeypatch, tmp_path):
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    store.write_parquet(store.layer("interim", "market", "GSPC.parquet"), market_close().to_frame("close"))
+    store.write_parquet(store.layer("interim", "news", "AAPL.parquet"), news_articles().to_frame("articles"))
+    settings = {**market.load_settings(), "restarts": 1}
+    monkeypatch.setattr(market, "load_settings", lambda path=None: settings)
+    assert cli.main(["regimes", "--inputs", "dc_news", "--stocks", "AAPL"]) == 0
+    probabilities = pd.read_parquet(market.probabilities_path("dc_news", 2019, 2, "AAPL"))
+    assert probabilities.index[-1] == pd.Timestamp("2019-12-31")
+    report = json.loads(store.layer("reports", "regimes_per_stock.json").read_text())
+    assert "dc_news AAPL 2025 stage 2" in report
+    with pytest.raises(SystemExit, match="sa command"):
+        cli.main(["regimes", "--inputs", "dc_news", "--stocks", "F"])
+
