@@ -104,11 +104,16 @@ def _distinct(items: pd.DataFrame) -> pd.DataFrame:
     return items.assign(key=text_key(items["title"])).reset_index(drop=True)
 
 
-def finbert_scorer(batch: int = 64, device: str = "cpu") -> tuple[Callable[[list[str]], np.ndarray], str]:
-    """FinBERT as a function from texts to (positive, negative, neutral) probabilities, and its revision."""
+def finbert_scorer(batch: int = 64, device: str | None = None) -> tuple[Callable[[list[str]], np.ndarray], str]:
+    """FinBERT as a function from texts to (positive, negative, neutral) probabilities, and its revision.
+
+    By default it runs on a GPU when there is one (Apple's, through MPS, or CUDA), else on the CPU.
+    """
     import torch
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+    if device is None:
+        device = ("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = AutoTokenizer.from_pretrained(MODEL)
     model = AutoModelForSequenceClassification.from_pretrained(MODEL).to(device).eval()
     order = [next(i for i, name in model.config.id2label.items() if name.lower() == label)

@@ -6,6 +6,7 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 | --- | --- | --- |
 | 2026-10-29 | Headlines of the FinBERT check: FNSPID for test years 2019–2023 and GDELT page titles for 2024–2025, so the check covers every test year; each walk-forward window uses one source throughout (GDELT's titles begin on 23 September 2019, so they cover the whole window of 2024 and 2025 only) | MK |
 | 2026-10-29 | The pilot runs on Michael's MacBook Air, once the 2015–2018 news data are in; CERES runs the main campaign | MK |
+| 2026-10-29 | FinBERT scores the headlines on Michael's Mac (the model is about 440 MB); only the daily indicators go to CERES | MK |
 | 2026-10-29 | The GP's population, number of generations and tournament size are chosen together in a small pilot on 2015–2018 data, with fitness convergence as the criterion: populations from 250 to 2,000 at an equal budget of evaluations, tournaments of 2 and 4 (`PROTOCOL.md`, §9.1) | MK |
 | 2026-10-29 | The draft analysis protocol (`PROTOCOL.md`) is accepted; it is frozen at the end of the pilot | MK |
 | 2026-10-29 | Sentiment indicators: twelve from GDELT, over 1 and 5 sessions: attention, abnormal attention, tone, and the Loughran–McDonald positive, negative and uncertainty shares (ActTrade's TextBlob, SentiWordNet and AFINN scores need article text, which GDELT does not give) | MK |

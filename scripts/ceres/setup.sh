@@ -27,7 +27,8 @@ if [ ! -x "$PREFIX/bin/conda" ]; then
     rm -f "$HOME/miniforge-installer.sh"
 fi
 source "$PREFIX/etc/profile.d/conda.sh"
-if ! conda env list | grep -q "^$ENV "; then
+# (Re)built unless it already has every package, so a set-up cut short can simply be run again.
+if ! conda run -n "$ENV" python -c "import numpy, pandas, pyarrow, numba, scipy, yaml, exchange_calendars, sklearn, lightgbm, pytest" 2>/dev/null; then
     conda create -y -n "$ENV" -c conda-forge python=3.12 numpy pandas pyarrow numba scipy pyyaml \
         exchange-calendars scikit-learn lightgbm pytest
 fi

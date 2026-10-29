@@ -14,9 +14,11 @@ Checked on 29 October 2026 from Michael's terminal and the cluster's guide, [hpc
 - **Python.** The system's Pythons (3.6, and 3.9 on the compute nodes) are too old for this code (3.11 or later). CERES recommends conda environments, built in an interactive session on a compute node, not on the login node. The compute nodes can download packages (conda-forge answered from the login node too).
 - **Disk.** No quotas, but space should be used sensibly. Each node's `/tmp` is fast local scratch; the per-job folder `$TMPDIR` is removed when the job ends.
 
+The commands below run on the **login node** (where `ssh` lands), with two exceptions: the environment's set-up (§3), which CERES wants on a compute node, in an interactive session, and the data copy (§4), which runs on the Mac. Job arrays are submitted from the login node and run on the compute nodes by themselves.
+
 ## 2. The code
 
-The repository is public, so CERES clones it directly:
+The repository is public, so CERES clones it directly (login node):
 
 ```bash
 git clone https://github.com/MKampouridis/regime-fusion-gp.git ~/regime-fusion-gp
@@ -26,12 +28,13 @@ cd ~/regime-fusion-gp && git pull        # later, to bring in changes
 ## 3. The environment
 
 ```bash
+screen                                                 # optional: keeps the session alive if the connection drops
 qrsh -q interactive.q                                  # an interactive session on a compute node
 cd ~/regime-fusion-gp && bash scripts/ceres/setup.sh
 exit                                                   # back to the login node
 ```
 
-The script installs Miniforge in `~/miniforge3`, creates the environment `rfgp` from conda-forge (Python 3.12 and the study's packages, PyTorch if it installs), installs the package and runs the tests (a few minutes). conda-forge still builds for glibc 2.17, and conda installs only builds that work with it, so versions may be older than on the Mac; the tests show whether they behave the same. Run again, it skips what is already done.
+The script installs Miniforge in `~/miniforge3`, creates the environment `rfgp` from conda-forge (Python 3.12 and the study's packages, PyTorch if it installs), installs the package and runs the tests (10–20 minutes, about 3 GB in the home folder). conda-forge still builds for glibc 2.17, and conda installs only builds that work with it, so versions may be older than on the Mac; the tests show whether they behave the same. If it is cut short, run it again: it redoes only what is missing. In `screen`, Ctrl-A then D leaves the session running, and `screen -r` returns to it.
 
 ## 4. The data
 
