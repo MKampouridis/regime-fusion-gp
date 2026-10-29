@@ -7,6 +7,7 @@ Commands (each has --help):
   exits     choose a stock-year's exit settings (d, r) on its validation year with rung A0
   tasks     plan a campaign as numbered tasks, for job arrays (engine/tasks.py)
   run-task  do task number i of a campaign (what a job-array element runs)
+  run-all   do every unfinished task of a plan on this machine, several at a time
   status    how many of a campaign's tasks are finished
   collect   gather a campaign's runs into one table, results/<campaign>/runs.parquet
 
@@ -66,15 +67,26 @@ def main(argv: list[str] | None = None) -> int:
                      help="development-only campaign (the pilot): no data after the development period")
     sub.add_argument("--scheme", choices=("rolling", "expanding"), default="rolling",
                      help="walk-forward windows (expanding for the robustness check)")
+    sub.add_argument("--plan", help="a name for the plan, for several plans of runs (default: the kind)")
     sub.add_argument("--replace", action="store_true", help="plan again although tasks exist")
     sub.set_defaults(handler=tasks_command)
 
     sub = commands.add_parser("run-task", help="do task number i of a campaign")
     sub.add_argument("--campaign", required=True)
-    sub.add_argument("--kind", choices=tasks.KINDS, required=True)
+    which = sub.add_mutually_exclusive_group(required=True)
+    which.add_argument("--kind", choices=tasks.KINDS, help="the plan named after its kind")
+    which.add_argument("--plan", help="a named plan")
     sub.add_argument("--index", type=int, required=True, help="task number, from 0 (a job array's index)")
     sub.add_argument("--count", type=int, default=1, help="do this many consecutive tasks (default 1)")
     sub.set_defaults(handler=run_task_command)
+
+    sub = commands.add_parser("run-all", help="do every unfinished task of a plan on this machine")
+    sub.add_argument("--campaign", required=True)
+    which = sub.add_mutually_exclusive_group(required=True)
+    which.add_argument("--kind", choices=tasks.KINDS, help="the plan named after its kind")
+    which.add_argument("--plan", help="a named plan")
+    sub.add_argument("--workers", type=int, default=1, help="tasks at a time (default 1)")
+    sub.set_defaults(handler=run_all_command)
 
     sub = commands.add_parser("status", help="how many of a campaign's tasks are finished")
     sub.add_argument("--campaign", required=True)
@@ -166,20 +178,21 @@ def tasks_command(args: argparse.Namespace) -> int:
         planned = tasks.plan(args.kind, stocks, years, config, rungs=args.rungs, stages=tuple(args.stages),
                              runs=runs, block=args.block, development_only=args.development, pooled=pooled)
         path = tasks.save_plan(args.campaign, args.kind, planned, development_only=args.development,
-                               replace=args.replace, stocks=stocks, scheme=args.scheme)
+                               replace=args.replace, stocks=stocks, scheme=args.scheme, name=args.plan)
     except (ValueError, FileExistsError) as error:
         raise SystemExit(str(error)) from None
-    log.info("%s: %d %s tasks (indices 0 to %d) in %s", args.campaign, len(planned), args.kind,
+    log.info("%s: %d %s tasks (indices 0 to %d) in %s", args.campaign, len(planned), args.plan or args.kind,
              len(planned) - 1, path)
     return 0
 
 
 def run_task_command(args: argparse.Namespace) -> int:
-    development_only, planned = tasks.load_plan(args.campaign, args.kind)
-    config, rungs = with_scheme(load_config(), tasks.plan_scheme(args.campaign, args.kind)), load_rungs()
+    name = args.plan or args.kind
+    development_only, planned = tasks.load_plan(args.campaign, name)
+    config, rungs = with_scheme(load_config(), tasks.plan_scheme(args.campaign, name)), load_rungs()
     chosen = planned[args.index:args.index + args.count]
     if not chosen:
-        raise SystemExit(f"no task {args.index}: the {args.kind} plan has {len(planned)} tasks")
+        raise SystemExit(f"no task {args.index}: plan {name!r} has {len(planned)} tasks")
     for number, task in enumerate(chosen, start=args.index):
         outcome = tasks.execute(task, args.campaign, config, rungs, development_only=development_only)
         log.info("task %d (%s %s %s %d stage %d): %d done, %d already done", number, task.kind, task.rung,
@@ -187,14 +200,53 @@ def run_task_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def status_command(args: argparse.Namespace) -> int:
-    for kind in tasks.KINDS:
+def run_all_command(args: argparse.Namespace) -> int:
+    """Every unfinished task of a plan, ``--workers`` at a time; stopping ends the workers too."""
+    import signal
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    from regime_fusion.data.cli import stop_workers
+
+    name = args.plan or args.kind
+    _, planned = tasks.load_plan(args.campaign, name)
+    todo = [i for i, task in enumerate(planned) if not tasks.finished(task, args.campaign)]
+    log.info("%s %s: %d of %d tasks to do, %d at a time", args.campaign, name, len(todo), len(planned), args.workers)
+    if args.workers <= 1:
+        for index in todo:
+            run_task_command(argparse.Namespace(campaign=args.campaign, kind=None, plan=name, index=index, count=1))
+        return 0
+    signal.signal(signal.SIGTERM, _interrupt)
+    failed = 0
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        futures = {pool.submit(main, ["run-task", "--campaign", args.campaign, "--plan", name, "--index", str(i)]): i
+                   for i in todo}
         try:
-            _, planned = tasks.load_plan(args.campaign, kind)
-        except FileNotFoundError:
-            continue
+            for done, future in enumerate(as_completed(futures), start=1):
+                try:
+                    future.result()
+                except Exception as error:  # report and go on; the task stays unfinished
+                    failed += 1
+                    log.error("task %d failed: %s", futures[future], error)
+                log.info("%s %s: %d of %d done", args.campaign, name, done, len(todo))
+        except KeyboardInterrupt:
+            log.warning("run-all: interrupted; finished runs are kept, run again to resume")
+            stop_workers(pool)
+            return 1
+    return 1 if failed else 0
+
+
+def _interrupt(signum, frame) -> None:
+    raise KeyboardInterrupt
+
+
+def status_command(args: argparse.Namespace) -> int:
+    names = tasks.plan_names(args.campaign)
+    if not names:
+        raise SystemExit(f"no plans for campaign {args.campaign!r}")
+    for name in names:
+        _, planned = tasks.load_plan(args.campaign, name)
         left = [i for i, task in enumerate(planned) if not tasks.finished(task, args.campaign)]
-        log.info("%s %s: %d of %d tasks finished%s", args.campaign, kind, len(planned) - len(left), len(planned),
+        log.info("%s %s: %d of %d tasks finished%s", args.campaign, name, len(planned) - len(left), len(planned),
                  f"; first unfinished: {left[:10]}" if left else "")
     return 0
 

@@ -58,6 +58,7 @@ def _rung(name: str, raw: dict[str, Any]) -> Rung:
     gp = GPConfig(**gp_settings, active_trading=bool(spec["active_trading"]), selection=spec["selection"])
     fitness = dict(raw["fitness"])
     fitness["weights"] = spec.get("weights", fitness["weights"])
-    resolved = {"rung": name, **spec, "gp": raw["gp"], "fitness": fitness, "scaling": raw["scaling"]}
+    scaling = spec.get("scaling", raw["scaling"])  # a rung may override the common scaling
+    resolved = {"rung": name, **spec, "gp": raw["gp"], "fitness": fitness, "scaling": scaling}
     return Rung(name, tuple(spec["sources"]), tuple(spec["fusion"]), spec.get("regimes"), gp,
-                Settings(**fitness), max_depth, raw["scaling"], resolved, bool(spec.get("finbert", False)))
+                Settings(**fitness), max_depth, scaling, resolved, bool(spec.get("finbert", False)))

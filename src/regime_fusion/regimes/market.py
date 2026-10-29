@@ -62,11 +62,12 @@ def inputs(close: pd.Series, name: str, settings: dict[str, Any],
            articles: pd.Series | None = None) -> pd.DataFrame:
     """Inputs of one set; ``articles`` (news per session) is needed by sets with news attention."""
     spec = settings["inputs"][name]
-    if name == "volatility":
+    kind = spec.get("kind", name)  # alternatives name the kind of inputs they compute
+    if kind == "volatility":
         return realised_volatility(close, int(spec["window"])).to_frame()
-    if name in ("dc", "dc_news"):
+    if kind in ("dc", "dc_news"):
         frame = dc_inputs(close, float(spec["threshold"]), int(spec["window"]))
-        if name == "dc":
+        if kind == "dc":
             return frame
         if articles is None:
             raise ValueError("dc_news needs the news articles per session")

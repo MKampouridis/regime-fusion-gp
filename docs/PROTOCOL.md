@@ -79,12 +79,36 @@ Each is settled on 2015–2018 data only (stage 1 of the 2019 window), by the ru
 
 | Decision | Options | Rule |
 | --- | --- | --- |
-| Runs per configuration | 30 or 50 | 100 runs of A0 and A1 on 10 stocks. Keep 30 if the median distance (95th percentile) between a 30-run median and the 100-run median is at most 0.05 in annualised Sharpe ratio, half the smallest difference of interest (0.1); otherwise 50 (`analysis pilot`) |
+| Runs per configuration | 30 or 50 | 100 runs of A0 and A1 on 10 stocks (ABT, DIS, GD, MS, NFLX, NSC, SO, SPG, UPS, WFC, drawn with the study's seed on 29 October 2026). Keep 30 if the median distance (95th percentile) between a 30-run median and the 100-run median is at most 0.05 in annualised Sharpe ratio, half the smallest difference of interest (0.1); otherwise 50 (`analysis pilot`) |
 | Generations | 50 or 75 | Keep 50 unless more than a quarter of A1's runs still raise their best training fitness by more than 1% over the last 10 generations, and the time budget allows 75 |
 | Population | 1,000 or 500 | Keep 1,000 unless the median full run takes more than 30 seconds (twice the plan's budget) |
-| DC threshold of the price regimes (A3) | 0.5% or 1% | Options whose fitted regimes give a state less than 15% of the 2015–2017 days are dropped; of the rest, the higher median validation Sharpe ratio of A3 over the 50 stocks, 10 runs each; ties go to the smaller threshold |
-| Threshold of the news-attention DC (A4) | 0.25 or 0.5 (log units) | As for A3, with A4 |
-| Scaling of the indicators | min-max or rank | The higher median validation Sharpe ratio of A1, 10 runs each |
+| DC threshold of the price regimes (A3) | 0.5% (`A3-fine`) or 1% (`A3`) | Options whose fitted regimes give a state less than 15% of the 2015–2017 days are dropped; of the rest, the higher median validation Sharpe ratio of A3 over the 50 stocks, 10 runs each; ties go to the smaller threshold |
+| Threshold of the news-attention DC (A4) | 0.25 (`A4`) or 0.5 (`A4-wide`), in log units | As for A3, with A4, after its price threshold is set to A3's choice |
+| Scaling of the indicators | min-max (`A1`) or rank (`A1-rank`) | The higher median validation Sharpe ratio of A1, 10 runs each |
 | Fitness weights | Equal (0.25 each) | Kept unless ActTrade's own values are found |
 | Sentiment indicators | The twelve GDELT indicators | Open in `DECISIONS.md` until Michael decides |
 | GDELT name rules | `configs/news_names.yaml` | Revised on the 2015–2018 names report, before any pilot run |
+
+### Running the pilot
+
+Once the GDELT days of 2015–2018 are extracted and the name rules revised:
+
+```bash
+python -m regime_fusion.data sa && python -m regime_fusion.data regimes && python -m regime_fusion.data check
+E="python -m regime_fusion.engine"
+$E tasks --campaign pilot --kind exits --years 2019 --development
+$E tasks --campaign pilot --kind runs --years 2019 --stages 1 --runs 10 --development --rungs \
+    A0 A1 A1-rank A2 A3 A3-fine A4 A4-wide A5 A5-dalex GP-FA GP-SA GP-TA \
+    RB-BH RB-TS RB-MA RB-TSMOM ML-LR ML-LGBM ML-RS-LGBM ML-GATED
+$E tasks --campaign pilot --kind runs --plan check100 --rungs A0 A1 --runs 100 --years 2019 --stages 1 \
+    --development --stocks ABT DIS GD MS NFLX NSC SO SPG UPS WFC
+$E run-all --campaign pilot --kind exits --workers 7     # or as job arrays on CERES
+$E run-all --campaign pilot --kind runs --workers 7
+$E run-all --campaign pilot --plan check100 --workers 7
+$E collect --campaign pilot
+python -m regime_fusion.analysis pilot --campaign pilot
+python -m regime_fusion.analysis compare --campaign pilot --stage 1 --rungs A0 A1 A2 A3 A4 A5
+```
+
+At the plan's speed this is about 60 CPU hours (exit settings about 18, runs about 30, the 100-run check about 9), roughly 9 hours on seven cores. Every run evaluates on 2018 only; the planning refuses anything later.
+

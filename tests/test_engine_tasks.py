@@ -1,3 +1,4 @@
+import dataclasses
 import json
 
 import pandas as pd
@@ -67,7 +68,7 @@ def test_tasks_are_saved_once_and_resume_where_they_stopped(fake_engine, config)
     with pytest.raises(FileExistsError):
         tasks.save_plan("c", "runs", planned, development_only=False)
     development, loaded = tasks.load_plan("c", "runs")
-    assert loaded == planned and development is False
+    assert loaded == [dataclasses.replace(t, plan="runs") for t in planned] and development is False
     with pytest.raises(FileNotFoundError, match="exits tasks first"):
         tasks.execute(loaded[0], "c", config, rungs, development_only=False)
     exit_task = tasks.plan("exits", ["AAPL"], [2019], config)[0]
@@ -142,3 +143,37 @@ def test_expanding_campaigns_use_expanding_windows_throughout(fake_engine, tmp_p
     assert cli.main(["run-task", "--campaign", "wide", "--kind", "exits", "--index", "0"]) == 0
     assert cli.main(["run-task", "--campaign", "wide", "--kind", "runs", "--index", "0"]) == 0
     assert seen == ["expanding"]
+
+
+def test_a_campaign_can_hold_several_plans_of_runs(fake_engine, tmp_path):
+    assert cli.main(["tasks", "--campaign", "p", "--kind", "exits", "--stocks", "AAPL", "F", "--years", "2019",
+                     "--development"]) == 0
+    assert cli.main(["tasks", "--campaign", "p", "--kind", "runs", "--rungs", "A0", "--stocks", "AAPL", "F",
+                     "--years", "2019", "--stages", "1", "--runs", "2", "--development"]) == 0
+    assert cli.main(["tasks", "--campaign", "p", "--kind", "runs", "--plan", "check100", "--rungs", "A0",
+                     "--stocks", "AAPL", "--years", "2019", "--stages", "1", "--runs", "5", "--development"]) == 0
+    assert tasks.plan_names("p") == ["check100", "exits", "runs"]
+    assert cli.main(["run-task", "--campaign", "p", "--kind", "exits", "--index", "0", "--count", "2"]) == 0
+    assert cli.main(["run-task", "--campaign", "p", "--plan", "check100", "--index", "0"]) == 0
+    assert sorted(c[-1] for c in fake_engine["runs"]) == [0, 1, 2, 3, 4]
+    assert cli.main(["run-task", "--campaign", "p", "--kind", "runs", "--index", "0"]) == 0
+    assert len(fake_engine["runs"]) == 5  # runs 0 and 1 of AAPL were already done by the other plan
+    _, check = tasks.load_plan("p", "check100")
+    assert check[0].plan == "check100" and tasks.finished(check[0], "p")
+    assert cli.main(["status", "--campaign", "p"]) == 0
+
+
+def test_run_all_does_every_unfinished_task(fake_engine):
+    assert cli.main(["tasks", "--campaign", "all", "--kind", "exits", "--stocks", "AAPL", "F", "--years", "2019",
+                     "--development"]) == 0
+    assert cli.main(["run-all", "--campaign", "all", "--kind", "exits"]) == 0
+    assert fake_engine["exits"] == [("AAPL", 2019), ("F", 2019)]
+    assert cli.main(["run-all", "--campaign", "all", "--kind", "exits"]) == 0
+    assert len(fake_engine["exits"]) == 2  # nothing left
+
+
+def test_run_all_in_parallel_reports_failed_tasks(monkeypatch, tmp_path):
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))  # no data at all: every task fails in its worker
+    assert cli.main(["tasks", "--campaign", "x", "--kind", "exits", "--stocks", "AAPL", "F", "--years", "2019",
+                     "--development"]) == 0
+    assert cli.main(["run-all", "--campaign", "x", "--kind", "exits", "--workers", "2"]) == 1

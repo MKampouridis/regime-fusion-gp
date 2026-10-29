@@ -122,3 +122,19 @@ def test_robustness_rungs_add_finbert_to_the_sentiment_branch(data_dir):
     record = run(RunSpec("XYZ", 2019, 0, 1, 10, 0.02), rungs["A0-FB"], load_config(), write=False,
                  overrides=SMALL)
     assert record["indicators"]["SA"] == 3
+
+
+def test_pilot_alternatives_are_rungs_of_their_own():
+    from regime_fusion.regimes import market
+
+    rungs = load_rungs()
+    assert rungs["A1-rank"].scaling == "rank" and rungs["A1"].scaling == "minmax"
+    assert rungs["A3-fine"].regimes == "dc_fine" and rungs["A4-wide"].regimes == "dc_news_wide"
+    assert rungs["A1-rank"].digest() != rungs["A1"].digest()
+    settings = market.load_settings()
+    close = pd.Series(100 * np.exp(np.cumsum(np.random.default_rng(1).normal(0, 0.01, 600))),
+                      index=pd.bdate_range("2016-01-01", periods=600))
+    fine = market.inputs(close, "dc_fine", settings)
+    coarse = market.inputs(close, "dc", settings)
+    assert list(fine.columns) == list(coarse.columns)
+    assert fine["log_events"].mean() > coarse["log_events"].mean()  # more events at a smaller threshold

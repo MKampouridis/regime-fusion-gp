@@ -45,3 +45,7 @@ rungs:
   # branch, 2019-2023. The best rung of the main results gets the same treatment once known.
   A0-FB: {extends: A0, finbert: true}
   A1-FB: {extends: A1, finbert: true}
+  # Alternatives the pilot compares (docs/PROTOCOL.md, section 9), on 2015-2018 data only.
+  A1-rank: {extends: A1, scaling: rank}
+  A3-fine: {extends: A3, regimes: dc_fine}
+  A4-wide: {extends: A4, regimes: dc_news_wide}

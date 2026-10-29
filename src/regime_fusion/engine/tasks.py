@@ -1,8 +1,10 @@
 """Campaigns as numbered tasks, for job arrays on CERES or a loop on one machine.
 
 A campaign's tasks are planned once and saved to
-``results/<campaign>/tasks.<kind>.json``; a job-array element then runs task
-number i (``python -m regime_fusion.engine run-task``). There are two kinds:
+``results/<campaign>/tasks.<plan>.json`` (the plan is named after its kind
+unless given a name, so that a campaign can hold several plans of runs, such as
+the pilot's 100-run check); a job-array element then runs task number i
+(``python -m regime_fusion.engine run-task``). There are two kinds:
 
 * ``exits``: choose one stock-year's exit settings (d, r) with rung A0 on the
   validation year (every candidate of the grid, 5 runs each);
@@ -57,6 +59,7 @@ class Task:
     rung: str
     stage: int
     runs: tuple[int, ...] = ()
+    plan: str = ""      # the name of the plan the task belongs to
 
 
 def evaluation_range(config: StudyConfig, test_year: int, stage: int) -> DateRange:
@@ -101,41 +104,50 @@ def check_development(task: Task, config: StudyConfig) -> None:
                          f"after the development period (to {config.period.development_end})")
 
 
-def plan_path(campaign: str, kind: str) -> Path:
-    return store.data_dir() / "results" / campaign / f"tasks.{kind}.json"
+def plan_path(campaign: str, name: str) -> Path:
+    return store.data_dir() / "results" / campaign / f"tasks.{name}.json"
+
+
+def plan_names(campaign: str) -> list[str]:
+    """The plans a campaign holds."""
+    folder = store.data_dir() / "results" / campaign
+    return sorted(path.name.removeprefix("tasks.").removesuffix(".json") for path in folder.glob("tasks.*.json"))
 
 
 def save_plan(campaign: str, kind: str, tasks: list[Task], *, development_only: bool,
-              replace: bool = False, stocks: list[str] | None = None, scheme: str = "rolling") -> Path:
-    path = plan_path(campaign, kind)
+              replace: bool = False, stocks: list[str] | None = None, scheme: str = "rolling",
+              name: str | None = None) -> Path:
+    name = name or kind
+    path = plan_path(campaign, name)
     if path.exists() and not replace:
         raise FileExistsError(f"{path} exists; running jobs use its numbering (pass replace to plan again)")
-    record = {"campaign": campaign, "kind": kind, "development_only": development_only, "scheme": scheme,
-              "stocks": sorted(stocks if stocks is not None else {t.stock for t in tasks} - {"*"}),
+    named = [dataclasses.replace(t, plan=name) for t in tasks]
+    record = {"campaign": campaign, "name": name, "kind": kind, "development_only": development_only,
+              "scheme": scheme, "stocks": sorted(stocks if stocks is not None else {t.stock for t in tasks} - {"*"}),
               "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-              "git": provenance.git_state(), "tasks": [dataclasses.asdict(t) for t in tasks]}
+              "git": provenance.git_state(), "tasks": [dataclasses.asdict(t) for t in named]}
     provenance.write(path, record)
     return path
 
 
-def load_plan(campaign: str, kind: str) -> tuple[bool, list[Task]]:
-    """Whether the campaign is development-only, and its tasks."""
-    path = plan_path(campaign, kind)
+def load_plan(campaign: str, name: str) -> tuple[bool, list[Task]]:
+    """Whether the plan is development-only, and its tasks."""
+    path = plan_path(campaign, name)
     if not path.exists():
-        raise FileNotFoundError(f"no {kind} tasks planned for campaign {campaign!r} ({path})")
+        raise FileNotFoundError(f"no plan {name!r} for campaign {campaign!r} ({path})")
     record = json.loads(path.read_text())
-    tasks = [Task(**{**t, "runs": tuple(t["runs"])}) for t in record["tasks"]]
+    tasks = [Task(**{**t, "runs": tuple(t["runs"]), "plan": t.get("plan") or name}) for t in record["tasks"]]
     return bool(record["development_only"]), tasks
 
 
-def plan_scheme(campaign: str, kind: str) -> str:
-    """The walk-forward scheme of a campaign's plan (rolling unless planned otherwise)."""
-    return str(json.loads(plan_path(campaign, kind).read_text()).get("scheme", "rolling"))
+def plan_scheme(campaign: str, name: str) -> str:
+    """The walk-forward scheme of a plan (rolling unless planned otherwise)."""
+    return str(json.loads(plan_path(campaign, name).read_text()).get("scheme", "rolling"))
 
 
-def plan_stocks(campaign: str, kind: str) -> list[str]:
-    """The stocks of a campaign's plan (those a pooled task covers)."""
-    return list(json.loads(plan_path(campaign, kind).read_text())["stocks"])
+def plan_stocks(campaign: str, name: str) -> list[str]:
+    """The stocks of a plan (those a pooled task covers)."""
+    return list(json.loads(plan_path(campaign, name).read_text())["stocks"])
 
 
 def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Rung], *,
@@ -170,7 +182,7 @@ def execute_pooled(task: Task, campaign: str, config: StudyConfig) -> dict[str, 
     """Runs of a benchmark trained across all the campaign's stocks; each writes a result per stock."""
     from regime_fusion.ml.tft import run_tft
 
-    stocks = plan_stocks(campaign, task.kind)
+    stocks = plan_stocks(campaign, task.plan or task.kind)
     exits = {}
     for stock in stocks:
         path = exits_path(campaign, stock, task.test_year)
@@ -213,7 +225,7 @@ def run_method(name: str, spec: RunSpec, rungs: dict[str, Rung], config: StudyCo
 def finished(task: Task, campaign: str) -> bool:
     if task.kind == "exits":
         return exits_path(campaign, task.stock, task.test_year).exists()
-    stocks = plan_stocks(campaign, task.kind) if task.stock == "*" else [task.stock]
+    stocks = plan_stocks(campaign, task.plan or task.kind) if task.stock == "*" else [task.stock]
     root = store.data_dir() / "results" / campaign / task.rung
     return all((root / stock / f"{task.test_year}.stage{task.stage}.run{n:02d}.json").exists()
                for stock in stocks for n in task.runs)

@@ -22,3 +22,18 @@ inputs:
       sessions: 5       # attention level: 1 + articles over the last `sessions` sessions
       threshold: 0.25   # absolute, on the log level: a rise or fall of about 28%
       window: 20
+  # Alternatives the pilot compares (docs/PROTOCOL.md, section 9), on 2015-2018 data only.
+  # `kind` says which inputs an alternative computes.
+  dc_fine:              # rung A3-fine: directional changes of the index at 0.5%
+    kind: dc
+    threshold: 0.005
+    window: 20
+  dc_news_wide:         # rung A4-wide: a news-attention threshold of 0.5 (a rise of about 65%)
+    kind: dc_news
+    threshold: 0.01     # set to A3's chosen threshold before comparing
+    window: 20
+    attention:
+      scope: market
+      sessions: 5
+      threshold: 0.5
+      window: 20
