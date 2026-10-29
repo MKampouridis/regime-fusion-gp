@@ -62,6 +62,7 @@ from regime_fusion.data import news
 from regime_fusion.data.calendar import TradingCalendar
 
 MODEL = "ProsusAI/finbert"
+REVISION = "0bc2ac10dda6929bcb1f77ccc43c7ec5c424f031"  # the model's commit on Hugging Face, fixed
 SOURCES = ("fnspid", "gdelt")
 WINDOWS = (1, 5)
 COLUMNS = [f"finbert_{name}_{w}" for w in WINDOWS for name in ("attention", "sentiment")]
@@ -107,15 +108,16 @@ def _distinct(items: pd.DataFrame) -> pd.DataFrame:
 def finbert_scorer(batch: int = 64, device: str | None = None) -> tuple[Callable[[list[str]], np.ndarray], str]:
     """FinBERT as a function from texts to (positive, negative, neutral) probabilities, and its revision.
 
-    By default it runs on a GPU when there is one (Apple's, through MPS, or CUDA), else on the CPU.
+    The model is fixed at one commit (``REVISION``), so the scores can be reproduced. By default it
+    runs on a GPU when there is one (Apple's, through MPS, or CUDA), else on the CPU.
     """
     import torch
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
     if device is None:
         device = ("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL)
-    model = AutoModelForSequenceClassification.from_pretrained(MODEL).to(device).eval()
+    tokenizer = AutoTokenizer.from_pretrained(MODEL, revision=REVISION)
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL, revision=REVISION).to(device).eval()
     order = [next(i for i, name in model.config.id2label.items() if name.lower() == label)
              for label in ("positive", "negative", "neutral")]
 
@@ -128,7 +130,7 @@ def finbert_scorer(batch: int = 64, device: str | None = None) -> tuple[Callable
                 out.append(torch.softmax(model(**encoded).logits, dim=-1)[:, order].cpu().numpy())
         return np.concatenate(out) if out else np.zeros((0, 3))
 
-    return score, str(getattr(model.config, "_commit_hash", "unknown"))
+    return score, REVISION
 
 
 def score_texts(items: pd.DataFrame, known: pd.DataFrame, scorer: Callable[[list[str]], np.ndarray]) -> pd.DataFrame:
