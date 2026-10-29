@@ -36,6 +36,8 @@ exit                                                   # back to the login node
 
 The script installs Miniforge in `~/miniforge3`, creates the environment `rfgp` from conda-forge (Python 3.12 and the study's packages, PyTorch if it installs), installs the package and runs the tests (10–20 minutes, about 3 GB in the home folder). conda-forge still builds for glibc 2.17, and conda installs only builds that work with it, so versions may be older than on the Mac; the tests show whether they behave the same. If it is cut short, run it again: it redoes only what is missing. In `screen`, Ctrl-A then D leaves the session running, and `screen -r` returns to it.
 
+Done on 29 October 2026: Python 3.12.16, numpy 2.5.4, pandas 3.1.0, numba 0.68.0, SciPy 1.18.1, scikit-learn 1.9.1, LightGBM 4.7.0 and PyTorch 2.13.0 (CPU), the Mac's versions but for patch releases, and all 366 tests pass (in 92 seconds, against 48 on the Mac). exchange-calendars is older (4.8, against 4.13), but only the data steps, which run on the Mac, use it.
+
 ## 4. The data
 
 Runs read the prices, the processed indicators (FinBERT's included) and the regimes, about 80 MB. From the Mac, once the data steps have run (each `rsync` asks for the password and the second factor):
