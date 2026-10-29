@@ -4,6 +4,8 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 
 | Date | Decision | Decided by |
 | --- | --- | --- |
+| 2026-10-29 | Headlines of the FinBERT check: FNSPID for test years 2019–2023 and GDELT page titles for 2024–2025, so the check covers every test year; each walk-forward window uses one source throughout (GDELT's titles begin on 23 September 2019, so they cover the whole window of 2024 and 2025 only) | MK |
+| 2026-10-29 | The pilot runs on Michael's MacBook Air, once the 2015–2018 news data are in; CERES runs the main campaign | MK |
 | 2026-10-29 | The GP's population, number of generations and tournament size are chosen together in a small pilot on 2015–2018 data, with fitness convergence as the criterion: populations from 250 to 2,000 at an equal budget of evaluations, tournaments of 2 and 4 (`PROTOCOL.md`, §9.1) | MK |
 | 2026-10-29 | The draft analysis protocol (`PROTOCOL.md`) is accepted; it is frozen at the end of the pilot | MK |
 | 2026-10-29 | Sentiment indicators: twelve from GDELT, over 1 and 5 sessions: attention, abnormal attention, tone, and the Loughran–McDonald positive, negative and uncertainty shares (ActTrade's TextBlob, SentiWordNet and AFINN scores need article text, which GDELT does not give) | MK |
@@ -32,4 +34,4 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 
 | Raised | Question | Proposal |
 | --- | --- | --- |
-| 2026-10-28 | Free headline source for 2024–25 (FNSPID ends in 2023) | GDELT records carry page titles from 23 September 2019 (checked on 29 October 2026: none in the noon file of 22 September, all in that of 23 September), and the extraction already keeps every record whose title names a firm. Proposal: score those GDELT titles with the same FinBERT for 2024–25, so the check covers 2019–2025; or, for one source throughout, use GDELT titles alone from 2020 |
+| 2026-10-29 | Which stock-years enter the FinBERT check | A source covers a stock in a year if at most two of the year's months have no headline for it, and a stock-year enters the check only if its source covers every year of its window (the first training year to the test year); the others are not run. FNSPID's coverage is patchy: 18 main stocks end in June 2020, and others lack whole years (Apple and American Express in 2021, Amazon in 2021–22). With FNSPID, 33, 22, 23, 23 and 25 of the 50 main stocks qualify for test years 2019–2023 (126 of 250 stock-years); GDELT's coverage of 2024–25 will be known once its extraction ends |

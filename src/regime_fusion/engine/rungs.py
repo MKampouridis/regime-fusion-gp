@@ -61,6 +61,14 @@ def exit_grid(path: str | Path = DEFAULT_RUNGS) -> dict[str, Any]:
     return yaml.safe_load(Path(path).read_text())["exit_grid"]
 
 
+def finbert_source(test_year: int, path: str | Path = DEFAULT_RUNGS) -> str:
+    """The headline source of the FinBERT check for a test year's window (``finbert_sources``)."""
+    for source, years in yaml.safe_load(Path(path).read_text())["finbert_sources"].items():
+        if test_year in years:
+            return source
+    raise ValueError(f"{path}: no FinBERT headline source for test year {test_year}")
+
+
 def _resolved(name: str, rungs: dict[str, dict], seen=()) -> dict[str, Any]:
     if name in seen:
         raise ValueError(f"rung {name} extends itself")

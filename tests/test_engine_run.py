@@ -7,8 +7,9 @@ import pytest
 from regime_fusion.config import load_config
 from regime_fusion.engine import cli
 from regime_fusion.engine.panel import load_panel, scale
-from regime_fusion.engine.rungs import load_rungs
+from regime_fusion.engine.rungs import finbert_source, load_rungs
 from regime_fusion.engine.run import RunSpec, choose_exits, result_path, run
+from regime_fusion.data import store
 from regime_fusion.data.store import DATA_DIR_ENV
 from regime_fusion.windows import DateRange
 
@@ -110,18 +111,23 @@ def test_a_source_without_usable_indicators_is_reported(data_dir):
 
 def test_robustness_rungs_add_finbert_to_the_sentiment_branch(data_dir):
     days = pd.read_parquet(data_dir / "processed/sa/XYZ.parquet").index
-    (data_dir / "processed" / "finbert").mkdir()
-    pd.DataFrame({"finbert_sentiment_1": np.linspace(-1, 1, len(days))}, index=days).to_parquet(
-        data_dir / "processed/finbert/XYZ.parquet")
+    table = pd.DataFrame({"finbert_sentiment_1": np.linspace(-1, 1, len(days))}, index=days)
+    store.write_parquet(store.layer("processed", "finbert", "fnspid", "XYZ.parquet"), table,
+                        covered_years=[2014, 2015, 2016, 2017, 2018])
     rungs = load_rungs()
     assert rungs["A0-FB"].finbert and not rungs["A0"].finbert and rungs["A1-FB"].fusion == rungs["A1"].fusion
+    assert [finbert_source(year) for year in (2019, 2023, 2024, 2025)] == ["fnspid", "fnspid", "gdelt", "gdelt"]
+    with pytest.raises(ValueError, match="no FinBERT headline source"):
+        finbert_source(2030)
     train, test = DateRange(pd.Timestamp("2015-01-01").date(), pd.Timestamp("2017-12-31").date()), \
         DateRange(pd.Timestamp("2018-01-01").date(), pd.Timestamp("2018-12-31").date())
-    panel = load_panel("XYZ", train, test, ("FA", "SA", "TA"), finbert=True)
+    panel = load_panel("XYZ", train, test, ("FA", "SA", "TA"), finbert="fnspid")
     assert "sa:finbert_sentiment_1" in panel.names()["SA"] and len(panel.names()["SA"]) == 3
     record = run(RunSpec("XYZ", 2019, 0, 1, 10, 0.02), rungs["A0-FB"], load_config(), write=False,
                  overrides=SMALL)
-    assert record["indicators"]["SA"] == 3
+    assert record["indicators"]["SA"] == 3 and record["finbert"] == "fnspid"
+    with pytest.raises(ValueError, match=r"do not cover \[2019\]"):   # the test year is not covered
+        run(RunSpec("XYZ", 2019, 0, 2, 10, 0.02), rungs["A0-FB"], load_config(), write=False, overrides=SMALL)
 
 
 def test_pilot_alternatives_are_rungs_of_their_own():

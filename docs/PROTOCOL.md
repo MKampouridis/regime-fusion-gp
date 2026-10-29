@@ -66,7 +66,7 @@ All reported, none confirmatory:
 ## 7. Robustness
 
 - **Expanding windows** (all data since 2015 for training) for the six rungs of §4.
-- **FinBERT headline sentiment** (option B): A0, A1 and the best rung by §4 re-run with FinBERT scores added to the sentiment branch, 2019–2023.
+- **FinBERT headline sentiment** (option B): A0, A1 and the best rung by §4 re-run with FinBERT scores added to the sentiment branch, 2019–2025: FNSPID headlines for test years 2019–2023 and GDELT page titles for 2024–2025, one source per window. Only stock-years whose whole window the source covers are compared ([`DATA.md`](DATA.md)); the paired tests use those stock-years for both methods.
 - **Hold-out stocks:** every method, with the analysis of §4–6 unchanged.
 
 ## 8. Reporting rules

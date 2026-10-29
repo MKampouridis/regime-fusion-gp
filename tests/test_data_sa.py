@@ -95,6 +95,8 @@ def test_repository_rules_cover_the_universe_and_known_cases():
         ("KO", "coca-cola co"): True, ("KO", "coca-cola european partners"): False,
         ("BMY", "keytruda to bristol-myers squibb co"): True,
         ("NYT", "new york times"): False, ("NYT", "new york times co"): True,
+        ("SO", "atlanta-based southern company"): True, ("SO", "norfolk southern co"): False,
+        ("SO", "kansas city southern co"): False, ("SO", "southern co-operative"): False,
     }
     for (stock, name), expected in cases.items():
         assert rules.counts(stock, name, day) is expected, (stock, name)

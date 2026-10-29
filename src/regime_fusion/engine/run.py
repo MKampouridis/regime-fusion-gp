@@ -36,7 +36,7 @@ from regime_fusion.engine.backtest import backtest
 from regime_fusion.engine.fitness import Evaluator
 from regime_fusion.engine.gp import evolve
 from regime_fusion.engine.panel import load_panel
-from regime_fusion.engine.rungs import Rung
+from regime_fusion.engine.rungs import Rung, finbert_source
 from regime_fusion.engine.tree import Grammar, active_sources, describe, signals
 from regime_fusion.regimes import market as regime_inputs
 from regime_fusion.seeds import make_rng
@@ -63,7 +63,8 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
                        else (window.final_train, window.test))
     sources = tuple(sources or rung.sources)
     regimes = regimes_file(rung.regimes, spec.stock, spec.test_year, spec.stage, config.windows.scheme)
-    panel = load_panel(spec.stock, train, evaluate, sources, regimes, rung.scaling, finbert=rung.finbert)
+    headlines = finbert_source(spec.test_year) if rung.finbert else None
+    panel = load_panel(spec.stock, train, evaluate, sources, regimes, rung.scaling, finbert=headlines)
     grammar = Grammar(panel.names(), fusion_functions=rung.fusion, sources=sources,
                       max_branch_depth=rung.max_branch_depth)
     gp_config = rung.gp if not overrides else type(rung.gp)(**{**rung.gp.__dict__, **overrides})
@@ -101,6 +102,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
         "campaign": campaign,
         "scheme": config.windows.scheme,
         "sources": list(sources),
+        "finbert": headlines,
         "train": [str(train.start), str(train.end)],
         "evaluate": [str(evaluate.start), str(evaluate.end)],
         "indicators": {k: len(v) for k, v in panel.names().items()},

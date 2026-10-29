@@ -15,7 +15,7 @@ Commands (each has --help):
   sa            twelve sentiment indicators, daily, from the GDELT news sums
   regimes       market regimes: HMMs on the S&P 500 per walk-forward window (filtered)
   check         one view of every step's checks, for signing off the data (reports/data_check.md)
-  finbert       FinBERT sentiment of the FNSPID headlines, daily (robustness check)
+  finbert       FinBERT sentiment of FNSPID and GDELT headlines, daily (robustness check)
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
 cached: a raw file already there is not fetched again unless --refresh is given.
@@ -51,12 +51,14 @@ from regime_fusion.data.universe import (
     DEFAULT_UNIVERSE, Stock, load_acttrade, load_universe, write_universe,
 )
 from regime_fusion.seeds import make_rng
+from regime_fusion.windows import walk_forward
 
 CONSTITUENTS_FILE = Path(__file__).resolve().parents[3] / "configs" / "constituents_2015-01.csv"
 UNIVERSE_FILE = DEFAULT_UNIVERSE
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 GDELT_FIRST_DAY = "20150218"           # GDELT's first GKG 2.1 file: 23:00 UTC, 18 February 2015
 GDELT_FIRST_SESSION = "2015-02-19"     # the first session with a whole day of GDELT news
+GDELT_TITLES_FROM = "20190923"         # GDELT records carry page titles from 23 September 2019
 
 log = logging.getLogger("regime_fusion.data")
 
@@ -120,7 +122,9 @@ def main(argv: list[str] | None = None) -> int:
     add_stock_options(sub, refresh=False)  # for regimes from each stock's news (rung A4)
     sub.set_defaults(run=run_regimes)
 
-    sub = commands.add_parser("finbert", help="FinBERT sentiment of the FNSPID headlines, daily")
+    sub = commands.add_parser("finbert", help="FinBERT sentiment of FNSPID and GDELT headlines, daily")
+    sub.add_argument("--sources", nargs="+", choices=finbert.SOURCES, default=list(finbert.SOURCES),
+                     help="headline sources (default: both; GDELT's need the sa step first)")
     add_stock_options(sub, refresh=False)
     sub.set_defaults(run=run_finbert)
 
@@ -838,15 +842,23 @@ def run_regimes(args: argparse.Namespace) -> int:
 
 
 def run_finbert(args: argparse.Namespace) -> int:
-    """Score the FNSPID headlines with FinBERT (each distinct headline once) and build the indicators."""
+    """Score the headlines with FinBERT (each distinct headline once) and build each source's indicators."""
     calendar = study_calendar()
     stocks = [stock.id for stock in selected_stocks(args)]
-    files = sorted(store.layer("raw", "fnspid").glob("*.parquet"))
-    if not files:
-        log.error("finbert: no FNSPID headlines in %s; run the fnspid command first", store.layer("raw", "fnspid"))
-        return 1
-    items = finbert.headlines((pd.read_parquet(path) for path in files), calendar)
-    items = items[items["stock"].isin(stocks)]
+    sources: dict[str, tuple[pd.DataFrame, pd.DatetimeIndex | None]] = {}
+    if "fnspid" in args.sources:
+        files = sorted(store.layer("raw", "fnspid").glob("*.parquet"))
+        if not files:
+            log.error("finbert: no FNSPID headlines in %s; run the fnspid command first", store.layer("raw", "fnspid"))
+            return 1
+        items = finbert.fnspid_headlines((pd.read_parquet(path) for path in files), calendar)
+        sources["fnspid"] = (items[items["stock"].isin(stocks)], None)
+    if "gdelt" in args.sources:
+        try:
+            sources["gdelt"] = gdelt_headlines(stocks, calendar)
+        except FileNotFoundError as error:
+            log.error("finbert: %s", error)
+            return 1
     cache = store.layer("interim", "finbert", "scores.parquet")
     known = (pd.read_parquet(cache) if cache.exists()
              else pd.DataFrame(columns=["key", "positive", "negative", "neutral"]))
@@ -855,23 +867,54 @@ def run_finbert(args: argparse.Namespace) -> int:
     except ImportError:
         raise SystemExit("finbert needs PyTorch and transformers: pip install -e '.[neural,finbert]'") from None
     started = time.monotonic()
-    scores = finbert.score_texts(items, known, scorer)
+    every = pd.concat([items for items, _ in sources.values()], ignore_index=True)
+    scores = finbert.score_texts(every, known, scorer)
     store.write_parquet(cache, scores, model=finbert.MODEL, revision=revision)
-    log.info("finbert: %d headlines, %d newly scored in %.0f s (model %s, revision %s)", len(items),
+    log.info("finbert: %d headlines, %d newly scored in %.0f s (model %s, revision %s)", len(every),
              len(scores) - len(known), time.monotonic() - started, finbert.MODEL, revision)
+    windows = walk_forward(load_config())
     report = {}
-    for stock in stocks:
-        own = items[items["stock"] == stock]
-        window = finbert.coverage(own)
-        table = finbert.indicators(own, scores, calendar.sessions, window)
-        covered = [str(day.date()) for day in window] if window else None
-        store.write_parquet(store.layer("processed", "finbert", f"{stock}.parquet"), table, stock=stock,
-                            model=finbert.MODEL, revision=revision, covered=covered)
-        per_year = own.groupby(own["session"].dt.year).size()
-        report[stock] = {"headlines_per_year": {str(k): int(v) for k, v in per_year.items()},
-                         "covered": covered}
+    for source, (items, unread) in sources.items():
+        entries, counts = {}, Counter()
+        for stock in stocks:
+            own = items[items["stock"] == stock]
+            years = finbert.covered_years(own, calendar.sessions)
+            table = finbert.indicators(own, scores, calendar.sessions, years, unread)
+            store.write_parquet(store.layer("processed", "finbert", source, f"{stock}.parquet"), table,
+                                stock=stock, source=source, model=finbert.MODEL, revision=revision,
+                                covered_years=years)
+            test_years = finbert.covered_test_years(years, windows)
+            counts.update(test_years)
+            per_year = own.groupby(own["session"].dt.year).size()
+            entries[stock] = {"headlines_per_year": {str(k): int(v) for k, v in per_year.items()},
+                              "covered_years": years, "covered_test_years": test_years}
+        entries["_stocks_per_test_year"] = {str(w.test_year): counts[w.test_year] for w in windows}
+        report[source] = entries
+        log.info("finbert: %s headlines cover the whole window of %s stocks per test year", source,
+                 entries["_stocks_per_test_year"])
     write_report("finbert_coverage.json", report)
     return 0
+
+
+def gdelt_headlines(stocks: list[str], calendar) -> tuple[pd.DataFrame, pd.DatetimeIndex]:
+    """GDELT headlines of ``stocks`` (titles that name a firm, from records its name rules count) and
+    the sessions whose GDELT files were mostly not read (as the sa step recorded them)."""
+    rules = sa.load_rules(stocks=stocks)
+    frames = []
+    for path in sorted(store.layer("raw", "gdelt", "gkg").glob("*/*.titles.parquet")):
+        day = path.name[:8]
+        if day < GDELT_TITLES_FROM or not gdelt_day_done(day, retry_failed=False):
+            continue
+        titles = pd.read_parquet(path)
+        titles = titles[titles["stock"].isin(stocks)]
+        frames.append(titles[sa.keep(titles, rules, pd.Timestamp(day))])
+    if not frames:
+        raise FileNotFoundError(f"no GDELT day from {GDELT_TITLES_FROM} extracted yet; run the gdelt command")
+    news_file = store.layer("interim", "news", f"{stocks[0]}.parquet")
+    if not news_file.exists():
+        raise FileNotFoundError(f"no {news_file}; run the sa command first (it records which sessions GDELT covers)")
+    cover = pd.read_parquet(news_file)["coverage"]
+    return finbert.gdelt_headlines(frames, calendar), cover.index[~(cover >= sa.MIN_COVERAGE).to_numpy()]
 
 
 def run_check(args: argparse.Namespace) -> int:

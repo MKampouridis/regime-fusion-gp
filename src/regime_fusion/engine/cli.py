@@ -192,6 +192,11 @@ def tasks_command(args: argparse.Namespace) -> int:
     try:
         planned = tasks.plan(args.kind, stocks, years, config, rungs=args.rungs, stages=tuple(args.stages),
                              runs=runs, block=args.block, development_only=args.development, pooled=pooled)
+        covered = tasks.drop_uncovered(planned, gp_rungs, config)
+        if len(covered) < len(planned):
+            log.info("%s: %d tasks of FinBERT rungs left out (stock-years their headlines do not cover)",
+                     args.campaign, len(planned) - len(covered))
+        planned = covered
         path = tasks.save_plan(args.campaign, args.kind, planned, development_only=args.development,
                                replace=args.replace, stocks=stocks, scheme=args.scheme, name=args.plan)
         if args.exit:
@@ -204,7 +209,7 @@ def tasks_command(args: argparse.Namespace) -> int:
         raise SystemExit(str(error)) from None
     name = args.plan or args.kind
     log.info("%s: %d %s tasks (indices 0 to %d) in %s", args.campaign, len(planned), name, len(planned) - 1, path)
-    log.info("on CERES: mkdir -p logs && qsub -t 1-%d -tc 100 -v CAMPAIGN=%s,PLAN=%s scripts/ceres/tasks.sge",
+    log.info("on CERES: mkdir -p logs && qsub -t 1-%d -tc 60 -v CAMPAIGN=%s,PLAN=%s scripts/ceres/tasks.sge",
              len(planned), args.campaign, name)
     return 0
 

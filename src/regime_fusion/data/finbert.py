@@ -1,17 +1,37 @@
-"""FinBERT headline sentiment from FNSPID, for the robustness check (option B, docs/DECISIONS.md).
+"""FinBERT headline sentiment, for the robustness check (option B, docs/DECISIONS.md).
 
-* ``headlines``: the universe's FNSPID headlines (``regime_fusion.data.fnspid``),
-  one row per stock, headline and time, with the session each counts for. All
-  of them count as items with only a date, so each counts for the first session
-  after its date (``regime_fusion.data.news``). FNSPID labels its times UTC, but
-  99.5% are exactly midnight (a date only), and the rest cluster between 03:00
-  and 09:00, the New York pre-market hours, which suggests local times labelled
-  UTC. Ignoring the time of day rules out any look-ahead from that doubt and
-  delays few headlines.
+Headlines come from two sources (MK, 29 October 2026), and each walk-forward
+window uses one of them throughout, chosen by its test year
+(``finbert_sources`` in ``configs/rungs.yaml``):
+
+* ``fnspid_headlines``: the universe's FNSPID headlines
+  (``regime_fusion.data.fnspid``), for test years up to 2023 (FNSPID ends in
+  December 2023). All of them count as items with only a date, so each counts
+  for the first session after its date (``regime_fusion.data.news``). FNSPID
+  labels its times UTC, but 99.5% are exactly midnight (a date only), and the
+  rest cluster between 03:00 and 09:00, the New York pre-market hours, which
+  suggests local times labelled UTC. Ignoring the time of day rules out any
+  look-ahead from that doubt and delays few headlines.
+* ``gdelt_headlines``: the page titles of GDELT records that name the firm (kept
+  by ``regime_fusion.data.gdelt``), for 2024 and 2025. GDELT records carry titles
+  from 23 September 2019, so they cover the whole window of those test years.
+  The caller keeps only records that count for their firm under the sentiment
+  indicators' name rules (``regime_fusion.data.sa``); each counts from the
+  15-minute update that first carried it.
+
+A headline counts once per stock and session, so copies of a story on several
+sites, or the same item twice, count once.
+
 * ``score_texts``: FinBERT's probabilities that a headline is positive,
   negative or neutral (ProsusAI/finbert, fine-tuned on the Financial PhraseBank,
   text written before 2014). Each distinct headline is scored once and the
   scores are kept, so the step can be run again cheaply.
+* ``covered_years``: the years in which a source follows a stock, those in which
+  at most two of its months have no headline for it. Coverage differs by stock
+  and year: FNSPID's ``All_external.csv`` ends in June 2020 and 18 of the stocks
+  have no later source, and some have whole years without a headline (Apple in
+  2021). Coverage describes the dataset, not the market, so it is fixed once from
+  the whole source; each day's values still use only the headlines up to it.
 * ``indicators``: four sentiment indicators per session, over the last w = 1
   and w = 5 sessions:
 
@@ -20,18 +40,19 @@
   finbert_sentiment_w   mean of P(positive) - P(negative) over headlines
   ====================  ===============================================
 
-  The sentiment is missing when the window has no headline. FNSPID's coverage
-  differs by stock (``All_external.csv`` ends in June 2020, and 18 of the stocks
-  have no later source), so sessions outside a stock's first and last headline
-  have no value at all, rather than zero news.
+  The sentiment is missing when the window has no headline. In years the source
+  does not cover, and on sessions whose GDELT files were mostly not read, the
+  indicators are missing rather than zero news.
 
 The indicators join the sentiment branch (as ``sa:finbert_...``) in the
-robustness rungs (``finbert: true`` in ``configs/rungs.yaml``).
+robustness rungs (``finbert: true`` in ``configs/rungs.yaml``), for the
+stock-years whose whole window their source covers (``covered_test_years``).
 """
 
 from __future__ import annotations
 
 import hashlib
+import html
 from collections.abc import Callable, Iterable
 
 import numpy as np
@@ -41,8 +62,10 @@ from regime_fusion.data import news
 from regime_fusion.data.calendar import TradingCalendar
 
 MODEL = "ProsusAI/finbert"
+SOURCES = ("fnspid", "gdelt")
 WINDOWS = (1, 5)
 COLUMNS = [f"finbert_{name}_{w}" for w in WINDOWS for name in ("attention", "sentiment")]
+MAX_EMPTY_MONTHS = 2
 
 
 def text_key(texts: pd.Series) -> pd.Series:
@@ -50,8 +73,8 @@ def text_key(texts: pd.Series) -> pd.Series:
     return texts.map(lambda t: hashlib.sha256(str(t).encode()).hexdigest()[:16])
 
 
-def headlines(frames: Iterable[pd.DataFrame], calendar: TradingCalendar) -> pd.DataFrame:
-    """Distinct headlines per stock with their time and session (``stock`` is the study's id)."""
+def fnspid_headlines(frames: Iterable[pd.DataFrame], calendar: TradingCalendar) -> pd.DataFrame:
+    """Distinct FNSPID headlines per stock with their time and session (``stock`` is the study's id)."""
     raw = pd.concat(list(frames), ignore_index=True)
     raw = raw.dropna(subset=["Article_title", "Date"])
     stamps, _ = news.fnspid_time(raw["Date"])
@@ -59,9 +82,26 @@ def headlines(frames: Iterable[pd.DataFrame], calendar: TradingCalendar) -> pd.D
                         "title": raw["Article_title"].astype(str).str.strip().to_numpy()})
     out["session"] = news.assign_sessions(calendar, stamps, np.ones(len(stamps), dtype=bool))  # dates only
     before = stamps.tz_convert("UTC").tz_localize(None).normalize() < calendar.sessions[0]
-    out = out[~before].dropna(subset=["session"]).drop_duplicates(["stock", "time", "title"])
-    out["key"] = text_key(out["title"])
-    return out.sort_values(["stock", "time"]).reset_index(drop=True)
+    return _distinct(out[~before])
+
+
+def gdelt_headlines(frames: Iterable[pd.DataFrame], calendar: TradingCalendar) -> pd.DataFrame:
+    """Distinct headlines from GDELT records whose page title names their firm (``gdelt.TITLE_COLUMNS``,
+    already kept by the name rules), each from the 15-minute update that first carried it."""
+    raw = pd.concat(list(frames), ignore_index=True).dropna(subset=["title", "date"])
+    stamps = news.gdelt_time(raw["date"])
+    out = pd.DataFrame({"stock": raw["stock"].to_numpy(), "time": stamps,
+                        "title": raw["title"].astype(str).map(html.unescape).str.strip().to_numpy()})
+    out["session"] = news.assign_sessions(calendar, stamps)
+    return _distinct(out)
+
+
+def _distinct(items: pd.DataFrame) -> pd.DataFrame:
+    """One row per stock, session and headline (its first appearance), with the headline's key."""
+    items = items.dropna(subset=["session"])
+    items = items[items["title"].str.len() > 0].sort_values(["stock", "time"], kind="stable")
+    items = items.drop_duplicates(["stock", "session", "title"])
+    return items.assign(key=text_key(items["title"])).reset_index(drop=True)
 
 
 def finbert_scorer(batch: int = 64, device: str = "cpu") -> tuple[Callable[[list[str]], np.ndarray], str]:
@@ -96,20 +136,31 @@ def score_texts(items: pd.DataFrame, known: pd.DataFrame, scorer: Callable[[list
     return pd.concat([known, fresh], ignore_index=True)[["key", "positive", "negative", "neutral"]]
 
 
-def coverage(items: pd.DataFrame) -> tuple[pd.Timestamp, pd.Timestamp] | None:
-    """FNSPID's coverage of one stock: the sessions of its first and last headline.
+def covered_years(items: pd.DataFrame, sessions: pd.DatetimeIndex, max_empty: int = MAX_EMPTY_MONTHS) -> list[int]:
+    """Years in which a source follows one stock: at most ``max_empty`` of the year's months (those
+    with sessions) have no headline for it.
 
-    This describes the dataset (where it stops following a stock), not the
-    market, and is fixed once from the whole dataset; the indicators of a day
-    still use only the headlines up to it.
+    This describes the dataset (where it follows a stock), not the market, and is
+    fixed once from the whole source; the indicators of a day still use only the
+    headlines up to it.
     """
-    return (items["session"].min(), items["session"].max()) if len(items) else None
+    months = pd.Series(sessions.to_period("M").unique())
+    with_news = set(pd.DatetimeIndex(items["session"]).to_period("M"))
+    empty = months.map(lambda month: month not in with_news).groupby(months.map(lambda m: m.year)).sum()
+    return [int(year) for year, count in empty.items() if count <= max_empty]
 
 
-def indicators(items: pd.DataFrame, scores: pd.DataFrame, sessions: pd.DatetimeIndex,
-               covered: tuple[pd.Timestamp, pd.Timestamp] | None) -> pd.DataFrame:
-    """The four indicators of one stock for every session in ``sessions``; missing outside
-    ``covered`` (``coverage`` of the stock's headlines)."""
+def covered_test_years(years: Iterable[int], windows) -> list[int]:
+    """Test years whose whole window, from its first training year to the test year, lies in ``years``
+    (``windows`` from ``regime_fusion.windows.walk_forward``)."""
+    years = set(years)
+    return [w.test_year for w in windows if set(range(w.train.start.year, w.test_year + 1)) <= years]
+
+
+def indicators(items: pd.DataFrame, scores: pd.DataFrame, sessions: pd.DatetimeIndex, years: Iterable[int],
+               unread: pd.DatetimeIndex | None = None) -> pd.DataFrame:
+    """The four indicators of one stock for every session in ``sessions``; missing outside the covered
+    ``years`` (``covered_years``) and on the ``unread`` sessions (GDELT files mostly not read)."""
     scored = items.merge(scores, on="key", how="left")
     scored["tone"] = scored["positive"] - scored["negative"]
     daily = scored.groupby("session").agg(count=("tone", "size"), tone=("tone", "sum"))
@@ -121,8 +172,7 @@ def indicators(items: pd.DataFrame, scores: pd.DataFrame, sessions: pd.DatetimeI
         out[f"finbert_attention_{w}"] = np.log1p(count)
         out[f"finbert_sentiment_{w}"] = (tone / count).where(count > 0)
     table = pd.DataFrame(out, index=sessions)[COLUMNS]
-    if covered is None:
-        return table * np.nan
-    inside = (table.index >= covered[0]) & (table.index <= covered[1])
-    table.loc[~inside] = np.nan
+    table.loc[~table.index.year.isin(list(years))] = np.nan
+    if unread is not None:
+        table.loc[table.index.isin(unread)] = np.nan
     return table

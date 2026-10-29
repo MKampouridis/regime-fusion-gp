@@ -16,12 +16,15 @@ Scaling is fitted on the training rows only and then applied to every row:
 Regime probabilities p need no fitting: they enter as 2p - 1. An indicator with
 values on fewer than half of the training rows is dropped for the run.
 
-For the robustness check, FinBERT headline sentiment (``processed/finbert``)
-can join the sentiment branch: its indicators are then named ``sa:finbert_...``.
+For the robustness check, FinBERT headline sentiment from one source
+(``processed/finbert/<source>``) can join the sentiment branch: its indicators
+are then named ``sa:finbert_...``, and the source must cover every year of the
+window.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -64,11 +67,19 @@ class Panel:
                       days=exit_days, rate=rate, cost=cost_bps / 1e4)
 
 
+def finbert_years(source: str, stock: str, root: Path | None = None) -> set[int]:
+    """Years in which ``source``'s headlines cover ``stock`` (``regime_fusion.data.finbert``)."""
+    path = store.layer("processed", "finbert", source, f"{stock}.parquet", root=root)
+    if not path.exists():
+        raise FileNotFoundError(f"{stock}: no FinBERT indicators from {source} at {path}")
+    return set(json.loads(store.sidecar(path).read_text()).get("covered_years", []))
+
+
 def load_panel(stock: str, train: DateRange, evaluate: DateRange, sources: tuple[str, ...],
                regimes: Path | None = None, scaling: str = "minmax", root: Path | None = None,
-               finbert: bool = False) -> Panel:
+               finbert: str | None = None) -> Panel:
     """Indicators and prices of ``stock``; ``regimes`` is a processed regime-probability file;
-    ``finbert`` adds the FinBERT indicators to the sentiment branch."""
+    ``finbert`` (a headline source) adds its FinBERT indicators to the sentiment branch."""
     if scaling not in SCALINGS:
         raise ValueError(f"scaling must be one of {SCALINGS}")
     prices = pd.read_parquet(store.layer("interim", "prices", f"{stock}.parquet", root=root))
@@ -85,9 +96,11 @@ def load_panel(stock: str, train: DateRange, evaluate: DateRange, sources: tuple
         table = pd.read_parquet(path)
         frames.append(table.add_prefix(f"{source.lower()}:"))
     if finbert and "SA" in sources:
-        path = store.layer("processed", "finbert", f"{stock}.parquet", root=root)
-        if not path.exists():
-            raise FileNotFoundError(f"{stock}: no FinBERT indicators at {path}")
+        missing = sorted(set(range(sessions[0].year, sessions[-1].year + 1)) - finbert_years(finbert, stock, root))
+        if missing:
+            raise ValueError(f"{stock}: the {finbert} headlines do not cover {missing}, so this window "
+                             f"is not part of the FinBERT check")
+        path = store.layer("processed", "finbert", finbert, f"{stock}.parquet", root=root)
         frames.append(pd.read_parquet(path).add_prefix("sa:"))
     raw = pd.concat(frames, axis=1).reindex(sessions)
     raw = raw.loc[:, [c for c in raw.columns if c.split(":", 1)[0] in {s.lower() for s in sources}

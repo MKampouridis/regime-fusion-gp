@@ -1,15 +1,21 @@
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from regime_fusion.data import cli, finbert, store
-from regime_fusion.data.calendar import TradingCalendar
+from regime_fusion.data import cli, finbert, gdelt, store
+from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.store import DATA_DIR_ENV
 from regime_fusion.testing import check_point_in_time
 
 
 def fnspid_rows(rows):
     return pd.DataFrame(rows, columns=["Date", "Article_title", "stock"])
+
+
+def gdelt_rows(rows):
+    return pd.DataFrame(rows, columns=["date", "stock", "variants", "title"])
 
 
 def fake_scorer(texts):
@@ -36,9 +42,40 @@ def test_headlines_count_for_the_session_after_their_date_once(calendar):
         ("2019-03-04 00:00:00 UTC", "Apple news", "AAPL"),
         ("2018-12-28 00:00:00 UTC", "Apple old news", "AAPL"),          # before the calendar: dropped
     ])
-    items = finbert.headlines([raw], calendar)
+    items = finbert.fnspid_headlines([raw], calendar)
     assert len(items) == 3 and "Apple old news" not in set(items["title"])
     assert (items["session"] == pd.Timestamp("2019-03-05")).all()     # every one counts the next session
+
+
+def test_gdelt_headlines_count_from_the_update_that_carried_them_once_a_session(calendar):
+    raw = gdelt_rows([
+        (20190304203000, "AAPL", "apple inc", "Apple beats estimates"),      # 15:30 in New York: that session
+        (20190304211500, "AAPL", "apple inc", "Apple beats estimates"),      # 16:15, after the close: the next
+        (20190304214500, "AAPL", "apple inc", "Apple &amp; Google miss"),    # HTML entities are decoded
+        (20190305150000, "AAPL", "apple inc", "Apple beats estimates"),      # a copy on another site, same
+        (20190305160000, "F", "ford", "Apple beats estimates"),              # session: once; another stock counts
+    ])
+    items = finbert.gdelt_headlines([raw], calendar)
+    assert list(zip(items["stock"], items["session"].dt.strftime("%m-%d"), items["title"])) == [
+        ("AAPL", "03-04", "Apple beats estimates"), ("AAPL", "03-05", "Apple beats estimates"),
+        ("AAPL", "03-05", "Apple & Google miss"), ("F", "03-05", "Apple beats estimates")]
+    assert items["time"].iloc[1] == pd.Timestamp("2019-03-04 21:15", tz="UTC")   # the first copy's time
+
+
+def test_a_source_covers_the_years_with_at_most_two_months_without_a_headline():
+    sessions = TradingCalendar.nyse("2018-01-01", "2020-12-31").sessions
+    dates = ([f"2018-{m:02d}-10" for m in range(1, 13)] + [f"2019-{m:02d}-10" for m in range(1, 11)]
+             + [f"2020-{m:02d}-10" for m in range(1, 10)])
+    items = pd.DataFrame({"session": pd.to_datetime(dates)})
+    assert finbert.covered_years(items, sessions) == [2018, 2019]       # 2020 lacks three months
+    assert finbert.covered_years(items.iloc[:0], sessions) == []
+
+    class Window:
+        def __init__(self, first, test_year):
+            self.train, self.test_year = type("Range", (), {"start": pd.Timestamp(f"{first}-02-01")}), test_year
+
+    assert finbert.covered_test_years([2015, 2016, 2017, 2018, 2019, 2020], [Window(2015, 2019), Window(2016, 2020),
+                                      Window(2017, 2021)]) == [2019, 2020]
 
 
 def test_scores_are_kept_and_indicators_built(calendar):
@@ -46,7 +83,7 @@ def test_scores_are_kept_and_indicators_built(calendar):
                        ("2019-03-04 00:00:00 UTC", "Apple misses on iPhone", "AAPL"),
                        ("2019-03-04 00:00:00 UTC", "Apple beats estimates", "AAPL"),
                        ("2019-03-11 00:00:00 UTC", "Apple holds", "AAPL")])
-    items = finbert.headlines([raw], calendar)
+    items = finbert.fnspid_headlines([raw], calendar)
     calls = []
 
     def counting(texts):
@@ -57,18 +94,17 @@ def test_scores_are_kept_and_indicators_built(calendar):
     assert calls == [3] and len(scores) == 3                     # each distinct headline once
     again = finbert.score_texts(items, scores, counting)
     assert calls == [3] and len(again) == 3                       # nothing new to score
-    window = finbert.coverage(items)
-    assert window == (pd.Timestamp("2019-03-04"), pd.Timestamp("2019-03-12"))
-    table = finbert.indicators(items, scores, calendar.sessions, window)
+    table = finbert.indicators(items, scores, calendar.sessions, [2019])
     assert list(table.columns) == finbert.COLUMNS
     assert table.loc["2019-03-04", "finbert_sentiment_1"] == pytest.approx(0.85)
     assert table.loc["2019-03-05", "finbert_sentiment_1"] == pytest.approx(0.0)
     assert table.loc["2019-03-05", "finbert_attention_1"] == pytest.approx(np.log1p(2))
     assert table.loc["2019-03-05", "finbert_sentiment_5"] == pytest.approx((0.85 - 0.85 + 0.85) / 3)
     assert np.isnan(table.loc["2019-03-06", "finbert_sentiment_1"]) and table.loc["2019-03-06", "finbert_attention_1"] == 0
-    assert table.loc[:"2019-03-01"].isna().all().all()             # before FNSPID covers the stock: unknown
-    assert table.loc["2019-03-13":].isna().all().all()             # after its last headline: unknown, not zero
-    assert finbert.indicators(items.iloc[:0], scores, calendar.sessions, None).isna().all().all()
+    assert (table.loc["2019-03-13":, "finbert_attention_1"] == 0).all()   # a covered year: no headline, no news
+    assert finbert.indicators(items, scores, calendar.sessions, []).isna().all().all()   # not covered: unknown
+    unread = finbert.indicators(items, scores, calendar.sessions, [2019], pd.DatetimeIndex(["2019-03-05"]))
+    assert unread.loc["2019-03-05"].isna().all() and unread.loc["2019-03-04", "finbert_sentiment_1"] == pytest.approx(0.85)
 
 
 def test_indicators_use_only_headlines_public_by_the_close(calendar):
@@ -76,25 +112,49 @@ def test_indicators_use_only_headlines_public_by_the_close(calendar):
     times = pd.to_datetime("2019-01-02") + pd.to_timedelta(rng.integers(0, 360 * 24, 400), unit="h")
     titles = rng.choice(["Apple beats", "Apple misses", "Apple holds"], 400)
     raw = fnspid_rows([(f"{t:%Y-%m-%d %H:%M:%S} UTC", s, "AAPL") for t, s in zip(times, titles)])
-    items = finbert.headlines([raw], calendar)
+    items = finbert.fnspid_headlines([raw], calendar)
     scores = finbert.score_texts(items, pd.DataFrame(columns=["key", "positive", "negative", "neutral"]),
                                  fake_scorer)
-    window = finbert.coverage(items)  # dataset metadata, fixed once
+    years = finbert.covered_years(items, calendar.sessions)  # dataset metadata, fixed once
+    assert years == [2019]
 
     def build(chosen):
-        return finbert.indicators(chosen, scores, calendar.sessions, window)
+        return finbert.indicators(chosen, scores, calendar.sessions, years)
 
     check_point_in_time(build, items, "session", calendar.sessions[20::25])
 
 
-def test_finbert_command_writes_indicators(monkeypatch, tmp_path):
+def test_finbert_command_writes_each_sources_indicators(monkeypatch, tmp_path):
     monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
     folder = store.layer("raw", "fnspid")
     folder.mkdir(parents=True)
-    fnspid_rows([("2019-03-04 15:00:00 UTC", "Apple beats estimates", "AAPL"),
-                 ("2019-03-04 15:00:00 UTC", "Ford misses estimates", "F")]).to_parquet(folder / "a.parquet")
+    rows = [(f"2019-{m:02d}-04 00:00:00 UTC", f"Ford news {m}", "F") for m in range(1, 13)]
+    fnspid_rows(rows + [("2019-03-04 15:00:00 UTC", "Ford misses estimates", "F"),
+                        ("2019-03-04 15:00:00 UTC", "Apple beats estimates", "AAPL")]).to_parquet(folder / "a.parquet")
+    for month in range(1, 13):                                  # GDELT titles: one day a month in 2024
+        day = f"2024{month:02d}05"
+        titles = gdelt_rows([(int(day + "150000"), "AAPL", "apple inc", "Apple beats estimates"),
+                             (int(day + "150000"), "AAPL", "apple daily", "Apple Daily misses")])  # not the firm
+        store.write_parquet(cli.gdelt_path(day, "titles"), titles, extraction=gdelt.EXTRACTION)
+        store.write_parquet(cli.gdelt_path(day, "hourly"), titles.iloc[:0], extraction=gdelt.EXTRACTION)
+    sessions = study_calendar().sessions
+    cover = pd.Series(1.0, index=sessions).mask(sessions == pd.Timestamp("2024-03-05"), 0.2)
+    store.write_parquet(store.layer("interim", "news", "AAPL.parquet"), cover.to_frame("coverage"))
     monkeypatch.setattr(finbert, "finbert_scorer", lambda: (fake_scorer, "abc123"))
     assert cli.main(["finbert", "--stocks", "AAPL", "F"]) == 0
-    table = pd.read_parquet(store.layer("processed", "finbert", "F.parquet"))
-    assert table.loc["2019-03-05", "finbert_sentiment_1"] == pytest.approx(-0.85)  # the session after its date
-    assert len(pd.read_parquet(store.layer("interim", "finbert", "scores.parquet"))) == 2
+
+    fnspid = pd.read_parquet(store.layer("processed", "finbert", "fnspid", "F.parquet"))
+    assert fnspid.loc["2019-03-05", "finbert_sentiment_1"] == pytest.approx(-0.85 / 2)  # with "Ford news 3"
+    assert fnspid.loc[:"2018-12-31"].isna().all().all()          # years FNSPID does not cover: unknown
+    assert pd.read_parquet(store.layer("processed", "finbert", "fnspid", "AAPL.parquet")).isna().all().all()
+    sidecar = json.loads(store.sidecar(store.layer("processed", "finbert", "fnspid", "F.parquet")).read_text())
+    assert sidecar["covered_years"] == [2019] and sidecar["source"] == "fnspid"
+
+    titled = pd.read_parquet(store.layer("processed", "finbert", "gdelt", "AAPL.parquet"))
+    assert titled.loc["2024-02-05", "finbert_sentiment_1"] == pytest.approx(0.85)   # "Apple Daily" is left out
+    assert titled.loc["2024-02-05", "finbert_attention_1"] == pytest.approx(np.log1p(1))
+    assert titled.loc["2024-03-05"].isna().all()                 # GDELT read too few files that session
+    assert titled.loc[:"2023-12-31"].isna().all().all()
+    report = json.loads(store.layer("reports", "finbert_coverage.json").read_text())
+    assert report["gdelt"]["AAPL"]["covered_years"] == [2024] and report["fnspid"]["F"]["covered_test_years"] == []
+    assert len(pd.read_parquet(store.layer("interim", "finbert", "scores.parquet"))) == 14

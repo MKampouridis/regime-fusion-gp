@@ -118,7 +118,9 @@ stocks:
     reject: ["(.* )?philip morris usa( .*)?"]
   SLB:
     accept: ["(.* )?schlumberger( .*)?", "slb{S}"]
-  SO: all
+  SO:
+    accept: ["(.* )?southern (company|co)( .*)?"]
+    reject: ["(.* )?(norfolk|kansas city|fidelity|fairfield) southern( .*)?", "a southern (company|co)( .*)?"]
   SPG: all
   TSLA:
     accept: ["tesla{S}", "(.* )?tesla motors( .*)?",

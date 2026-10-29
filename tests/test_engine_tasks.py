@@ -210,3 +210,16 @@ def test_fixed_exits_for_the_gp_parameter_pilot(fake_engine, tmp_path):
     with pytest.raises(SystemExit, match="campaign of its own"):
         cli.main(["tasks", "--campaign", "gpp", "--kind", "runs", "--plan", "other", "--rungs", "A1",
                   "--stocks", "F", "--years", "2019", "--stages", "1", "--development", "--exit", "10", "0.02"])
+
+
+def test_finbert_rungs_run_only_on_stock_years_their_headlines_cover(fake_engine, config):
+    from regime_fusion.data import store
+
+    for stock, years in (("AAPL", range(2015, 2021)), ("ABBV", range(2016, 2021))):
+        store.write_parquet(store.layer("processed", "finbert", "fnspid", f"{stock}.parquet"), pd.DataFrame(),
+                            covered_years=list(years))
+    planned = tasks.plan("runs", ["AAPL", "ABBV"], [2019, 2020], config, rungs=["A0", "A0-FB"], stages=(1, 2), runs=2)
+    kept = tasks.drop_uncovered(planned, load_rungs(), config)
+    finbert = {(t.stock, t.test_year) for t in kept if t.rung == "A0-FB"}
+    assert finbert == {("AAPL", 2019), ("AAPL", 2020), ("ABBV", 2020)}   # ABBV's 2019 window starts in 2015
+    assert [t for t in kept if t.rung == "A0"] == [t for t in planned if t.rung == "A0"]

@@ -32,6 +32,14 @@ gp_pilot:
   tournaments: [2, 4]
   evaluations: 100000       # population x generations (twice ActTrade's 1,000 x 50)
 
+# Headlines of the FinBERT check by test year (MK, 29 October 2026). A window uses one source
+# throughout: FNSPID ends in December 2023, and GDELT's page titles begin on 23 September 2019,
+# so they cover the whole window of 2024 and 2025. Stock-years whose window the source does
+# not cover are left out of the check (docs/DATA.md).
+finbert_sources:
+  fnspid: [2019, 2020, 2021, 2022, 2023]
+  gdelt: [2024, 2025]
+
 exit_grid:                  # candidates for (d, r), chosen per stock-year on the validation year
   days: [5, 10, 20, 30]
   rates: [0.01, 0.02, 0.03, 0.05]
@@ -50,8 +58,8 @@ rungs:
           weights: {C: 1.0}}
   GP-SA: {extends: GP-FA, sources: [SA]}
   GP-TA: {extends: GP-FA, sources: [TA]}
-  # Robustness check (option B): FinBERT headline sentiment from FNSPID joins the sentiment
-  # branch, 2019-2023. The best rung of the main results gets the same treatment once known.
+  # Robustness check (option B): FinBERT headline sentiment joins the sentiment branch, from the
+  # source below. The best rung of the main results gets the same treatment once known.
   A0-FB: {extends: A0, finbert: true}
   A1-FB: {extends: A1, finbert: true}
   # Alternatives the pilot compares (docs/PROTOCOL.md, section 9), on 2015-2018 data only.

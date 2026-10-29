@@ -46,7 +46,8 @@ import pandas as pd
 from regime_fusion import provenance
 from regime_fusion.config import StudyConfig
 from regime_fusion.data import store
-from regime_fusion.engine.rungs import Rung, exit_grid
+from regime_fusion.engine.panel import finbert_years
+from regime_fusion.engine.rungs import Rung, exit_grid, finbert_source
 from regime_fusion.engine.run import RunSpec, choose_exits, exits_path, result_path, run
 from regime_fusion.ml.models import load_settings as load_benchmarks
 from regime_fusion.windows import DateRange, walk_forward
@@ -99,6 +100,24 @@ def plan(kind: str, stocks: list[str], years: list[int], config: StudyConfig, *,
         for task in tasks:
             check_development(task, config)
     return tasks
+
+
+def drop_uncovered(tasks: list[Task], rungs: dict[str, Rung], config: StudyConfig) -> list[Task]:
+    """The tasks without runs of FinBERT rungs on stock-years whose window (first training year to the
+    test year) their headline source does not cover: those stock-years are not part of the check."""
+    first_year = {w.test_year: w.train.start.year for w in walk_forward(config)}
+    years: dict[tuple[str, str], set[int]] = {}
+    kept = []
+    for task in tasks:
+        rung = rungs.get(task.rung)
+        if task.kind == "runs" and rung is not None and rung.finbert:
+            key = (finbert_source(task.test_year), task.stock)
+            if key not in years:
+                years[key] = finbert_years(*key)
+            if not set(range(first_year[task.test_year], task.test_year + 1)) <= years[key]:
+                continue
+        kept.append(task)
+    return kept
 
 
 def check_development(task: Task, config: StudyConfig) -> None:
