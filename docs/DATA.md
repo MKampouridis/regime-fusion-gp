@@ -34,9 +34,10 @@ python -m regime_fusion.data fnspid                       # FNSPID headlines, ab
 python -m regime_fusion.data gdelt --workers 12           # GDELT news, about 3 days of streaming
 python -m regime_fusion.data sa --include-holdout         # twelve sentiment indicators from the GDELT news
 python -m regime_fusion.data regimes --include-holdout    # regimes per walk-forward window (A4's need the news)
+python -m regime_fusion.data check --include-holdout      # one view of every check: reports/data_check.md
 ```
 
-Each step caches its downloads (`--refresh` fetches again), prints what needs a look, and writes its checks to `reports/`. `--stocks AAPL MSFT` limits a step to some stocks (ids are January 2015 tickers). `python -m regime_fusion.data constituents` and `draw` rebuilt the committed constituents list and universe; they are needed again only if those change.
+Each step caches its downloads (`--refresh` fetches again), prints what needs a look, and writes its checks to `reports/`. The `check` step gathers them into one page, `reports/data_check.md`, listing per stock what needs a look (gaps, flags, daily moves over 25%, thin indicators, thin news, missing regime files); it is the basis for signing off the data (Phase 2). `--stocks AAPL MSFT` limits a step to some stocks (ids are January 2015 tickers). `python -m regime_fusion.data constituents` and `draw` rebuilt the committed constituents list and universe; they are needed again only if those change.
 
 The GDELT step is meant to run in the background, kept awake with `caffeinate`, with its log in `~/rfgp-data/logs/`:
 

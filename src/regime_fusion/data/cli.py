@@ -14,6 +14,7 @@ Commands (each has --help):
   ta            ActTrade's twelve technical indicators, daily, from the prices
   sa            twelve sentiment indicators, daily, from the GDELT news sums
   regimes       market regimes: HMMs on the S&P 500 per walk-forward window (filtered)
+  check         one view of every step's checks, for signing off the data (reports/data_check.md)
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
 cached: a raw file already there is not fetched again unless --refresh is given.
@@ -41,7 +42,7 @@ import pandas as pd
 from regime_fusion import __version__
 from regime_fusion.config import StudyConfig, load_config
 from regime_fusion.data import (
-    constituents, draw, fa, fnspid, fundamentals, gdelt, market, prices, sa, sec, store, ta,
+    check, constituents, draw, fa, fnspid, fundamentals, gdelt, market, prices, sa, sec, store, ta,
 )
 from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.settings import DataSettings, load_settings
@@ -115,6 +116,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--inputs", nargs="+", default=None, help="input sets (default: all in the settings)")
     add_stock_options(sub, refresh=False)  # for regimes from each stock's news (rung A4)
     sub.set_defaults(run=run_regimes)
+
+    sub = commands.add_parser("check", help="one view of every step's checks (reports/data_check.md)")
+    sub.add_argument("--include-holdout", action="store_true", help="also the hold-out stocks")
+    sub.set_defaults(run=run_check)
 
     sub = commands.add_parser("fnspid", help="stream FNSPID's news files; keep the universe's headlines")
     sub.add_argument("--files", nargs="+", default=list(fnspid.FILES), help="files in the dataset")
@@ -818,6 +823,26 @@ def run_regimes(args: argparse.Namespace) -> int:
         write_report("regimes.json", report, merge=False)
     if per_stock_report:
         write_report("regimes_per_stock.json", per_stock_report)
+    return 0
+
+
+def run_check(args: argparse.Namespace) -> int:
+    from regime_fusion.regimes import market as regimes
+
+    config = load_config()
+    universe = load_universe(UNIVERSE_FILE)
+    roles = ("main", "holdout") if args.include_holdout else ("main",)
+    stocks = universe.select(*roles, include_holdout=args.include_holdout)
+    reports = check.load_reports()
+    rows = [{"stock": s.id, "role": s.role, "issues": check.stock_issues(s.id, reports)} for s in stocks]
+    gaps = check.regime_gaps(regimes.load_settings(), list(config.period.test_years))
+    pending = reports["sa"].get("_coverage", {})
+    store.write_bytes(store.layer("reports", "data_check.md"), check.markdown(rows, gaps, pending).encode(),
+                      kind="data_check")
+    write_report("data_check.json", {"stocks": rows, "missing_regime_files": gaps, "news": pending}, merge=False)
+    flagged = sum(any(r["issues"].values()) for r in rows)
+    log.info("check: %d stocks, %d with something to look at; %d regime files missing; see %s", len(rows),
+             flagged, len(gaps), store.layer("reports", "data_check.md"))
     return 0
 
 
