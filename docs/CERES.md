@@ -24,16 +24,12 @@ They show the C library (which decides which Python packages can run), whether a
 
 ## 2. The code
 
-The repository is private, so CERES needs read access. The tidiest way is a read-only deploy key:
+The repository is public, so CERES clones it directly:
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/rfgp_deploy -N ""        # on CERES
-cat ~/.ssh/rfgp_deploy.pub                               # add on GitHub: repository Settings > Deploy keys (read only)
-printf 'Host github.com\n  IdentityFile ~/.ssh/rfgp_deploy\n' >> ~/.ssh/config
-git clone git@github.com:MKampouridis/regime-fusion-gp.git ~/regime-fusion-gp
+git clone https://github.com/MKampouridis/regime-fusion-gp.git ~/regime-fusion-gp
+cd ~/regime-fusion-gp && git pull        # later, to bring in changes
 ```
-
-`git pull` then brings later changes. (Without GitHub access: `git bundle create rfgp.bundle --all` on the Mac, copy the file over, and `git clone rfgp.bundle ~/regime-fusion-gp`.)
 
 ## 3. The environment
 
