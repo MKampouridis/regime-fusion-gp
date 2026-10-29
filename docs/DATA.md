@@ -33,6 +33,7 @@ python -m regime_fusion.data ta --include-holdout         # ActTrade's twelve te
 python -m regime_fusion.data regimes                      # market regimes per walk-forward window
 python -m regime_fusion.data fnspid                       # FNSPID headlines, about an hour of streaming
 python -m regime_fusion.data gdelt --workers 12           # GDELT news, about 3 days of streaming
+python -m regime_fusion.data sa --include-holdout         # twelve sentiment indicators from the GDELT news
 ```
 
 Each step caches its downloads (`--refresh` fetches again), prints what needs a look, and writes its checks to `reports/`. `--stocks AAPL MSFT` limits a step to some stocks (ids are January 2015 tickers). `python -m regime_fusion.data constituents` and `draw` rebuilt the committed constituents list and universe; they are needed again only if those change.
@@ -43,10 +44,10 @@ The GDELT step is meant to run in the background, kept awake with `caffeinate`, 
 cd ~ && RFGP_DATA_DIR=~/rfgp-data nohup caffeinate -ims ~/.venvs/rfgp/bin/python \
     -m regime_fusion.data gdelt --workers 12 >> ~/rfgp-data/logs/gdelt.log 2>&1 &
 tail -f ~/rfgp-data/logs/gdelt.log           # progress: days done and hours left
-pkill -f "regime_fusion.data gdelt"          # stop; the same start command resumes
+pkill -f "regime_fusion.data gdelt"          # stop (its workers stop too); the same start command resumes
 ```
 
-"Days" in its log are days of news data (3,952 from February 2015 to December 2025), not days of running time. It was started on 28 October 2026.
+"Days" in its log are days of news data (3,952 from February 2015 to December 2025), not days of running time. It was started on 28 October 2026. Runs started before 29 October 2026 left their worker processes running when stopped this way; `pgrep -fl multiprocessing.spawn` shows any that are left.
 
 ## When information may be used
 
@@ -140,3 +141,20 @@ Sentiment and news attention come from GDELT (main source) and FNSPID (robustnes
 - **Company matching.** GDELT lists organisations in lower case without punctuation ("jpmorgan chase co", "exxonmobil corp", "alphabet inc"), with noise ("ford foundation", "apple daily"). Anchors are therefore broad, and the variant sets are screened by hand before the daily features are built. Many records name a firm only in passing, such as JPMorgan as the analyst in a story about another company; first mentions and title mentions help to separate articles about a firm from passing mentions.
 - **Page titles.** GDELT records carry the page title in March 2024 (on every record) but not in March 2015; when titles start is still to be checked. If early enough, they could supply the 2024–25 headlines for the FinBERT check.
 - **FNSPID** is on Hugging Face as two files, `All_external.csv` (5.7 GB) and `nasdaq_exteral_data.csv` (23 GB, with article text). Both are larger than the free disk on Michael's Mac, so they will be streamed and filtered to our tickers.
+
+## Sentiment indicators
+
+`python -m regime_fusion.data sa` builds twelve sentiment indicators per stock and session (`regime_fusion.data.sa`, `processed/sa/<id>.parquet`) from the GDELT days extracted so far. Days not yet extracted count as missing, so the command can be run again as the extraction proceeds. Session sums, coverage and article counts go to `interim/news/<id>.parquet`, ready for the news-attention DC of rung A4; checks go to `reports/sa_coverage.json`.
+
+- **Which names count.** [`configs/news_names.yaml`](../configs/news_names.yaml) says, per firm, which of the names its anchors matched really are the firm: "apple inc" and "apple pay" count for Apple, "apple daily" (a Hong Kong newspaper) does not; Raytheon counts for United Technologies only from their merger on 3 April 2020. A record counts when at least one of its names does. The first version was drafted from the first months of 2015. The report lists each firm's most frequent names counted and left out in 2015–2018, and the rules will be revised on the full development data. Renamings after 2018 (NortonLifeLock, Elevance Health, RTX) come from the firms' announcements, not from the news data.
+- **Sessions and coverage.** A session's news runs from the previous close to its own close, so Monday's includes the weekend's. GDELT's master list lacks about 2% of its 15-minute files: 51 days have fewer than half of theirs, most in October–November 2020 and in a 17-day outage from 14 June 2025, plus 42 hours in October 2015 and 32 hours in March 2023. A session's coverage is the share of its files that were read. Article counts are scaled up by it, and a session with less than half of its files has no sentiment indicators.
+- **Indicators**, each over the last 1 and 5 sessions:
+  - attention: log(1 + articles);
+  - abnormal attention: attention minus its mean over the previous 60 sessions, which removes the slow drift in GDELT's volume;
+  - tone: the mean GDELT tone (positive minus negative words, as a percentage of all words);
+  - the mean Loughran–McDonald positive, negative and uncertainty shares (percentages of words).
+
+  Means count each article once and are missing when there is no article. A five-session value needs at least three covered sessions, and its article count is scaled to five sessions. News effects on prices fade within days, hence windows of a day and a week.
+- **Why not ActTrade's.** ActTrade's twelve sentiment indicators score each article's text, title and summary with TextBlob (polarity and subjectivity), SentiWordNet and AFINN. GDELT gives no article text, so the study uses the text measures GDELT computes on the full text instead: its tone and the Loughran–McDonald dictionary, the standard finance dictionary, as the plan names them, plus attention. This choice is open for Michael in [`DECISIONS.md`](DECISIONS.md).
+- **Look-ahead tests.** The indicators are recomputed on truncated data (`check_no_lookahead`), and rebuilt with only the news and GDELT files public by each close (`check_point_in_time`).
+

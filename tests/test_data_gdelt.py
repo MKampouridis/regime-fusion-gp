@@ -1,6 +1,8 @@
 import hashlib
 import io
+import time
 import zipfile
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -167,3 +169,16 @@ def test_firms_named_only_in_the_all_names_field_are_found(tmp_path):
     rows = {key: dict(zip(gdelt.SUM_COLUMNS, values)) for key, values in sums.items()}
     gm = rows[("2015030214", "GM", "general motors")]
     assert gm["records"] == 1 and gm["first_mentions"] == 1  # offset 90 comes before toyota's 400
+
+
+def test_stopping_ends_the_workers_at_once():
+    pool = ProcessPoolExecutor(max_workers=2)
+    for _ in range(3):
+        pool.submit(time.sleep, 60)
+    processes = list(pool._processes.values())
+    started = time.monotonic()
+    cli.stop_workers(pool)
+    assert time.monotonic() - started < 20
+    for process in processes:
+        process.join(timeout=5)
+        assert not process.is_alive()

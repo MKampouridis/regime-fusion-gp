@@ -12,6 +12,7 @@ Commands (each has --help):
   fnspid        stream FNSPID's news files and keep the universe's headlines
   fa            ActTrade's twelve fundamental indicators, daily, from the steps above
   ta            ActTrade's twelve technical indicators, daily, from the prices
+  sa            twelve sentiment indicators, daily, from the GDELT news sums
   regimes       market regimes: HMMs on the S&P 500 per walk-forward window (filtered)
 
 Data go to the folder named by RFGP_DATA_DIR (see docs/DATA.md). Downloads are
@@ -27,7 +28,9 @@ import io
 import json
 import logging
 import shutil
+import signal
 import time
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -38,7 +41,7 @@ import pandas as pd
 from regime_fusion import __version__
 from regime_fusion.config import StudyConfig, load_config
 from regime_fusion.data import (
-    constituents, draw, fa, fnspid, fundamentals, gdelt, market, prices, sec, store, ta,
+    constituents, draw, fa, fnspid, fundamentals, gdelt, market, prices, sa, sec, store, ta,
 )
 from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.settings import DataSettings, load_settings
@@ -50,6 +53,8 @@ from regime_fusion.seeds import make_rng
 CONSTITUENTS_FILE = Path(__file__).resolve().parents[3] / "configs" / "constituents_2015-01.csv"
 UNIVERSE_FILE = DEFAULT_UNIVERSE
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+GDELT_FIRST_DAY = "20150218"           # GDELT's first GKG 2.1 file: 23:00 UTC, 18 February 2015
+GDELT_FIRST_SESSION = "2015-02-19"     # the first session with a whole day of GDELT news
 
 log = logging.getLogger("regime_fusion.data")
 
@@ -101,6 +106,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = commands.add_parser("ta", help="ActTrade's twelve technical indicators, daily")
     add_stock_options(sub, refresh=False)
     sub.set_defaults(run=run_ta)
+
+    sub = commands.add_parser("sa", help="sentiment indicators from the GDELT news, daily")
+    add_stock_options(sub, refresh=False)
+    sub.set_defaults(run=run_sa)
 
     sub = commands.add_parser("regimes", help="market regimes per walk-forward window")
     sub.add_argument("--inputs", nargs="+", default=None, help="input sets (default: all in the settings)")
@@ -574,19 +583,36 @@ def run_gdelt(args: argparse.Namespace) -> int:
                 return 1
             save(*gdelt.process_day(day, day_files, matcher))
         return 0
+    signal.signal(signal.SIGTERM, interrupt)  # so that `pkill` ends the workers as well
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         futures = [pool.submit(gdelt.process_day, day, day_files, matcher) for day, day_files in jobs]
         try:
             for future in as_completed(futures):
                 if disk_full():
-                    pool.shutdown(cancel_futures=True)
+                    stop_workers(pool)
                     return 1
                 save(*future.result())
         except KeyboardInterrupt:
             log.warning("gdelt: interrupted; finished days are kept, run again to resume")
-            pool.shutdown(cancel_futures=True)
+            stop_workers(pool)
             return 1
     return 0
+
+
+def interrupt(signum, frame) -> None:
+    raise KeyboardInterrupt
+
+
+def stop_workers(pool: ProcessPoolExecutor) -> None:
+    """Cancel the waiting days and end the workers at once; their unfinished days are redone next time.
+
+    Left alone, workers would finish their days, and workers of a killed main
+    process would go on downloading for nothing.
+    """
+    processes = getattr(pool, "_processes", None) or {}  # no public way before Python 3.14
+    for process in list(processes.values()):
+        process.terminate()
+    pool.shutdown(wait=True, cancel_futures=True)
 
 
 def gdelt_path(day: str, kind: str) -> Path:
@@ -685,6 +711,79 @@ def run_ta(args: argparse.Namespace) -> int:
     log.info("ta: %d stocks; indicators on fewer than 99%% of days: %s", len(report),
              {k: v["missing"] for k, v in report.items() if v["missing"]})
     return 1 if missing else 0
+
+
+def run_sa(args: argparse.Namespace) -> int:
+    """Sentiment indicators from the GDELT days extracted so far; days not yet extracted count as missing."""
+    config = load_config()
+    calendar = study_calendar()
+    stocks = [stock.id for stock in selected_stocks(args)]
+    rules = sa.load_rules(stocks=stocks)
+    last = config.period.data_end.isoformat().replace("-", "")
+    files = gdelt.master_list(gdelt_master_text(), GDELT_FIRST_DAY, last)
+    development_end = pd.Timestamp(config.period.development_end)
+    frames, stamps, names, used, pending = [], [], Counter(), 0, 0
+    for day, day_files in files.groupby("day"):
+        if not gdelt_day_done(day, retry_failed=False):
+            pending += 1
+            continue
+        path = gdelt_path(day, "hourly")
+        failed = json.loads(store.sidecar(path).read_text()).get("failed", [])
+        hourly = pd.read_parquet(path)
+        hourly = hourly[hourly["stock"].isin(stocks)]
+        mask = sa.keep(hourly, rules, pd.Timestamp(day))
+        frames.append(sa.session_sums(hourly[mask], calendar))
+        stamps.append(sa.fetched_stamps(day_files, failed))
+        if pd.Timestamp(day) <= development_end:
+            sa.tally(names, hourly, mask)
+        used += 1
+    if not used:
+        log.error("sa: no GDELT days extracted yet; run the gdelt command first")
+        return 1
+    sums = pd.concat(frames).groupby(level=["session", "stock"]).sum()
+    cover = sa.coverage(stamps[0].append(stamps[1:]), calendar)
+    study = calendar.between(GDELT_FIRST_SESSION, config.period.data_end)
+    covered = study[(cover.reindex(study) >= sa.MIN_COVERAGE).to_numpy()]
+    details = {"names_digest": rules.digest, "extraction": gdelt.EXTRACTION, "gdelt_days_used": used,
+               "gdelt_days_pending": pending}
+    report, names_by_stock = {}, name_report(names)
+    for stock in stocks:
+        own = (sums.xs(stock, level="stock") if stock in sums.index.get_level_values("stock")
+               else pd.DataFrame(columns=list(gdelt.SUM_COLUMNS), dtype="float64"))
+        own = own.reindex(calendar.sessions, fill_value=0.0)
+        articles = sa.scaled_articles(own, cover)
+        interim = own.assign(coverage=cover, articles=articles)
+        store.write_parquet(store.layer("interim", "news", f"{stock}.parquet"), interim, stock=stock, **details)
+        table = sa.indicators(own, cover)
+        store.write_parquet(store.layer("processed", "sa", f"{stock}.parquet"), table, stock=stock, **details)
+        report[stock] = {
+            "articles_per_session": round(float(articles.reindex(covered).mean()), 2),
+            "sessions_with_news": round(float((articles.reindex(covered) > 0).mean()), 4),
+            "share_of_days": table.reindex(study).notna().mean().round(4).to_dict(),
+            **names_by_stock.get(stock, {}),
+        }
+    report["_coverage"] = {"gdelt_days_used": used, "gdelt_days_pending": pending,
+                           "sessions_covered": round(len(covered) / len(study), 4),
+                           "sessions_not_covered": [str(d.date()) for d in study.difference(covered)][:200]}
+    write_report("sa_coverage.json", report)
+    thin = sorted(s for s in stocks if report[s]["sessions_with_news"] < 0.5)
+    log.info("sa: %d stocks from %d GDELT days (%d not extracted yet); %.1f%% of sessions covered; "
+             "news on fewer than half of the sessions: %s", len(stocks), used, pending,
+             100 * report["_coverage"]["sessions_covered"], thin)
+    return 0
+
+
+def name_report(names: Counter, top: int = 15) -> dict[str, dict[str, Any]]:
+    """Per stock, the most frequent names counted and left out (development period).
+
+    ``names`` maps (stock, counted, name) to records, as ``sa.tally`` fills it.
+    """
+    split: dict[str, dict[bool, Counter]] = {}
+    for (stock, counted, name), records in names.items():
+        split.setdefault(stock, {True: Counter(), False: Counter()})[counted][name] += records
+    return {stock: {"top_names_counted": {k: int(v) for k, v in parts[True].most_common(top)},
+                    "top_names_left_out": {k: int(v) for k, v in parts[False].most_common(top)}}
+            for stock, parts in split.items()}
 
 
 def run_regimes(args: argparse.Namespace) -> int:

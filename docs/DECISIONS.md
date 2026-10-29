@@ -29,4 +29,5 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 
 | Raised | Question | Proposal |
 | --- | --- | --- |
+| 2026-10-29 | Sentiment indicators. ActTrade scored article text with TextBlob, SentiWordNet and AFINN; GDELT gives no text | Twelve GDELT indicators over 1 and 5 sessions: attention, abnormal attention, tone, and Loughran–McDonald positive, negative and uncertainty shares (`DATA.md`, Sentiment indicators). Built this way until MK decides |
 | 2026-10-28 | Free headline source for 2024–25 (FNSPID ends in 2023) | Check whether GDELT records carry page titles; otherwise limit the FinBERT check to 2019–2023. Checked: titles are present in March 2024 and absent in March 2015; when they start is still to be found |

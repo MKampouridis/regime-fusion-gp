@@ -6,7 +6,7 @@ The project evolves strongly-typed genetic programming (GP) trading strategies w
 
 ## Status
 
-Set-up and the directional-change module are done. The data pipeline (Phase 2) is under way. Built and run: the trading calendar and point-in-time rules, the universe (ActTrade's US stocks plus a sector-balanced draw, and 50 hold-out stocks), prices with spin-off corrections, market series, SEC fundamentals and ActTrade's twelve fundamental indicators. Running: the GDELT news extraction (about three days) and the FNSPID headline filter. Next: screening GDELT's company matches and building the daily news features. The plan is in [`docs/RESEARCH_PLAN.md`](docs/RESEARCH_PLAN.md) and decisions to date in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+Set-up and the directional-change module are done. The data pipeline (Phase 2) is under way. Built and run: the trading calendar and point-in-time rules, the universe (ActTrade's US stocks plus a sector-balanced draw, and 50 hold-out stocks), prices with spin-off corrections, market series, SEC fundamentals, ActTrade's twelve fundamental and twelve technical indicators, and the market regimes (Phase 3). Built, waiting for data: the twelve sentiment indicators from GDELT, whose extraction is running (about three days). Also built: the typed GP engine with the ablation ladder, the backtester, rule-based benchmarks and the statistical tests (Phase 4). The plan is in [`docs/RESEARCH_PLAN.md`](docs/RESEARCH_PLAN.md) and decisions to date in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Layout
 

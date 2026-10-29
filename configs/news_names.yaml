@@ -1,0 +1,223 @@
+# Which GDELT names count as each firm (src/regime_fusion/data/sa.py; docs/DATA.md, News).
+#
+# GDELT records were kept when a name in them matched a firm's broad anchors
+# (configs/news_aliases.yaml), so "ford" also kept the Ford Foundation. These
+# rules decide, on the stored records, which of those names really are the firm.
+# A record counts for a firm when at least one of its matched names counts.
+#
+# For each firm:
+#   all             every name that matched the anchors counts (the anchors are
+#                   unambiguous, such as "abbvie");
+#   accept/reject   regular expressions matched against the whole lower-case
+#                   name; a name counts if an accept pattern matches and no
+#                   reject pattern does. "(.* )?" allows any words before a name
+#                   and "( .*)?" any words after it; {S} stands for optional
+#                   corporate endings (inc, corp, co, company, ltd, plc, group,
+#                   holdings...). A pattern can be limited to UTC days with
+#                   `since` and `until`, for names whose owner changed.
+# Leading boilerplate in `prefixes` is removed before matching, so that
+# "access investor kit for apple inc" is read as "apple inc".
+#
+# First version, drafted from the most frequent names in the first months of
+# GDELT. The `sa` command reports each firm's most frequent names left out, in
+# the development period (to 2018) only; names adopted later come from the
+# firms' public renamings, listed with their dates.
+
+prefixes: [access investor kit for, name search watch service, trend analysis report, research report,
+           analysts at, shares of, closing bell reports, business wire, risers, fallers, drugmaker,
+           toymaker, automaker, carmaker, chipmaker, retailer, insurer, the]
+
+stocks:
+  # Main universe
+  AAPL:
+    accept: ["apple{S}", "apple computers?{S}", "apple inc .*",
+             "apple (iphone|ipad|watch|music|pay|store|stores|tv|maps|retail|worldwide developers conference|developers conference|app store|itunes|icloud|siri|macbook|card|arcade|news|fitness|vision pro)( .*)?",
+             "apple (chief executive|ceo|chief|chairman|co-?founder|founder|executives?|spokes(man|woman|person)|engineers?|employees?|shares|stock|suppliers?)( .*)?"]
+  ABBV: all
+  ABT:
+    accept: ["(.* )?abbott (laboratories|labs|nutrition|diagnostics|vascular|diabetes care|medical optics|molecular|point of care|rapid diagnostics|structural heart|healthcare|india)( .*)?"]
+  AMZN:
+    accept: ["amazon{S}", "(.* )?amazon ?(\\.|dot)? ?com( .*)?",
+             "(.* )?amazon (web services?|prime|echo|kindle|fresh|studios|home services|marketplace|logistics|alexa|music|video|fire|seller services|inc|go|books|pharmacy|air|robotics|publishing|game studios|games|pay|business|devices|basics|fulfillment|fulfilment|warehouses?|delivery|drones?|mgm studios|one medical)( .*)?"]
+  AXP:
+    accept: ["(.* )?american express( .*)?", "amex{S}", "amex (card|cards|gbt|global business travel)( .*)?"]
+    reject: ["(.* )?american express (community stadium|box office|arena|presents)( .*)?"]
+  BAX:
+    accept: ["(.* )?baxter (international|healthcare)( .*)?"]
+  BMY: all
+  CL:
+    accept: ["(.* )?colgate ?-?palmolive( .*)?", "palmolive company colgate"]
+  COF:
+    accept: ["(.* )?capital one( .*)?"]
+    reject: ["(.* )?capital one (arena|cup|bowl|orange bowl|league cup|hall|jamsports)( .*)?"]
+  COP: all
+  CVS: all
+  CVX:
+    accept: ["(.* )?chevron( .*)?"]
+    reject: ["(.* )?chevron (doctrine|deference)( .*)?"]
+  DD:
+    accept: ["(.* )?dowdupont( .*)?", "(e ?i )?du ?pont{S}", "(.* )?(e ?i )?du ?pont de nemours( .*)?",
+             "du ?pont (nutrition|pioneer|crop protection|performance materials|safety|sustainable solutions|electronics|industrial biosciences|tate|danisco|teijin films|specialty products|water)( .*)?"]
+  DIS: all
+  EBAY: all
+  EL:
+    accept: ["(.* )?est(e|é)e lauder( .*)?", "(.* )?lauder (companies|cos)( .*)?"]
+  F:
+    accept: ["ford{S}", "(.* )?ford motor( .*)?",
+             "ford (credit|motor credit|europe|of europe|of britain|uk|of canada|canada|australia|india|china|otosan|sollers|performance|pro|model e|blue)( .*)?",
+             "ford (fusion|fiesta|focus|mustang|f-?150|f-series|explorer|escape|edge|expedition|ranger|bronco|transit|taurus|ecosport|kuga|maverick|lightning|mach-e|super duty|ecoboost)( .*)?",
+             "ford (chief executive|ceo|chairman|executive chairman|spokes(man|woman|person)|executives?|shares|stock|dealers?|dealerships?)( .*)?"]
+  FCX:
+    accept: ["(.* )?freeport ?-?mc ?moran( .*)?", "(.* )?pt freeport indonesia( .*)?"]
+  FDX:
+    accept: [".*"]
+    reject: ["(.* )?fedex (field|cup|forum|st jude classic|st jude invitational|open)( .*)?"]
+  GD: all
+  GE:
+    accept: ["(.* )?general electric( .*)?", "ge{S}",
+             "ge (capital|healthcare|aviation|power|digital|oil (and )?gas|energy|transportation|appliances|lighting|renewable energy|vernova|aerospace|research|global research|foundation|additive|water|current|money|plastics)( .*)?",
+             "ge (chief executive|ceo|chairman|spokes(man|woman|person)|executives?|shares|stock)( .*)?"]
+  GM:
+    accept: ["(.* )?general motors( .*)?", "gm{S}", "(shanghai |saic ?-?)gm( .*)?",
+             "gm (korea|holden|financial|international|europe|china|daewoo|cruise|defense|tech center|foundation|canada|brazil|india|south africa)( .*)?",
+             "gm (chief executive|ceo|chairman|president|spokes(man|woman|person)|executives?|shares|stock|dealers?|dealerships?)( .*)?"]
+  GOOGL:
+    accept: ["(.* )?google( .*)?", "alphabet{S}", "alphabet inc .*"]
+  GS:
+    accept: ["(.* )?goldman sachs( .*)?"]
+  HAL: all
+  IBM: all
+  INTC:
+    accept: [".*"]
+    reject: ["(.* )?(senate|house|military|defense|defence|us|u s) intel( .*)?", "intel committee( .*)?"]
+  KO:
+    accept: ["(.* )?coca ?-?cola( .*)?"]
+    reject: ["(.* )?coca ?-?cola (european partners|europacific partners|enterprises|femsa|hbc|hellenic|amatil|icecek|consolidated|bottling|bottlers japan|beverages africa|west|600|zero sugar 400)( .*)?"]
+  KODK:
+    accept: [".*"]
+    reject: ["(.* )?kodak black( .*)?"]
+  LLY:
+    accept: ["(.* )?eli lilly( .*)?", "lilly (usa|research laboratories|oncology|diabetes|bio-?medicines|foundation)( .*)?"]
+  LMT: all
+  MCD:
+    accept: ["(.* )?mc ?donald ?s( .*)?"]
+    reject: ["(.* )?ronald mc ?donald house( .*)?"]
+  MET:
+    accept: [".*"]
+    reject: ["(.* )?metlife stadium( .*)?"]
+  MS: all
+  NFLX: all
+  NSC: all
+  NYT:
+    accept: ["(.* )?new york times (co|cos|company|corp|corporation)( .*)?"]
+  OXY:
+    accept: ["(.* )?occidental petroleum( .*)?"]
+  PFE: all
+  PM:
+    accept: [".*"]
+    reject: ["(.* )?philip morris usa( .*)?"]
+  SLB:
+    accept: ["(.* )?schlumberger( .*)?", "slb{S}"]
+  SO: all
+  SPG: all
+  TSLA:
+    accept: ["tesla{S}", "(.* )?tesla motors( .*)?",
+             "tesla (inc|energy|gigafactory|giga|model [3sxy]|semi|roadster|autopilot|cybertruck|powerwall|megapack|supercharger|solar|china|shanghai|berlin|grohmann)( .*)?"]
+  UPS:
+    accept: ["(.* )?united parcel( .*)?", "ups{S}", "ups (store|freight|airlines|supply chain solutions|foundation|capital|healthcare)( .*)?"]
+  UTX:
+    # United Technologies merged with Raytheon on 3 April 2020 and became Raytheon
+    # Technologies, renamed RTX in July 2023. Before the merger, Raytheon was another firm.
+    accept:
+      - "(.* )?united technologies( .*)?"
+      - {pattern: "(.* )?raytheon( .*)?", since: "2020-04-03"}
+      - {pattern: "rtx (corp|corporation|inc)( .*)?", since: "2020-04-03"}
+  VZ:
+    accept: [".*"]
+    reject: ["(.* )?verizon (center|centre|arena|amphitheatre|amphitheater|wireless amphitheater|indycar series)( .*)?"]
+  WFC:
+    accept: [".*"]
+    reject: ["(.* )?wells fargo (center|centre|arena|championship|stadium)( .*)?"]
+  WMT: all
+  XRX: all
+  # Hold-out stocks
+  AMG: all
+  AMT: all
+  ANTM:
+    # Anthem renamed itself Elevance Health on 28 June 2022; it was WellPoint until December 2014.
+    accept: ["(.* )?anthem (inc|insurance|blue cross|health|healthcare|corp|corporation|foundation)( .*)?",
+             "(.* )?elevance health( .*)?", "(.* )?wellpoint( .*)?"]
+  AZO: all
+  BLK:
+    accept: [".*"]
+    reject: ["(.* )?blackrock (college|clinic|castle|shopping centre)( .*)?"]
+  BWA: all
+  CF: all
+  CHRW: all
+  CNP:
+    accept: ["(.* )?centerpoint energy( .*)?"]
+  CRM: all
+  CTAS:
+    accept: [".*"]
+    reject: ["(.* )?cintas center( .*)?"]
+  D:
+    accept: ["(.* )?dominion (resources|energy)( .*)?", "(.* )?dominion virginia power( .*)?"]
+  DOV:
+    accept: ["(.* )?dover (corp|corporation)( .*)?"]
+  DRI:
+    accept: ["(.* )?darden restaurants( .*)?", "darden (inc|corp)( .*)?"]
+  ED: all
+  EIX: all
+  ESS: all
+  ETN:
+    accept: ["(.* )?eaton (corp|corporation)( .*)?"]
+  ETR: all
+  FITB:
+    accept: [".*"]
+    reject: ["(.* )?fifth third (arena|field|ballpark|stadium|river bank run)( .*)?"]
+  FSLR: all
+  GIS: all
+  GWW:
+    accept: ["(.* )?w ?w grainger( .*)?", "grainger (inc|industrial supply)( .*)?"]
+  HAS: all
+  HSY:
+    accept: ["(.* )?hershey (co|company|foods|corp|corporation)( .*)?"]
+  ISRG: all
+  KMI: all
+  L:
+    accept: ["(.* )?loews (corp|corporation)( .*)?", "loews hotels?( .*)?"]
+  MHK:
+    accept: ["(.* )?mohawk industries( .*)?"]
+  MMC:
+    accept: ["(.* )?marsh (& |and )?mc ?lennan( .*)?"]
+  NDAQ: all
+  PGR: all
+  PH: all
+  PNW: all
+  PPL:
+    accept: ["ppl (corp|corporation|electric utilities|energy|montana|resources|global|wpd)( .*)?"]
+  PRU:
+    # Prudential plc (British) is another firm.
+    accept: ["(.* )?prudential financial( .*)?", "prudential insurance company of america( .*)?"]
+  RL: all
+  ROK: all
+  SYK:
+    accept: ["(.* )?stryker (corp|corporation|medical|orthopaedics|orthopedics|instruments|endoscopy|neurovascular|spine)( .*)?"]
+  SYMC:
+    # Symantec sold its enterprise business (and name) to Broadcom on 4 November 2019
+    # and became NortonLifeLock, renamed Gen Digital on 7 November 2022.
+    accept:
+      - {pattern: "(.* )?symantec( .*)?", until: "2019-11-03"}
+      - "(.* )?nortonlifelock( .*)?"
+      - "(.* )?gen digital( .*)?"
+  TEL: all
+  TMO: all
+  UA: all
+  UHS: all
+  UNM:
+    accept: ["unum{S}", "(.* )?unum (group|corp|insurance|us|uk|limited)( .*)?"]
+  VLO: all
+  VMC: all
+  VRSN: all
+  WY: all
+  ZTS: all
