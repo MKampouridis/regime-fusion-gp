@@ -1,0 +1,31 @@
+# Machine-learning benchmarks (src/regime_fusion/ml; docs/ENGINE.md, Machine-learning benchmarks).
+#
+# Fairness rules (docs/RESEARCH_PLAN.md): the GP's features, windows, exit rule,
+# t+1 execution and costs; tuning on validation data only; labels that match
+# the exit rule; decision thresholds that maximise validation Sharpe.
+# DRAFT until the pilot, on 2015-2018 data only.
+
+features:
+  sources: [FA, SA, TA]
+  regimes: dc               # regime probabilities as features (rung A3's), and the regimes of ML-RS-LGBM
+  scaling: minmax           # as the GP's, fitted on the training rows
+
+# Buy when the predicted probability of a gaining trade is at least the q-quantile
+# of the model's predictions on its training rows; q is chosen on the validation year.
+quantiles: [0.5, 0.6, 0.7, 0.8, 0.9]
+min_trades: 3               # as the GP's fitness: fewer trades score a Sharpe ratio of zero
+
+models:
+  ML-LR:                    # logistic regression: is non-linear fusion needed at all?
+    kind: logistic
+    runs: 1                 # deterministic
+    grid: {C: [0.01, 0.1, 1.0, 10.0]}
+  ML-LGBM:                  # the strongest off-the-shelf learner for tabular data
+    kind: lightgbm
+    runs: 1                 # deterministic given its seed
+    grid: {num_leaves: [7, 15, 31], learning_rate: [0.03, 0.1], n_estimators: [100, 300]}
+  ML-RS-LGBM:               # regime-switching ensemble: one LightGBM per regime
+    kind: regime_lightgbm
+    runs: 1
+    min_rows: 100           # a regime with fewer labelled training rows uses the pooled model
+    grid: {num_leaves: [7, 15, 31], learning_rate: [0.03, 0.1], n_estimators: [100, 300]}

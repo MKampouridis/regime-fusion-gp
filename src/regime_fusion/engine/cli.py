@@ -2,7 +2,8 @@
 
 Commands (each has --help):
 
-  run       evolve one model (rung, stock, test year, run number, stage) and evaluate it
+  run       evolve one model (rung, stock, test year, run number, stage) and evaluate it;
+            a machine-learning benchmark (configs/ml.yaml) can take the rung's place
   exits     choose a stock-year's exit settings (d, r) on its validation year with rung A0
   tasks     plan a campaign as numbered tasks, for job arrays (engine/tasks.py)
   run-task  do task number i of a campaign (what a job-array element runs)
@@ -24,6 +25,7 @@ from regime_fusion.data.universe import DEFAULT_UNIVERSE, load_universe
 from regime_fusion.engine import tasks
 from regime_fusion.engine.rungs import exit_grid, load_rungs
 from regime_fusion.engine.run import RunSpec, choose_exits, exits_path, run
+from regime_fusion.ml.models import load_settings as load_ml_settings
 
 log = logging.getLogger("regime_fusion.engine")
 
@@ -101,7 +103,9 @@ def overrides(args: argparse.Namespace) -> dict:
 
 
 def run_command(args: argparse.Namespace) -> int:
-    config, rung = load_config(), load_rungs()[args.rung]
+    config, rungs, ml = load_config(), load_rungs(), load_ml_settings()
+    if args.rung not in rungs and args.rung not in ml.models:
+        raise SystemExit(f"unknown rung or benchmark {args.rung!r}")
     if args.exit:
         days, rate = int(args.exit[0]), float(args.exit[1])
     else:
@@ -111,8 +115,13 @@ def run_command(args: argparse.Namespace) -> int:
         chosen = json.loads(path.read_text())
         days, rate = chosen["days"], chosen["rate"]
     spec = RunSpec(args.stock, args.test_year, args.run, args.stage, days, rate)
-    record = run(spec, rung, config, campaign=args.campaign,
-                 sources=tuple(args.sources) if args.sources else None, overrides=overrides(args))
+    if args.rung in ml.models:
+        from regime_fusion.ml.run import run_ml
+
+        record = run_ml(spec, ml.models[args.rung], ml, config, campaign=args.campaign)
+    else:
+        record = run(spec, rungs[args.rung], config, campaign=args.campaign,
+                     sources=tuple(args.sources) if args.sources else None, overrides=overrides(args))
     primary = f"{config.primary_cost_bps_per_side:g}bps"
     log.info("%s %s %d run %d stage %d: train fitness %.3f; evaluation Sharpe %.3f with %d trades; %.1f s",
              args.rung, args.stock, args.test_year, args.run, args.stage, record["fitness"],
@@ -142,14 +151,16 @@ def tasks_command(args: argparse.Namespace) -> int:
     else:
         roles = ("main", "holdout") if args.include_holdout else ("main",)
         stocks = [stock.id for stock in universe.select(*roles, include_holdout=args.include_holdout)]
-    unknown = sorted(set(args.rungs) - set(load_rungs()))
+    gp_rungs, ml_models = load_rungs(), load_ml_settings().models
+    unknown = sorted(set(args.rungs) - set(gp_rungs) - set(ml_models))
     if unknown:
-        raise SystemExit(f"unknown rungs {unknown}")
+        raise SystemExit(f"unknown rungs or benchmarks {unknown}")
     years = args.years or list(config.period.test_years)
+    runs = {rung: (ml_models[rung].runs if rung in ml_models else args.runs or config.runs_per_configuration)
+            for rung in args.rungs}
     try:
         planned = tasks.plan(args.kind, stocks, years, config, rungs=args.rungs, stages=tuple(args.stages),
-                             runs=args.runs or config.runs_per_configuration, block=args.block,
-                             development_only=args.development)
+                             runs=runs, block=args.block, development_only=args.development)
         path = tasks.save_plan(args.campaign, args.kind, planned, development_only=args.development,
                                replace=args.replace)
     except (ValueError, FileExistsError) as error:

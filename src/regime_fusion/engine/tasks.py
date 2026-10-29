@@ -7,7 +7,9 @@ number i (``python -m regime_fusion.engine run-task``). There are two kinds:
 * ``exits``: choose one stock-year's exit settings (d, r) with rung A0 on the
   validation year (every candidate of the grid, 5 runs each);
 * ``runs``: evolve and evaluate one rung on one stock, test year and stage, for
-  a block of run numbers (all 30 by default, about 8 minutes).
+  a block of run numbers (all 30 by default, about 8 minutes). A machine-learning
+  benchmark (``configs/ml.yaml``) takes a rung's place, with its own number of
+  runs (``regime_fusion.ml``).
 
 Exit settings must exist before the runs of a stock-year can start. Tasks can be
 repeated safely: finished runs and exit choices are skipped, and result files
@@ -36,6 +38,7 @@ from regime_fusion.config import StudyConfig
 from regime_fusion.data import store
 from regime_fusion.engine.rungs import Rung, exit_grid
 from regime_fusion.engine.run import RunSpec, choose_exits, exits_path, result_path, run
+from regime_fusion.ml.models import load_settings as load_ml_settings
 from regime_fusion.windows import DateRange, walk_forward
 
 KINDS = ("exits", "runs")
@@ -61,18 +64,22 @@ def evaluation_range(config: StudyConfig, test_year: int, stage: int) -> DateRan
 
 
 def plan(kind: str, stocks: list[str], years: list[int], config: StudyConfig, *, rungs: list[str] = (),
-         stages: tuple[int, ...] = (2,), runs: int = 30, block: int | None = None,
+         stages: tuple[int, ...] = (2,), runs: int | dict[str, int] = 30, block: int | None = None,
          development_only: bool = False) -> list[Task]:
-    """The tasks of one kind, ordered by rung, test year, stage, stock and run block."""
+    """The tasks of one kind, ordered by rung, test year, stage, stock and run block.
+
+    ``runs`` is the number of runs per configuration, or a number for each rung.
+    """
     if kind == "exits":
         tasks = [Task("exits", stock, year, "A0", 1) for year in years for stock in stocks]
     elif kind == "runs":
         if not rungs:
             raise ValueError("runs need at least one rung")
-        block = block or runs
-        tasks = [Task("runs", stock, year, rung, stage, tuple(range(first, min(first + block, runs))))
+        count = runs if isinstance(runs, dict) else dict.fromkeys(rungs, runs)
+        tasks = [Task("runs", stock, year, rung, stage, tuple(range(first, min(first + (block or count[rung]),
+                                                                                count[rung]))))
                  for rung in rungs for year in years for stage in stages for stock in stocks
-                 for first in range(0, runs, block)]
+                 for first in range(0, count[rung], block or count[rung])]
     else:
         raise ValueError(f"kind must be one of {KINDS}")
     if development_only:
@@ -135,7 +142,13 @@ def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Run
         if result_path(campaign, task.rung, spec).exists():
             skipped += 1
             continue
-        run(spec, rungs[task.rung], config, campaign=campaign)
+        if task.rung in rungs:
+            run(spec, rungs[task.rung], config, campaign=campaign)
+        else:
+            from regime_fusion.ml.run import run_ml
+
+            settings = load_ml_settings()
+            run_ml(spec, settings.models[task.rung], settings, config, campaign=campaign)
         done += 1
     return {"done": done, "skipped": skipped}
 

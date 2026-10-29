@@ -26,6 +26,11 @@ download = [
     "requests>=2.31",
     "yfinance>=0.2.54",
 ]
+# The machine-learning benchmarks (src/regime_fusion/ml).
+ml = [
+    "scikit-learn>=1.4",
+    "lightgbm>=4.3",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

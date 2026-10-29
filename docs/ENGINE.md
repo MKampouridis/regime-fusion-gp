@@ -96,6 +96,23 @@ All of them trade through the same backtest, exit settings, *t*+1 execution and 
 
 The machine-learning benchmarks follow in a later step.
 
+## Machine-learning benchmarks (`src/regime_fusion/ml`, `configs/ml.yaml`)
+
+They follow the plan's fairness rules and run through the same commands as the GP rungs (`run --rung ML-LGBM`, or as rungs of a campaign):
+
+| Benchmark | Model |
+| --- | --- |
+| ML-LR | L2-regularised logistic regression (missing values enter as 0, the middle of the scaled range) |
+| ML-LGBM | LightGBM gradient-boosted trees |
+| ML-RS-LGBM | One LightGBM per regime (the most probable state of the regime probabilities); a regime with fewer than 100 labelled training days uses the model trained on all days |
+
+- **Features:** the GP's indicators (FA, SA and TA, scaled on the training rows as for the GP) plus the regime probabilities of rung A3.
+- **Labels match the exit rule:** for each day, whether the trade a buy signal would open (at the next open, sold at the take-profit or at the close of the *d*-th day) gains after costs at the primary level. Labels come from the training rows alone, so the last trades of a training window, which would end in the next period, are left out.
+- **Decision threshold:** buy when the predicted probability reaches the *q*-quantile of the model's own training predictions. A quantile rather than a fixed probability carries over when the model is retrained on four years.
+- **Tuning on validation only.** In stage 1, every combination of the model's grid (4 for ML-LR, 12 for the LightGBM models) is trained on the three training years, and each is paired with each quantile (0.5 to 0.9). The pair with the highest validation Sharpe ratio wins; fewer than 3 trades score zero, as in the GP's fitness. In stage 2, the chosen pair is retrained on all four years and trades the test year.
+- **Runs and seeds.** Seeds use the GP's keys (stock, test year, run, stage). These three models are deterministic, so they get one run each.
+- The neural gated fusion and the Temporal Fusion Transformer follow in a later step.
+
 ## Choices to review
 
 1. **Backtest.** ActTrade's code opens a new trade on every day with a true signal, even when trades overlap, and buys at that day's close. A0 uses the corrected backtest above, as the plan intends.
@@ -106,3 +123,4 @@ The machine-learning benchmarks follow in a later step.
 6. **Regime rungs.** A3 replaces the volatility regimes rather than adding to them, so that A3 against A2 answers "do DC regimes beat volatility regimes?". The IF condition is a typed Boolean tree over regime probabilities.
 7. **Evaluation start.** Evaluation periods start without a position, so a model's first possible purchase is on the second day.
 8. **News regimes.** A4's news attention pools the 50 main stocks, so its regimes are shared like A2's and A3's, as the plan asks. Regimes from each stock's own news are one setting away (`scope: stock`), for the pilot to try.
+9. **Benchmark thresholds as quantiles.** "Decision thresholds maximise validation Sharpe" is read as choosing, on the validation year, the quantile of the model's training predictions above which it buys.
