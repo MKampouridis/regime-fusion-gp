@@ -8,6 +8,7 @@ import pytest
 from regime_fusion.config import load_config
 from regime_fusion.data import cli, store
 from regime_fusion.data.store import DATA_DIR_ENV
+from regime_fusion.data.universe import load_universe
 from regime_fusion.regimes import hmm, market, news
 from regime_fusion.testing import check_no_lookahead
 from regime_fusion.windows import walk_forward
@@ -164,17 +165,27 @@ def test_per_stock_regimes_have_their_own_seeds_and_files(monkeypatch, tmp_path)
             == tmp_path / "processed" / "regimes" / "dc" / "2019.stage2.parquet")
 
 
-def test_regimes_command_fits_regimes_from_each_stocks_news(monkeypatch, tmp_path):
+def test_regimes_command_fits_shared_or_per_stock_news_regimes(monkeypatch, tmp_path):
     monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
     store.write_parquet(store.layer("interim", "market", "GSPC.parquet"), market_close().to_frame("close"))
-    store.write_parquet(store.layer("interim", "news", "AAPL.parquet"), news_articles().to_frame("articles"))
-    settings = {**market.load_settings(), "restarts": 1}
+    main = [s.id for s in load_universe(cli.UNIVERSE_FILE).select("main")]
+    for k, stock in enumerate(main):
+        store.write_parquet(store.layer("interim", "news", f"{stock}.parquet"),
+                            news_articles(seed=k).to_frame("articles"))
+    repository = market.load_settings()
+    settings = {**repository, "restarts": 1, "inputs": {"dc_news": repository["inputs"]["dc_news"]}}
     monkeypatch.setattr(market, "load_settings", lambda path=None: settings)
-    assert cli.main(["regimes", "--inputs", "dc_news", "--stocks", "AAPL"]) == 0
-    probabilities = pd.read_parquet(market.probabilities_path("dc_news", 2019, 2, "AAPL"))
-    assert probabilities.index[-1] == pd.Timestamp("2019-12-31")
+    assert settings["inputs"]["dc_news"]["attention"]["scope"] == "market"  # shared regimes, as planned
+    assert cli.main(["regimes"]) == 0
+    shared = pd.read_parquet(market.probabilities_path("dc_news", 2019, 2))
+    assert shared.index[-1] == pd.Timestamp("2019-12-31")
+
+    attention = {**settings["inputs"]["dc_news"]["attention"], "scope": "stock"}
+    settings["inputs"]["dc_news"] = {**settings["inputs"]["dc_news"], "attention": attention}
+    assert cli.main(["regimes", "--stocks", "AAPL"]) == 0
+    assert market.probabilities_path("dc_news", 2025, 2, "AAPL").exists()
     report = json.loads(store.layer("reports", "regimes_per_stock.json").read_text())
     assert "dc_news AAPL 2025 stage 2" in report
+    store.layer("interim", "news", "F.parquet").unlink()
     with pytest.raises(SystemExit, match="sa command"):
-        cli.main(["regimes", "--inputs", "dc_news", "--stocks", "F"])
-
+        cli.main(["regimes", "--stocks", "F"])

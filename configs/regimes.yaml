@@ -17,7 +17,8 @@ inputs:
     threshold: 0.01
     window: 20
     attention:
-      scope: stock      # stock: each stock's own news, regimes per stock; market: all main-universe news
+      scope: market     # market: the 50 main stocks' news together, regimes shared by all stocks (the plan);
+                        # stock: each stock's own news, regimes per stock (an option for the pilot)
       sessions: 5       # attention level: 1 + articles over the last `sessions` sessions
       threshold: 0.25   # absolute, on the log level: a rise or fall of about 28%
       window: 20
