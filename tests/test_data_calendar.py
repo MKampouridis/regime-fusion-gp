@@ -76,6 +76,15 @@ def test_dates_belong_to_the_first_session_after_them(day, session):
     assert only(CAL.session_after_date([day])) == pd.Timestamp(session)
 
 
+@pytest.mark.parametrize(
+    "day, session",
+    [("2015-03-09", "2015-03-09"), ("2015-03-06", "2015-03-06"), ("2015-03-07", "2015-03-09"),
+     ("2015-11-26", "2015-11-27")],  # Monday, Friday, Saturday, Thanksgiving
+)
+def test_a_date_has_its_own_session_or_the_next(day, session):
+    assert only(CAL.session_on_or_after_date([day])) == pd.Timestamp(session)
+
+
 def test_missing_and_out_of_range_values_give_nat():
     assert CAL.session_of_timestamp([pd.NaT, ny("2025-12-31 16:00")]).isna().all()
     assert CAL.session_after_date([None, "2025-12-31"]).isna().all()

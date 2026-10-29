@@ -798,11 +798,18 @@ def run_sa(args: argparse.Namespace) -> int:
 
 
 def fnspid_counts(calendar: TradingCalendar, stocks: list[str]) -> dict[str, tuple[pd.Series, list[int]]]:
-    """FNSPID headlines per session of each stock, and the years FNSPID covers it (none without FNSPID)."""
+    """FNSPID headlines per session of each stock, and the years FNSPID covers it (none without FNSPID).
+
+    For the cross-check with GDELT only: a headline counts on its own date's session (or the next one,
+    from a weekend or holiday), as most of GDELT's articles of that date do, not on the session after
+    it as in the FinBERT indicators.
+    """
     files = sorted(store.layer("raw", "fnspid").glob("*.parquet"))
     if not files:
         return {}
     items = finbert.fnspid_headlines((pd.read_parquet(path) for path in files), calendar)
+    items["session"] = calendar.session_on_or_after_date(
+        pd.DatetimeIndex(items["time"]).tz_convert("UTC").tz_localize(None).normalize())
     return {stock: (own.groupby("session").size(), finbert.covered_years(own, calendar.sessions))
             for stock, own in items[items["stock"].isin(stocks)].groupby("stock")}
 
@@ -873,16 +880,20 @@ def run_finbert(args: argparse.Namespace) -> int:
     if "gdelt" in args.sources:
         try:
             sources["gdelt"] = gdelt_headlines(stocks, calendar)
-        except FileNotFoundError as error:
-            log.error("finbert: %s", error)
-            return 1
-    cache = store.layer("interim", "finbert", "scores.parquet")
-    known = (pd.read_parquet(cache) if cache.exists()
-             else pd.DataFrame(columns=["key", "positive", "negative", "neutral"]))
+        except (FileNotFoundError, ValueError) as error:  # FNSPID's scores need no GDELT, so go on without it
+            log.error("finbert: GDELT headlines left out: %s", error)
+    if not sources:
+        return 1
     try:
         scorer, revision = finbert.finbert_scorer()
     except ImportError:
         raise SystemExit("finbert needs PyTorch and transformers: pip install -e '.[neural,finbert]'") from None
+    cache = store.layer("interim", "finbert", "scores.parquet")
+    known = pd.read_parquet(cache) if cache.exists() else pd.DataFrame()
+    if store.sidecar(cache).exists() and json.loads(store.sidecar(cache).read_text()).get("revision") != revision:
+        known = pd.DataFrame()  # scored by another revision of the model: score again
+    if known.empty:
+        known = pd.DataFrame(columns=["key", "positive", "negative", "neutral"])
     started = time.monotonic()
     every = pd.concat([items for items, _ in sources.values()], ignore_index=True)
     scores = finbert.score_texts(every, known, scorer)

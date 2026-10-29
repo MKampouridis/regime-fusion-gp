@@ -189,6 +189,8 @@ def tasks_command(args: argparse.Namespace) -> int:
     runs = {rung: (benchmarks[rung].runs if rung in benchmarks else args.runs or config.runs_per_configuration)
             for rung in args.rungs}
     pooled = frozenset(r for r in args.rungs if r in benchmarks and benchmarks[r].pooled)
+    if args.exit and args.kind != "runs":
+        raise SystemExit("--exit fixes the exit setting of runs")
     try:
         planned = tasks.plan(args.kind, stocks, years, config, rungs=args.rungs, stages=tuple(args.stages),
                              runs=runs, block=args.block, development_only=args.development, pooled=pooled)
@@ -197,15 +199,15 @@ def tasks_command(args: argparse.Namespace) -> int:
             log.info("%s: %d tasks of FinBERT rungs left out (stock-years their headlines do not cover)",
                      args.campaign, len(planned) - len(covered))
         planned = covered
+        if args.exit:  # check for conflicting exits before the plan is saved
+            fixed = dict(stock_years=[(s, y) for y in years for s in stocks], days=int(args.exit[0]),
+                         rate=float(args.exit[1]), scheme=args.scheme, config=config)
+            tasks.fix_exits(args.campaign, **fixed, write=False)
         path = tasks.save_plan(args.campaign, args.kind, planned, development_only=args.development,
                                replace=args.replace, stocks=stocks, scheme=args.scheme, name=args.plan)
         if args.exit:
-            if args.kind != "runs":
-                raise ValueError("--exit fixes the exit setting of runs")
-            fixed = tasks.fix_exits(args.campaign, [(s, y) for y in years for s in stocks], int(args.exit[0]),
-                                    float(args.exit[1]), args.scheme)
-            log.info("%s: a fixed exit for %d stock-years", args.campaign, fixed)
-    except (ValueError, FileExistsError) as error:
+            log.info("%s: a fixed exit for %d stock-years", args.campaign, tasks.fix_exits(args.campaign, **fixed))
+    except (ValueError, FileExistsError, FileNotFoundError) as error:  # missing FinBERT indicators among them
         raise SystemExit(str(error)) from None
     name = args.plan or args.kind
     log.info("%s: %d %s tasks (indices 0 to %d) in %s", args.campaign, len(planned), name, len(planned) - 1, path)

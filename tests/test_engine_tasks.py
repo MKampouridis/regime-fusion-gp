@@ -207,9 +207,22 @@ def test_fixed_exits_for_the_gp_parameter_pilot(fake_engine, tmp_path):
     assert (saved["days"], saved["rate"], saved["fixed"]) == (20, 0.03, True)
     assert cli.main(["run-all", "--campaign", "gpp", "--kind", "runs"]) == 0
     assert sorted({c[0] for c in fake_engine["runs"]}) == ["A1-p2000-t4", "A1-p250-t2"]
+    assert saved["git"] and "config_digest" in saved                         # with its provenance
     with pytest.raises(SystemExit, match="campaign of its own"):
         cli.main(["tasks", "--campaign", "gpp", "--kind", "runs", "--plan", "other", "--rungs", "A1",
                   "--stocks", "F", "--years", "2019", "--stages", "1", "--development", "--exit", "10", "0.02"])
+    assert not tasks.plan_path("gpp", "other").exists()                     # refused before the plan is saved
+    with pytest.raises(SystemExit, match="exit setting of runs"):
+        cli.main(["tasks", "--campaign", "gpp2", "--kind", "exits", "--rungs", "A1", "--stocks", "F",
+                  "--years", "2019", "--development", "--exit", "20", "0.03"])
+    assert not tasks.plan_path("gpp2", "exits").exists()
+
+
+def test_a_fixed_exit_never_joins_a_chosen_one(fake_engine):
+    provenance.write(exits_path("mixed", "F", 2019), {"stock": "F", "test_year": 2019, "days": 20, "rate": 0.03})
+    with pytest.raises(ValueError, match="a chosen exit"):  # even when the values agree
+        tasks.fix_exits("mixed", [("AAPL", 2019), ("F", 2019)], 20, 0.03, "rolling")
+    assert not exits_path("mixed", "AAPL", 2019).exists()                  # nothing written
 
 
 def test_finbert_rungs_run_only_on_stock_years_their_headlines_cover(fake_engine, config):
@@ -223,3 +236,6 @@ def test_finbert_rungs_run_only_on_stock_years_their_headlines_cover(fake_engine
     finbert = {(t.stock, t.test_year) for t in kept if t.rung == "A0-FB"}
     assert finbert == {("AAPL", 2019), ("AAPL", 2020), ("ABBV", 2020)}   # ABBV's 2019 window starts in 2015
     assert [t for t in kept if t.rung == "A0"] == [t for t in planned if t.rung == "A0"]
+    with pytest.raises(SystemExit, match="no FinBERT indicators"):           # F has none: a clear message
+        cli.main(["tasks", "--campaign", "fb", "--kind", "runs", "--rungs", "A0-FB", "--stocks", "F",
+                  "--years", "2019", "--stages", "1"])

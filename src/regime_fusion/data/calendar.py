@@ -79,6 +79,16 @@ class TradingCalendar:
         positions = np.searchsorted(self.sessions.asi8, days.asi8, side="right")
         return self._sessions_at(positions, days.isna())
 
+    def session_on_or_after_date(self, dates) -> pd.DatetimeIndex:
+        """The session on each calendar date, or the next one if the date has none (NaT beyond the calendar).
+
+        Not for trading: an item with only a date may come after that day's close
+        (use ``session_after_date``). It suits comparing sources by the day they report.
+        """
+        days = _date_index(dates)
+        positions = np.searchsorted(self.sessions.asi8, days.asi8, side="left")
+        return self._sessions_at(positions, days.isna())
+
     def _sessions_at(self, positions: np.ndarray, missing: np.ndarray) -> pd.DatetimeIndex:
         found = (positions < len(self.sessions)) & ~np.asarray(missing)
         out = np.full(len(positions), np.datetime64("NaT", "ns"), dtype="datetime64[ns]")

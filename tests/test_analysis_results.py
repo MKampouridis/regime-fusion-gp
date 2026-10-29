@@ -236,3 +236,5 @@ def test_gp_parameter_pilot_picks_the_cheapest_converged_setting():
     assert choice["validation_sharpe"] == 0.5 and choice["flag"] is False  # 0.1 below the best is no flag yet
     with pytest.raises(ValueError, match="candidates"):
         pilot.gp_parameters(pd.DataFrame(rows).assign(rung="A1"), pd.DataFrame(marks))
+    unmarked, choice = pilot.gp_parameters(pd.DataFrame(rows), pd.DataFrame())  # no run kept checkpoints
+    assert unmarked["validation_sharpe"].isna().all() and choice["population"] == 500 and choice["flag"] is False

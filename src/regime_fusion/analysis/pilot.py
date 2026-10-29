@@ -144,6 +144,8 @@ def gp_parameters(history: pd.DataFrame, checkpoints: pd.DataFrame, *, tolerance
         raise ValueError("no GP-parameter pilot candidates (rungs named <rung>-p<population>-t<tournament>)")
     history = history.assign(**parts)[parts["base"].notna()]
     history = history.astype({"population": int, "tournament": int})
+    if checkpoints.empty:  # no run kept checkpoints (stage 2, or older runs): validation Sharpe ratios unknown
+        checkpoints = pd.DataFrame(columns=["rung", "generation", "sharpe"])
     reached = convergence_generation(history, tolerance).rename("generation").reset_index()
     units = ["base", "stock", "test_year", "stage", "run"]
     rows, fitness = {}, {}

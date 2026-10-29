@@ -42,7 +42,10 @@ sites, or the same item twice, count once.
 
   The sentiment is missing when the window has no headline. In years the source
   does not cover, and on sessions whose GDELT files were mostly not read, the
-  indicators are missing rather than zero news.
+  indicators are missing rather than zero news. As in the sentiment indicators
+  (``regime_fusion.data.sa``), an unread session adds nothing to a five-session
+  window, which needs at least three read sessions and has its headline count
+  scaled to five sessions.
 
 The indicators join the sentiment branch (as ``sa:finbert_...``) in the
 robustness rungs (``finbert: true`` in ``configs/rungs.yaml``), for the
@@ -171,15 +174,16 @@ def indicators(items: pd.DataFrame, scores: pd.DataFrame, sessions: pd.DatetimeI
     scored = items.merge(scores, on="key", how="left")
     scored["tone"] = scored["positive"] - scored["negative"]
     daily = scored.groupby("session").agg(count=("tone", "size"), tone=("tone", "sum"))
-    daily = daily.reindex(sessions, fill_value=0.0)
+    read = pd.Series(1.0 if unread is None else (~sessions.isin(unread)).astype(float), index=sessions)
+    daily = daily.reindex(sessions, fill_value=0.0).mul(read, axis=0)
     out = {}
     for w in WINDOWS:
+        read_sessions = read.rolling(w, min_periods=1).sum()
+        enough = read_sessions >= (w + 1) // 2
         count = daily["count"].rolling(w, min_periods=1).sum()
         tone = daily["tone"].rolling(w, min_periods=1).sum()
-        out[f"finbert_attention_{w}"] = np.log1p(count)
-        out[f"finbert_sentiment_{w}"] = (tone / count).where(count > 0)
+        out[f"finbert_attention_{w}"] = np.log1p(count * w / read_sessions.where(enough))
+        out[f"finbert_sentiment_{w}"] = (tone / count).where(enough & (count > 0))
     table = pd.DataFrame(out, index=sessions)[COLUMNS]
-    table.loc[~table.index.year.isin(list(years))] = np.nan
-    if unread is not None:
-        table.loc[table.index.isin(unread)] = np.nan
+    table.loc[~table.index.year.isin(list(years)) | (read == 0).to_numpy()] = np.nan
     return table

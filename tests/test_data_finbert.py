@@ -105,6 +105,14 @@ def test_scores_are_kept_and_indicators_built(calendar):
     assert finbert.indicators(items, scores, calendar.sessions, []).isna().all().all()   # not covered: unknown
     unread = finbert.indicators(items, scores, calendar.sessions, [2019], pd.DatetimeIndex(["2019-03-05"]))
     assert unread.loc["2019-03-05"].isna().all() and unread.loc["2019-03-04", "finbert_sentiment_1"] == pytest.approx(0.85)
+    # An unread session is not a session without news: the 5-session window counts the read ones only.
+    assert unread.loc["2019-03-06", "finbert_attention_5"] == pytest.approx(np.log1p(1 * 5 / 4))
+    assert unread.loc["2019-03-06", "finbert_sentiment_5"] == pytest.approx(0.85)
+    gaps = finbert.indicators(items, scores, calendar.sessions, [2019],
+                              pd.DatetimeIndex(["2019-03-04", "2019-03-05", "2019-03-06"]))
+    assert gaps.loc["2019-03-07", "finbert_attention_1"] == 0                      # read, no headline
+    assert gaps.loc["2019-03-07":"2019-03-08", "finbert_attention_5"].isna().all()   # two of five sessions read
+    assert gaps.loc["2019-03-11", "finbert_attention_5"] == 0                      # three read, no headline
 
 
 def test_indicators_use_only_headlines_public_by_the_close(calendar):
@@ -158,3 +166,42 @@ def test_finbert_command_writes_each_sources_indicators(monkeypatch, tmp_path):
     report = json.loads(store.layer("reports", "finbert_coverage.json").read_text())
     assert report["gdelt"]["AAPL"]["covered_years"] == [2024] and report["fnspid"]["F"]["covered_test_years"] == []
     assert len(pd.read_parquet(store.layer("interim", "finbert", "scores.parquet"))) == 14
+
+
+def test_finbert_command_scores_fnspid_without_gdelt_and_rescores_for_a_new_revision(monkeypatch, tmp_path):
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    folder = store.layer("raw", "fnspid")
+    folder.mkdir(parents=True)
+    fnspid_rows([(f"2019-{m:02d}-04 00:00:00 UTC", f"Ford news {m}", "F") for m in range(1, 13)]).to_parquet(
+        folder / "a.parquet")
+    calls = []
+
+    def scorer_at(revision):
+        def score(texts):
+            calls.append(len(texts))
+            return fake_scorer(texts)
+        return lambda: (score, revision)
+
+    monkeypatch.setattr(finbert, "finbert_scorer", scorer_at("abc123"))
+    assert cli.main(["finbert", "--stocks", "F"]) == 0           # no GDELT titles yet: FNSPID all the same
+    assert store.layer("processed", "finbert", "fnspid", "F.parquet").exists() and calls == [12]
+    assert cli.main(["finbert", "--stocks", "F"]) == 0
+    assert calls == [12]                                          # same revision: the kept scores are reused
+    monkeypatch.setattr(finbert, "finbert_scorer", scorer_at("def456"))
+    assert cli.main(["finbert", "--stocks", "F"]) == 0
+    assert calls == [12, 12]                                      # another revision: every headline again
+    sidecar = json.loads(store.sidecar(store.layer("interim", "finbert", "scores.parquet")).read_text())
+    assert sidecar["revision"] == "def456"
+    assert cli.main(["finbert", "--stocks", "F", "--sources", "gdelt"]) == 1
+
+
+def test_the_cross_check_with_gdelt_counts_fnspid_headlines_on_their_own_date(monkeypatch, tmp_path):
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    folder = store.layer("raw", "fnspid")
+    folder.mkdir(parents=True)
+    fnspid_rows([("2019-03-04 00:00:00 UTC", "Ford on Monday", "F"), ("2019-03-08 00:00:00 UTC", "Ford on Friday", "F"),
+                 ("2019-03-09 00:00:00 UTC", "Ford on Saturday", "F")]).to_parquet(folder / "a.parquet")
+    calendar = TradingCalendar.nyse("2019-01-01", "2019-12-31")
+    counts, _ = cli.fnspid_counts(calendar, ["F"])["F"]
+    assert counts.to_dict() == {pd.Timestamp("2019-03-04"): 1, pd.Timestamp("2019-03-08"): 1,
+                                pd.Timestamp("2019-03-11"): 1}

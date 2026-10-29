@@ -156,25 +156,31 @@ def check_roles(stocks: list[str]) -> None:
         raise ValueError(f"development-only work may not use hold-out stocks: {held_out}")
 
 
-def fix_exits(campaign: str, stock_years: list[tuple[str, int]], days: int, rate: float, scheme: str) -> int:
+def fix_exits(campaign: str, stock_years: list[tuple[str, int]], days: int, rate: float, scheme: str,
+              config: StudyConfig | None = None, *, write: bool = True) -> int:
     """Give stock-years one fixed exit setting instead of choosing it (the GP-parameter pilot).
 
-    Existing settings are kept when equal and refused when different, so a
-    campaign never mixes fixed and chosen exits. Returns how many were written.
+    Existing fixed settings are kept when equal; any other existing setting is
+    refused before anything is written, so a campaign never mixes fixed and
+    chosen exits. With ``write=False`` it only checks. Returns how many it wrote
+    (or would write).
     """
-    written = 0
+    todo = []
     for stock, year in stock_years:
         path = exits_path(campaign, stock, year)
         if path.exists():
             current = json.loads(path.read_text())
-            if (int(current["days"]), float(current["rate"])) != (int(days), float(rate)):
-                raise ValueError(f"{stock} {year} already exits after {current['days']} days or at "
+            if not current.get("fixed") or (int(current["days"]), float(current["rate"])) != (int(days), float(rate)):
+                kind = "a fixed" if current.get("fixed") else "a chosen"
+                raise ValueError(f"{stock} {year} already has {kind} exit after {current['days']} days or at "
                                  f"{current['rate']:+.1%}; a fixed exit needs a campaign of its own")
             continue
-        provenance.write(path, {"stock": stock, "test_year": year, "days": int(days), "rate": float(rate),
-                                "fixed": True, "scheme": scheme})
-        written += 1
-    return written
+        todo.append((path, stock, year))
+    if write:
+        for path, stock, year in todo:
+            provenance.write(path, provenance.collect(config, stock=stock, test_year=year, days=int(days),
+                                                      rate=float(rate), fixed=True, scheme=scheme))
+    return len(todo)
 
 
 def plan_path(campaign: str, name: str) -> Path:
