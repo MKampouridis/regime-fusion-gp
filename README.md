@@ -32,6 +32,7 @@ Set-up and the directional-change module are done. Data pipeline (Phase 2): buil
 python3 -m venv ~/.venvs/rfgp
 source ~/.venvs/rfgp/bin/activate
 pip install -e ".[dev,download]"   # "download" is needed only where data are downloaded
+pip install -e ".[ml,neural]"      # the machine-learning and neural benchmarks
 pytest
 ```
 

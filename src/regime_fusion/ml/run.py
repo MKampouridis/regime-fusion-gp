@@ -103,7 +103,7 @@ def fit(panel: Panel, spec: RunSpec, model: ModelSpec, params: dict[str, Any], c
     labelled = outcome.notna().to_numpy()
     y = (outcome.to_numpy() > 0).astype(int)
     train_states, evaluate_states = states(panel, panel.train), states(panel, panel.evaluate)
-    learner = build(model, params, seed_value).fit(
+    learner = build(model, params, seed_value, list(panel.indicators.columns)).fit(
         train_x[labelled], y[labelled], None if train_states is None else train_states[labelled])
     return {"train_prediction": learner.predict(train_x, train_states),
             "evaluate_prediction": learner.predict(evaluate_x, evaluate_states)}

@@ -156,11 +156,12 @@ def tasks_command(args: argparse.Namespace) -> int:
     years = args.years or list(config.period.test_years)
     runs = {rung: (benchmarks[rung].runs if rung in benchmarks else args.runs or config.runs_per_configuration)
             for rung in args.rungs}
+    pooled = frozenset(r for r in args.rungs if r in benchmarks and benchmarks[r].pooled)
     try:
         planned = tasks.plan(args.kind, stocks, years, config, rungs=args.rungs, stages=tuple(args.stages),
-                             runs=runs, block=args.block, development_only=args.development)
+                             runs=runs, block=args.block, development_only=args.development, pooled=pooled)
         path = tasks.save_plan(args.campaign, args.kind, planned, development_only=args.development,
-                               replace=args.replace)
+                               replace=args.replace, stocks=stocks)
     except (ValueError, FileExistsError) as error:
         raise SystemExit(str(error)) from None
     log.info("%s: %d %s tasks (indices 0 to %d) in %s", args.campaign, len(planned), args.kind,

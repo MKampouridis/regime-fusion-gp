@@ -42,3 +42,11 @@ models:
     runs: 1
     min_rows: 100           # a regime with fewer labelled training rows uses the pooled model
     grid: {num_leaves: [7, 15, 31], learning_rate: [0.03, 0.1], n_estimators: [100, 300]}
+  ML-GATED:                 # neural gated fusion: one small network per analysis type, mixed by a regime gate
+    kind: gated
+    runs: 10                # the plan: 10 runs for each neural model
+    grid: {hidden: [8, 16], weight_decay: [0.0001, 0.001], epochs: [20, 60]}
+  ML-TFT:                   # Temporal Fusion Transformer: one model across all stocks (src/regime_fusion/ml/tft.py)
+    kind: tft
+    runs: 10
+    grid: {d_model: [16, 32], dropout: [0.1, 0.3], epochs: [10], sequence: [20], heads: [4]}

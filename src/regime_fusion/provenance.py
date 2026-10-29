@@ -17,7 +17,7 @@ from regime_fusion.config import StudyConfig
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRACKED_PACKAGES = (
     "numpy", "pandas", "pyyaml", "pyarrow", "exchange_calendars", "scipy", "numba",
-    "scikit-learn", "lightgbm", "requests", "yfinance",
+    "scikit-learn", "lightgbm", "torch", "requests", "yfinance",
 )
 
 

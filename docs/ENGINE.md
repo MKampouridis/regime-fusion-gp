@@ -117,13 +117,16 @@ Random entry at the model's trade frequency (1,000 draws, `benchmarks.random_ent
 | ML-LR | L2-regularised logistic regression (missing values enter as 0, the middle of the scaled range) |
 | ML-LGBM | LightGBM gradient-boosted trees |
 | ML-RS-LGBM | One LightGBM per regime (the most probable state of the regime probabilities); a regime with fewer than 100 labelled training days uses the model trained on all days |
+| ML-GATED | Neural gated fusion (`ml/neural.py`): one small network per analysis type scores the day, and a gate turns the regime probabilities into weights over the three scores. 10 runs |
+| ML-TFT | Temporal Fusion Transformer (`ml/tft.py`), one model across all stocks: static encoders from a stock embedding, variable selection, an LSTM encoder, interpretable attention masked to past days, over the last 20 sessions. 10 runs |
 
 - **Features:** the GP's indicators (FA, SA and TA, scaled on the training rows as for the GP) plus the regime probabilities of rung A3.
 - **Labels match the exit rule:** for each day, whether the trade a buy signal would open (at the next open, sold at the take-profit or at the close of the *d*-th day) gains after costs at the primary level. Labels come from the training rows alone, so the last trades of a training window, which would end in the next period, are left out.
 - **Decision threshold:** buy when the predicted probability reaches the *q*-quantile of the model's own training predictions. A quantile rather than a fixed probability carries over when the model is retrained on four years.
 - **Tuning on validation only.** In stage 1, every combination of the model's grid (4 for ML-LR, 12 for the LightGBM models) is trained on the three training years, and each is paired with each quantile (0.5 to 0.9). The pair with the highest validation Sharpe ratio wins; fewer than 3 trades score zero, as in the GP's fitness. In stage 2, the chosen pair is retrained on all four years and trades the test year.
-- **Runs and seeds.** Seeds use the GP's keys (stock, test year, run, stage). These three models are deterministic, so they get one run each.
-- The neural gated fusion and the Temporal Fusion Transformer follow in a later step.
+- **Runs and seeds.** Seeds use the GP's keys (stock, test year, run, stage). ML-LR, ML-LGBM and ML-RS-LGBM are deterministic, so they get one run each.
+- **Neural models** (optional extra `neural`: PyTorch, one thread per run) get 10 runs, seeded from `regime_fusion.seeds`. Missing indicator values enter as 0.
+- **ML-TFT is pooled.** One model per test year, stage and run serves every stock, so a campaign gives it one task for all its stocks (stock `*`), and its seed is keyed by "pooled" instead of a stock. Stage 1 trains each candidate of its grid once, gives each stock the quantile with its best validation Sharpe ratio, and keeps the candidate with the highest median of those ratios over stocks. Its variable-selection weights, summed by analysis type, are kept with each result as the neural counterpart of the trust map. Inside variable selection, one gated residual network serves all variables (the paper gives each its own), and it has no known future inputs or quantile outputs. At full size a run (tuning and final model) takes about 30 minutes on one core, about 32 CPU-hours for the seven test years.
 
 ## Choices to review
 

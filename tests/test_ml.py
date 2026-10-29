@@ -132,3 +132,33 @@ def test_benchmarks_run_through_the_engine_commands(data_dir):
                      "--years", "2019", "--stages", "1", "--development"]) == 0
     plan = json.loads((data_dir / "results/t/tasks.runs.json").read_text())
     assert [len(t["runs"]) for t in plan["tasks"]] == [30, 1]  # the GP's 30 runs; one for a deterministic model
+
+
+def test_gated_network_learns_which_source_to_trust_in_each_regime():
+    pytest.importorskip("torch")
+    from regime_fusion.ml.neural import Gated, groups
+
+    rng = np.random.default_rng(5)
+    n = 2000
+    columns = ["fa:a", "fa:b", "sa:a", "ta:a", "ta:b", "rg:p_state0", "rg:p_state1"]
+    x = rng.uniform(-1, 1, size=(n, len(columns)))
+    state = (rng.random(n) < 0.5).astype(int)
+    x[:, 5], x[:, 6] = np.where(state == 0, 1.0, -1.0), np.where(state == 1, 1.0, -1.0)  # 2p - 1
+    y = np.where(state == 0, x[:, 0] > 0, x[:, 3] > 0).astype(int)  # FA matters in state 0, TA in state 1
+    assert groups(columns) == ({"FA": [0, 1], "SA": [2], "TA": [3, 4]}, [5, 6])
+    learner = Gated(seed=1, columns=columns, hidden=16, epochs=60).fit(x, y)
+    assert ((learner.predict(x) > 0.5) == y).mean() > 0.85
+    weights = learner.gate_weights(x)  # columns FA, SA, TA
+    assert weights[state == 0, 0].mean() > weights[state == 0, 2].mean()
+    assert weights[state == 1, 2].mean() > weights[state == 1, 0].mean()
+    again = Gated(seed=1, columns=columns, hidden=16, epochs=60).fit(x, y)
+    np.testing.assert_array_equal(again.predict(x), learner.predict(x))  # reproducible
+
+
+def test_gated_benchmark_runs_with_the_common_protocol(data_dir):
+    pytest.importorskip("torch")
+    config, settings = load_config(), models.load_settings()
+    spec = RunSpec("XYZ", 2019, 3, 2, 1, 0.5)
+    record = run_ml(spec, settings.models["ML-GATED"], settings, config, write=False)
+    assert record["rung"] == "ML-GATED" and settings.models["ML-GATED"].runs == 10
+    assert record["evaluation"]["10bps"]["sharpe"] > 1.0  # it found the pattern out of sample

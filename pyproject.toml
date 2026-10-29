@@ -31,6 +31,8 @@ ml = [
     "scikit-learn>=1.4",
     "lightgbm>=4.3",
 ]
+# The neural benchmarks (src/regime_fusion/ml/neural.py and tft.py).
+neural = ["torch>=2.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

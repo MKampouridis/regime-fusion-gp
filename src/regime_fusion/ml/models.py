@@ -8,7 +8,10 @@ gains (``regime_fusion.ml.labels``):
 * ``lightgbm``: gradient-boosted trees (LightGBM), which handle missing values;
 * ``regime_lightgbm``: one LightGBM per regime (the most probable state of the
   filtered regime probabilities), trained on that regime's training days; a
-  regime with too few days uses the model trained on all of them.
+  regime with too few days uses the model trained on all of them;
+* ``gated``: neural gated fusion (``regime_fusion.ml.neural``);
+* ``tft``: the Temporal Fusion Transformer, one model across all stocks
+  (``regime_fusion.ml.tft``, with its own runner).
 
 A training set with a single class gives a constant prediction.
 """
@@ -26,7 +29,8 @@ import numpy as np
 import yaml
 
 DEFAULT_SETTINGS = Path(__file__).resolve().parents[3] / "configs" / "benchmarks.yaml"
-KINDS = ("logistic", "lightgbm", "regime_lightgbm")
+KINDS = ("logistic", "lightgbm", "regime_lightgbm", "gated", "tft")
+POOLED = ("tft",)  # kinds trained once across all stocks
 RULE_KINDS = ("buy_and_hold", "always", "moving_average", "momentum")
 BOOSTING = {"min_child_samples": 20, "subsample": 0.8, "subsample_freq": 1, "colsample_bytree": 0.8,
             "reg_lambda": 1.0, "deterministic": True, "force_row_wise": True, "n_jobs": 1, "verbose": -1}
@@ -39,6 +43,10 @@ class ModelSpec:
     runs: int
     grid: dict[str, list]
     min_rows: int = 100
+
+    @property
+    def pooled(self) -> bool:
+        return self.kind in POOLED
 
     def candidates(self) -> list[dict[str, Any]]:
         """Every combination of the grid, in a fixed order."""
@@ -82,11 +90,18 @@ def load_settings(path: str | Path = DEFAULT_SETTINGS) -> Settings:
                     tuple(float(q) for q in raw["quantiles"]), int(raw["min_trades"]), models, rules, raw)
 
 
-def build(spec: ModelSpec, params: dict[str, Any], seed: int):
+def build(spec: ModelSpec, params: dict[str, Any], seed: int, columns: list[str] | None = None):
+    """A learner; ``columns`` (the feature names) tells the gated network which inputs are which."""
     if spec.kind == "logistic":
         return Logistic(**params)
     if spec.kind == "lightgbm":
         return Boosting(seed, **params)
+    if spec.kind == "gated":
+        from regime_fusion.ml.neural import Gated
+
+        return Gated(seed, list(columns or []), **params)
+    if spec.pooled:
+        raise ValueError(f"{spec.name} is trained across all stocks; use regime_fusion.ml.tft.run_tft")
     return RegimeBoosting(seed, spec.min_rows, **params)
 
 

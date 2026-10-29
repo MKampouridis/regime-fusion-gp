@@ -9,7 +9,9 @@ number i (``python -m regime_fusion.engine run-task``). There are two kinds:
 * ``runs``: evolve and evaluate one rung on one stock, test year and stage, for
   a block of run numbers (all 30 by default, about 8 minutes). A rule-based or
   machine-learning benchmark (``configs/benchmarks.yaml``) takes a rung's place,
-  with its own number of runs.
+  with its own number of runs. A benchmark trained across all stocks (the
+  Temporal Fusion Transformer) has one task per test year, stage and run block
+  for all the campaign's stocks (stock "*").
 
 Exit settings must exist before the runs of a stock-year can start. Tasks can be
 repeated safely: finished runs and exit choices are skipped, and result files
@@ -65,10 +67,11 @@ def evaluation_range(config: StudyConfig, test_year: int, stage: int) -> DateRan
 
 def plan(kind: str, stocks: list[str], years: list[int], config: StudyConfig, *, rungs: list[str] = (),
          stages: tuple[int, ...] = (2,), runs: int | dict[str, int] = 30, block: int | None = None,
-         development_only: bool = False) -> list[Task]:
+         development_only: bool = False, pooled: frozenset[str] = frozenset()) -> list[Task]:
     """The tasks of one kind, ordered by rung, test year, stage, stock and run block.
 
-    ``runs`` is the number of runs per configuration, or a number for each rung.
+    ``runs`` is the number of runs per configuration, or a number for each rung;
+    methods in ``pooled`` get one task for all stocks (stock "*").
     """
     if kind == "exits":
         tasks = [Task("exits", stock, year, "A0", 1) for year in years for stock in stocks]
@@ -78,7 +81,8 @@ def plan(kind: str, stocks: list[str], years: list[int], config: StudyConfig, *,
         count = runs if isinstance(runs, dict) else dict.fromkeys(rungs, runs)
         tasks = [Task("runs", stock, year, rung, stage, tuple(range(first, min(first + (block or count[rung]),
                                                                                 count[rung]))))
-                 for rung in rungs for year in years for stage in stages for stock in stocks
+                 for rung in rungs for year in years for stage in stages
+                 for stock in (["*"] if rung in pooled else stocks)
                  for first in range(0, count[rung], block or count[rung])]
     else:
         raise ValueError(f"kind must be one of {KINDS}")
@@ -100,11 +104,12 @@ def plan_path(campaign: str, kind: str) -> Path:
 
 
 def save_plan(campaign: str, kind: str, tasks: list[Task], *, development_only: bool,
-              replace: bool = False) -> Path:
+              replace: bool = False, stocks: list[str] | None = None) -> Path:
     path = plan_path(campaign, kind)
     if path.exists() and not replace:
         raise FileExistsError(f"{path} exists; running jobs use its numbering (pass replace to plan again)")
     record = {"campaign": campaign, "kind": kind, "development_only": development_only,
+              "stocks": sorted(stocks if stocks is not None else {t.stock for t in tasks} - {"*"}),
               "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
               "git": provenance.git_state(), "tasks": [dataclasses.asdict(t) for t in tasks]}
     provenance.write(path, record)
@@ -121,11 +126,18 @@ def load_plan(campaign: str, kind: str) -> tuple[bool, list[Task]]:
     return bool(record["development_only"]), tasks
 
 
+def plan_stocks(campaign: str, kind: str) -> list[str]:
+    """The stocks of a campaign's plan (those a pooled task covers)."""
+    return list(json.loads(plan_path(campaign, kind).read_text())["stocks"])
+
+
 def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Rung], *,
             development_only: bool) -> dict[str, int]:
     """Do what is left of one task; returns how many items were done and skipped."""
     if development_only:
         check_development(task, config)
+    if task.stock == "*":
+        return execute_pooled(task, campaign, config)
     if task.kind == "exits":
         if exits_path(campaign, task.stock, task.test_year).exists():
             return {"done": 0, "skipped": 1}
@@ -147,6 +159,31 @@ def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Run
     return {"done": done, "skipped": skipped}
 
 
+def execute_pooled(task: Task, campaign: str, config: StudyConfig) -> dict[str, int]:
+    """Runs of a benchmark trained across all the campaign's stocks; each writes a result per stock."""
+    from regime_fusion.ml.tft import run_tft
+
+    stocks = plan_stocks(campaign, task.kind)
+    exits = {}
+    for stock in stocks:
+        path = exits_path(campaign, stock, task.test_year)
+        if not path.exists():
+            raise FileNotFoundError(f"{stock} {task.test_year}: no exit settings at {path}; run the exits tasks first")
+        chosen = json.loads(path.read_text())
+        exits[stock] = (int(chosen["days"]), float(chosen["rate"]))
+    settings = load_benchmarks()
+    done = skipped = 0
+    for number in task.runs:
+        if all(result_path(campaign, task.rung, RunSpec(s, task.test_year, number, task.stage, *exits[s])).exists()
+               for s in stocks):
+            skipped += 1
+            continue
+        run_tft(task.test_year, task.stage, number, stocks, exits, settings.models[task.rung], settings, config,
+                campaign=campaign)
+        done += 1
+    return {"done": done, "skipped": skipped}
+
+
 def run_method(name: str, spec: RunSpec, rungs: dict[str, Rung], config: StudyConfig,
                campaign: str) -> dict[str, Any]:
     """One run of a GP rung, a rule-based benchmark or a machine-learning benchmark."""
@@ -157,6 +194,8 @@ def run_method(name: str, spec: RunSpec, rungs: dict[str, Rung], config: StudyCo
         from regime_fusion.engine.benchmarks import run_rule
 
         return run_rule(spec, settings.rules[name], settings, config, campaign=campaign)
+    if name in settings.models and settings.models[name].pooled:
+        raise ValueError(f"{name} is trained across all stocks; run it as a campaign's task")
     if name in settings.models:
         from regime_fusion.ml.run import run_ml
 
@@ -167,8 +206,10 @@ def run_method(name: str, spec: RunSpec, rungs: dict[str, Rung], config: StudyCo
 def finished(task: Task, campaign: str) -> bool:
     if task.kind == "exits":
         return exits_path(campaign, task.stock, task.test_year).exists()
-    folder = store.data_dir() / "results" / campaign / task.rung / task.stock
-    return all((folder / f"{task.test_year}.stage{task.stage}.run{n:02d}.json").exists() for n in task.runs)
+    stocks = plan_stocks(campaign, task.kind) if task.stock == "*" else [task.stock]
+    root = store.data_dir() / "results" / campaign / task.rung
+    return all((root / stock / f"{task.test_year}.stage{task.stage}.run{n:02d}.json").exists()
+               for stock in stocks for n in task.runs)
 
 
 def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
