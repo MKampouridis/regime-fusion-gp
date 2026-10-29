@@ -1,0 +1,43 @@
+# The ablation ladder and the GP baselines (docs/RESEARCH_PLAN.md, docs/ENGINE.md).
+#
+# Each rung changes one thing from the rung it extends. GP parameters are ActTrade's
+# (Table 5 of the paper) until the pilot, on 2015-2018 data only, settles the recipe.
+
+gp:
+  population: 1000
+  generations: 50
+  crossover: 0.95
+  tournament: 4
+  initial_depth: 2          # branch depth; ActTrade's initial depth 3 counts its 3-AND root
+  max_branch_depth: 5       # ActTrade's maximum depth 6 counts its root
+  flip: 0.5
+  elitism: 1
+  first_parent: [0.4, 0.2, 0.2, 0.2]
+  particularity: 20.0       # DALex
+
+fitness:
+  # ActTrade's paper does not give its weights; equal weights until confirmed.
+  weights: {C: 0.25, FA: 0.25, SA: 0.25, TA: 0.25}
+  min_trades: 3             # ActTrade: six buys and sells
+  blocks: 8                 # lexicase time blocks (half-years of a four-year window)
+
+scaling: minmax             # or rank; see src/regime_fusion/engine/panel.py
+
+exit_grid:                  # candidates for (d, r), chosen per stock-year on the validation year
+  days: [5, 10, 20, 30]
+  rates: [0.01, 0.02, 0.03, 0.05]
+  runs: 5                   # A0 runs per candidate
+
+rungs:
+  A0: {sources: [FA, SA, TA], fusion: [], regimes: null, active_trading: true, selection: tournament}
+  A1: {extends: A0, fusion: [AND, OR, ALL, ANY, VOTE]}
+  A2: {extends: A1, fusion: [AND, OR, ALL, ANY, VOTE, IF], regimes: volatility}
+  A3: {extends: A2, regimes: dc}
+  A4: {extends: A3, regimes: dc_news}
+  A5: {extends: A4, selection: lexicase}
+  A5-dalex: {extends: A4, selection: dalex}
+  # Single-type GP baselines: one branch, no active trading operator (it needs three).
+  GP-FA: {sources: [FA], fusion: [], regimes: null, active_trading: false, selection: tournament,
+          weights: {C: 1.0}}
+  GP-SA: {extends: GP-FA, sources: [SA]}
+  GP-TA: {extends: GP-FA, sources: [TA]}
