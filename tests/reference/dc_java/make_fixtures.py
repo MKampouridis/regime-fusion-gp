@@ -1,7 +1,9 @@
 """Regenerate the Java reference fixtures used by tests/test_dc_java_crosscheck.py.
 
-Needs a Java JDK (javac and java on the PATH). Run from the repository root:
+Needs a Java JDK (javac and java on the PATH) and DCReference.java, which is kept in
+the repository's history only (README.md). Run from the repository root:
 
+    git show 782f43e:tests/reference/dc_java/DCReference.java > tests/reference/dc_java/DCReference.java
     python tests/reference/dc_java/make_fixtures.py
 
 Writes series/series_<k>.txt (one value per line, full precision) and

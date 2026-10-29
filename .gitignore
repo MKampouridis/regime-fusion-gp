@@ -26,3 +26,5 @@ tests/reference/dc_java/build/
 .DS_Store
 .idea/
 .vscode/
+tests/reference/dc_java/build/
+tests/reference/dc_java/DCReference.java

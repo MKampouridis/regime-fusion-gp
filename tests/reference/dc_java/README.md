@@ -1,8 +1,18 @@
 # Java DC reference
 
-`DCReference.java` reproduces the directional-change event detection of the group's earlier Java code: `generateEvents`, `detect2` and `adjust` from `misc/DCEventGenerator.java` in [adesolaadegboye/SymbolicRegression](https://github.com/adesolaadegboye/SymbolicRegression) (commit `af564a5`), copied unchanged apart from a reduced `Event` class.
+The study's directional-change detection (`regime_fusion.dc`) is written in Python and checked against the group's earlier Java code: `generateEvents`, `detect2` and `adjust` from `misc/DCEventGenerator.java` in [adesolaadegboye/SymbolicRegression](https://github.com/adesolaadegboye/SymbolicRegression) (commit `af564a5`).
 
-`make_fixtures.py` generates five synthetic price series (`series/`), runs the Java code on them at five thresholds (0.5%, 1%, 2%, 5%, 10%) and saves the events to `events.csv`. The fixtures are committed, so the tests need no Java; regenerate them only if the series change (needs a JDK).
+The fixtures here are the Java code's answers, so the tests need no Java:
+
+- `series/`: five synthetic price series, made by `make_fixtures.py`;
+- `events.csv`: the events the Java code found in them at five thresholds (0.5%, 1%, 2%, 5%, 10%).
+
+They were produced once, on 28 October 2026, by `DCReference.java`, those three functions copied unchanged apart from a reduced `Event` class. The repository is Python only, so that file is kept in its history, not in the current tree. To regenerate the fixtures (only if the series change; needs a Java JDK):
+
+```bash
+git show 782f43e:tests/reference/dc_java/DCReference.java > tests/reference/dc_java/DCReference.java
+python tests/reference/dc_java/make_fixtures.py
+```
 
 ## Result (`tests/test_dc_java_crosscheck.py`)
 

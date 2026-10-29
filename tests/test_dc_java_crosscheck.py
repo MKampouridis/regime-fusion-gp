@@ -1,8 +1,8 @@
 """Cross-check against the group's earlier Java DC implementation.
 
 The fixtures in tests/reference/dc_java hold five synthetic price series and the
-events the Java code (DCReference.java, a faithful extraction) finds in them at
-five thresholds. Confirmation points must match exactly. Start points (the
+events the Java code finds in them at five thresholds (its README says how they
+were made). Confirmation points must match exactly. Start points (the
 extremes) match except in three edge cases of the Java code, which are checked
 precisely here so that any other difference fails the test.
 """
