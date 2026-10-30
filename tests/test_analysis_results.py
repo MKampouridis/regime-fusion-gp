@@ -183,6 +183,8 @@ def test_portfolio_returns_are_rebuilt_from_the_stored_signals(monkeypatch, tmp_
     assert saved["spa"]["candidates"] == ["A1"]                                 # never against itself
     with pytest.raises(SystemExit, match="not among the methods"):
         cli.main([*gp_only, "--benchmark", "RB-BH"])
+    with pytest.raises(SystemExit, match="no GP rung among the methods analysed"):   # an SPA asked for
+        cli.main(["portfolio", "--campaign", "main", "--methods", "RB-BH", "--benchmark", "RB-BH"])
 
 
 def test_analyses_check_the_runs_against_the_plans(monkeypatch, tmp_path):
@@ -306,6 +308,9 @@ def test_trials_count_configurations_by_their_settings(monkeypatch, tmp_path):
         return cli.trial_count(argparse.Namespace(trials=None, trials_from=list(campaigns), campaign="main"), [])
 
     assert count("pilot", "main")["count"] == 1                                 # the same settings: one trial
+    tasks.save_plan("older", "runs", [tasks.Task("runs", "S1", 2019, r, 1, (0,)) for r in ("A0", "B")],
+                    development_only=True, stocks=["S1"])                      # a plan without frozen settings
+    assert count("pilot", "older")["configurations"] == ["A0@d1", "B"]          # A0 is not counted twice
     assert count("pilot", "main", "robust")["configurations"] == ["A0@d1", "A0@d2"]
     with pytest.raises(SystemExit, match="no plans of runs for"):
         count("pilot", "exits-only")

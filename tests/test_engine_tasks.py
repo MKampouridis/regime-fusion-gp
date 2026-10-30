@@ -233,6 +233,27 @@ def test_finished_tasks_hold_results_made_with_the_current_settings(fake_engine,
         tasks.execute(choose, "c", config, rungs, development_only=False)
 
 
+def test_a_changed_exit_grid_leaves_exit_choices_and_runs_unfinished(fake_engine, config, monkeypatch):
+    rungs = load_rungs()
+    assert cli.main(["tasks", "--campaign", "c", "--kind", "exits", "--stocks", "AAPL", "F", "--years", "2019"]) == 0
+    assert cli.main(["tasks", "--campaign", "c", "--kind", "runs", "--rungs", "A0", "A1", "--stocks", "AAPL", "F",
+                     "--years", "2019", "--stages", "2", "--runs", "2"]) == 0
+    assert cli.main(["run-all", "--campaign", "c", "--kind", "exits"]) == 0
+    assert cli.main(["run-all", "--campaign", "c", "--kind", "runs"]) == 0
+    calls = []
+    real = tasks.exit_settings
+    monkeypatch.setattr(tasks, "exit_settings", lambda *args: calls.append(args[1:3]) or real(*args))
+    assert tasks.unfinished("c", "runs", config, rungs) == []
+    assert sorted(calls) == [("AAPL", 2019), ("F", 2019)]            # once per stock-year, not per task
+    grid = {**tasks.exit_grid(), "days": [5]}
+    monkeypatch.setattr(tasks, "exit_grid", lambda: grid)            # the grid edited after the plans
+    assert tasks.unfinished("c", "exits", config, rungs) == [0, 1]   # as execute sees them
+    assert tasks.unfinished("c", "runs", config, rungs) == [0, 1, 2, 3]
+    _, planned = tasks.load_plan("c", "runs")
+    with pytest.raises(ValueError, match="the exit grid changed"):
+        tasks.execute(planned[0], "c", config, rungs, development_only=False)
+
+
 def test_a_pooled_run_checks_every_stocks_result_before_it_runs(fake_engine, config, monkeypatch):
     calls = []
     monkeypatch.setattr("regime_fusion.ml.tft.run_tft", lambda *args, **kwargs: calls.append(args))
@@ -275,7 +296,8 @@ def test_a_whole_result_is_the_same_for_resuming_and_collecting(config):
     assert tasks.record_problem({**whole, "signal": None}, costs) == "it has no stored signal"
     assert tasks.record_problem({**whole, "rung": "RB-BH", "signal": None}, costs) is None   # holds, no signal
     older = {**whole, "fingerprint": {k: v for k, v in whole["fingerprint"].items() if k != "format"}}
-    assert "not a whole result" in tasks.record_problem(older, costs)
+    assert "older version of the code (fingerprint format 1" in tasks.record_problem(older, costs)
+    assert "not a whole result" in tasks.record_problem({**whole, "fingerprint": {"config": "x"}}, costs)
 
 
 def test_run_all_does_every_unfinished_task(fake_engine):
@@ -430,3 +452,9 @@ def test_a_direct_run_keeps_to_the_campaigns_exits_and_never_overwrites_a_result
     with pytest.raises(SystemExit, match="another study configuration"):
         cli.main(["run", "--campaign", "dev", "--rung", "A0", "--stock", "F", "--test-year", "2019"])
     assert len(calls) == 1
+    chosen = []
+    monkeypatch.setattr(cli, "choose_exits", lambda *args, **kwargs: chosen.append(args[:2]))
+    assert cli.main(["exits", "--campaign", "dev", "--stock", "AAPL", "--test-year", "2019"]) == 0
+    assert chosen == []                                            # already set: never replaced
+    with pytest.raises(SystemExit, match="another study configuration"):
+        cli.main(["exits", "--campaign", "dev", "--stock", "F", "--test-year", "2019"])

@@ -198,12 +198,20 @@ def method_digest(name: str, rungs: dict[str, Rung]) -> str:
 
 
 def manifest(tasks: list[Task], config: StudyConfig, rungs: dict[str, Rung]) -> dict[str, Any]:
-    """The settings a plan's tasks run with, as digests: the study configuration, each method and,
-    for exit choices, the exit grid."""
-    frozen = {"config": config.digest(), "methods": {m: method_digest(m, rungs) for m in sorted({t.rung for t in tasks})}}
-    if any(t.kind == "exits" for t in tasks):
-        frozen["exit_grid"] = provenance.digest(exit_grid())
-    return frozen
+    """The settings a plan's tasks run with, as digests: the study configuration, each method, and the
+    exit grid (which the exit choices use, and so the runs too)."""
+    return {"config": config.digest(), "methods": {m: method_digest(m, rungs) for m in sorted({t.rung for t in tasks})},
+            "exit_grid": provenance.digest(exit_grid())}
+
+
+def manifest_changes(frozen: dict[str, Any] | None, now: dict[str, Any], rung: str) -> list[str]:
+    """What changed for one method's tasks between a plan's frozen manifest and the current settings."""
+    if not frozen:
+        return []
+    return [what for what, then, current in (
+        ("the study configuration", frozen["config"], now["config"]),
+        (f"the settings of {rung}", frozen["methods"].get(rung), now["methods"][rung]),
+        ("the exit grid", frozen.get("exit_grid"), now["exit_grid"])) if then != current]
 
 
 def check_manifest(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Rung]) -> None:
@@ -211,13 +219,7 @@ def check_manifest(task: Task, campaign: str, config: StudyConfig, rungs: dict[s
     name = task.plan or task.kind
     path = plan_path(campaign, name)
     frozen = json.loads(path.read_text()).get("manifest") if path.exists() else None
-    if not frozen:
-        return
-    now = manifest([task], config, rungs)
-    changed = [what for what, then, current in (
-        ("the study configuration", frozen["config"], now["config"]),
-        (f"the settings of {task.rung}", frozen["methods"].get(task.rung), now["methods"][task.rung]),
-        ("the exit grid", frozen.get("exit_grid"), now.get("exit_grid"))) if then != current]
+    changed = manifest_changes(frozen, manifest([task], config, rungs), task.rung)
     if changed:
         raise ValueError(f"{' and '.join(changed)} changed since plan {name!r} of campaign {campaign!r} was "
                          "made; results under new settings need a campaign of their own")
@@ -261,8 +263,11 @@ def record_problem(record: Any, costs) -> str | None:
     if not isinstance(record, dict):
         return "not a result"
     mark = record.get("fingerprint")
-    if not isinstance(mark, dict) or not FINGERPRINT <= set(mark) or mark["format"] != FINGERPRINT_FORMAT:
-        return "not a whole result, or written before results carried this kind of fingerprint"
+    if not isinstance(mark, dict) or not FINGERPRINT - {"format"} <= set(mark):
+        return "not a whole result, or written before results carried fingerprints"
+    if mark.get("format", 1) != FINGERPRINT_FORMAT:  # format 1 had no number
+        return (f"it was written by an older version of the code (fingerprint format {mark.get('format', 1)}, now "
+                f"{FINGERPRINT_FORMAT}), whose results cannot be compared with today's: run the campaign again")
     evaluation = record.get("evaluation")
     for cost in costs:
         measures = evaluation.get(f"{cost:g}bps") if isinstance(evaluation, dict) else None
@@ -414,17 +419,23 @@ def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Run
             return {"done": 0, "skipped": 1}
         choose_exits(task.stock, task.test_year, rungs["A0"], config, exit_grid(), campaign=campaign)
         return {"done": 1, "skipped": 0}
-    days, rate = exit_settings(campaign, task.stock, task.test_year, config)
+    exits = {task.stock: exit_settings(campaign, task.stock, task.test_year, config)}
     method = method_digest(task.rung, rungs)
     done = skipped = 0
-    for number in task.runs:
-        spec = RunSpec(task.stock, task.test_year, number, task.stage, days, rate)
+    for [spec] in task_specs(task, exits):
         if finished_result(result_path(campaign, task.rung, spec), task.rung, spec, config, method):
             skipped += 1
             continue
         run_method(task.rung, spec, rungs, config, campaign)
         done += 1
     return {"done": done, "skipped": skipped}
+
+
+def task_specs(task: Task, exits: dict[str, tuple[int, float]]) -> list[list[RunSpec]]:
+    """A runs task's runs, one list per run number, with a spec for each stock it covers (``exits``
+    maps each to its exit settings: one stock, or all the plan's for a pooled task)."""
+    return [[RunSpec(stock, task.test_year, number, task.stage, *exits[stock]) for stock in exits]
+            for number in task.runs]
 
 
 def exit_settings(campaign: str, stock: str, test_year: int, config: StudyConfig) -> tuple[int, float]:
@@ -449,8 +460,7 @@ def execute_pooled(task: Task, campaign: str, config: StudyConfig) -> dict[str, 
     settings = load_benchmarks()
     method = settings.method_digest(task.rung)
     done = skipped = 0
-    for number in task.runs:
-        specs = [RunSpec(s, task.test_year, number, task.stage, *exits[s]) for s in stocks]
+    for number, specs in zip(task.runs, task_specs(task, exits)):
         there = [finished_result(result_path(campaign, task.rung, spec), task.rung, spec, config, method)
                  for spec in specs]  # every stock's, so that a result made otherwise stops the task
         if all(there):
@@ -483,36 +493,51 @@ def run_method(name: str, spec: RunSpec, rungs: dict[str, Rung], config: StudyCo
 
 def finished(task: Task, campaign: str, config: StudyConfig | None = None,
              rungs: dict[str, Rung] | None = None) -> bool:
-    """Whether a task's results are all there. Given the configuration and the rungs, each must also be
-    whole and made with the current settings, as ``execute`` requires; one that is not leaves the task
-    unfinished, so that running it stops on that result and says why."""
-    if task.kind == "exits":
-        if not exits_path(campaign, task.stock, task.test_year).exists():
-            return False
-        if config is not None:
-            try:
-                exit_settings(campaign, task.stock, task.test_year, config)
-            except ValueError:
-                return False
-        return True
-    stocks = plan_stocks(campaign, task.plan or task.kind) if task.stock == "*" else [task.stock]
+    """Whether a task's results are all there; given the configuration and the rungs, also whole and
+    made with the current settings, as ``execute`` requires (see ``unfinished``)."""
     if config is None or rungs is None:
-        root = store.data_dir() / "results" / campaign / task.rung
-        return all((root / stock / f"{task.test_year}.stage{task.stage}.run{n:02d}.json").exists()
-                   for stock in stocks for n in task.runs)
-    try:
-        check_manifest(task, campaign, config, rungs)
-        method = method_digest(task.rung, rungs)
-        for stock in stocks:
-            days, rate = exit_settings(campaign, stock, task.test_year, config)
-            for n in task.runs:
-                spec = RunSpec(stock, task.test_year, n, task.stage, days, rate)
-                path = result_path(campaign, task.rung, spec)
-                if not path.exists() or result_problem(path, task.rung, spec, config, method):
-                    return False
-    except (FileNotFoundError, ValueError):
-        return False
-    return True
+        if task.kind == "exits":
+            return exits_path(campaign, task.stock, task.test_year).exists()
+        stocks = plan_stocks(campaign, task.plan or task.kind) if task.stock == "*" else [task.stock]
+        exits = dict.fromkeys(stocks, (0, 0.0))  # the result's file name does not depend on its exits
+        return all(result_path(campaign, task.rung, spec).exists() for specs in task_specs(task, exits) for spec in specs)
+    return not unfinished(campaign, task.plan or task.kind, config, rungs, [task])
+
+
+def unfinished(campaign: str, name: str, config: StudyConfig, rungs: dict[str, Rung],
+               chosen: list[Task] | None = None) -> list[int]:
+    """The numbers of a plan's tasks (or of ``chosen`` among them) that are not finished as ``execute``
+    sees them: the plan's settings changed since it was made, an exit setting is missing or was set
+    under another configuration, or a result is missing, not whole or made otherwise. Running such a
+    task stops on what is wrong and says why. The plan, the current settings and each stock-year's
+    exit settings are read once, however many tasks the plan has."""
+    record = json.loads(plan_path(campaign, name).read_text())
+    _, planned = load_plan(campaign, name)
+    planned = chosen if chosen is not None else planned
+    frozen, now = record.get("manifest"), manifest(planned, config, rungs)
+    known: dict[tuple[str, int], tuple[int, float] | None] = {}
+
+    def exits_of(stock: str, year: int) -> tuple[int, float] | None:
+        if (stock, year) not in known:
+            try:
+                known[stock, year] = exit_settings(campaign, stock, year, config)
+            except (FileNotFoundError, ValueError):
+                known[stock, year] = None
+        return known[stock, year]
+
+    def done(task: Task) -> bool:
+        if manifest_changes(frozen, now, task.rung):
+            return False
+        stocks = record["stocks"] if task.stock == "*" else [task.stock]
+        exits = {stock: exits_of(stock, task.test_year) for stock in stocks}
+        if None in exits.values() or task.kind == "exits":
+            return None not in exits.values()
+        method = now["methods"][task.rung]
+        return all(not result_problem(path, task.rung, spec, config, method)
+                   for specs in task_specs(task, exits) for spec in specs
+                   for path in [result_path(campaign, task.rung, spec)])
+
+    return [i for i, task in enumerate(planned) if not done(task)]
 
 
 def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:

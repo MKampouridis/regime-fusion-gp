@@ -104,15 +104,22 @@ def add_selection(sub: argparse.ArgumentParser) -> None:
                      help="leave out the stock-years with planned runs missing instead of stopping")
 
 
-def select(args: argparse.Namespace, runs: pd.DataFrame, methods: list[str]) -> pd.DataFrame:
-    """The runs of ``methods`` and the stage to analyse, checked against the campaign's plans (see the
-    module notes)."""
-    runs = runs[(runs["stage"] == args.stage) & runs["rung"].isin(methods)]
+def planned_of(args: argparse.Namespace) -> pd.DataFrame:
+    """The runs the campaign's plans (or --plan) list for the stage analysed."""
     try:
         planned = tasks.planned_runs(args.campaign, args.plan)
     except FileNotFoundError as error:
         raise SystemExit(str(error)) from None
-    planned = planned[(planned["stage"] == args.stage) & planned["rung"].isin(methods)]
+    return planned[planned["stage"] == args.stage]
+
+
+def select(args: argparse.Namespace, runs: pd.DataFrame, methods: list[str],
+           planned: pd.DataFrame | None = None) -> pd.DataFrame:
+    """The runs of ``methods`` and the stage to analyse, checked against the campaign's plans
+    (``planned``, from ``planned_of``; see the module notes)."""
+    runs = runs[(runs["stage"] == args.stage) & runs["rung"].isin(methods)]
+    planned = planned_of(args) if planned is None else planned
+    planned = planned[planned["rung"].isin(methods)]
     if planned.empty:
         if args.plan:
             raise SystemExit(f"plan {args.plan!r} has no stage-{args.stage} runs of {methods}")
@@ -143,11 +150,16 @@ def trial_count(args: argparse.Namespace, methods: list[str]) -> dict[str, objec
     if args.trials:
         return {"count": args.trials, "from": "given (--trials)"}
     campaigns = args.trials_from or [args.campaign]
-    unplanned = [c for c in args.trials_from or [] if tasks.planned_runs(c).empty]
+    found = {campaign: tasks.planned_methods(campaign) for campaign in campaigns}
+    unplanned = [c for c in args.trials_from or [] if not found[c]]
     if unplanned:
         raise SystemExit(f"--trials-from: no plans of runs for {unplanned}")
-    configurations = sorted({name if digest is None else f"{name}@{digest}"
-                             for campaign in campaigns for name, digest in tasks.planned_methods(campaign)})
+    digests: dict[str, set[str]] = {}
+    for name, digest in set().union(*found.values()):
+        digests.setdefault(name, set()).update({digest} - {None})
+    # a plan made before plans froze their settings adds its methods' names only where no plan knows more
+    configurations = sorted(f"{name}@{d}" for name, known in digests.items() for d in known) + \
+        sorted(name for name, known in digests.items() if not known)
     if not configurations:
         log.warning("Deflated Sharpe: no plans list the configurations tried; counting the %d methods analysed",
                     len(methods))
@@ -179,16 +191,11 @@ def paired_comparisons(given: list[str] | None, methods: list[str]) -> list[tupl
     return pairs
 
 
-def default_methods(args: argparse.Namespace, runs: pd.DataFrame, option: str) -> list[str]:
-    """The methods to analyse when none are named: those the plans (or --plan) list for the stage, so
-    that a planned method without results stops the analysis instead of dropping out of it; when no
-    plan lists any, those with results. Methods planned on different stock-years (the FinBERT rungs
-    cover fewer) must be named with ``option``, so that they never shrink the others' units unseen."""
-    try:
-        planned = tasks.planned_runs(args.campaign, args.plan)
-    except FileNotFoundError as error:
-        raise SystemExit(str(error)) from None
-    planned = planned[planned["stage"] == args.stage]
+def default_methods(args: argparse.Namespace, runs: pd.DataFrame, planned: pd.DataFrame, option: str) -> list[str]:
+    """The methods to analyse when none are named: those ``planned`` (``planned_of``) lists, so that a
+    planned method without results stops the analysis instead of dropping out of it; when no plan lists
+    any, those with results. Methods planned on different stock-years (the FinBERT rungs cover fewer)
+    must be named with ``option``, so that they never shrink the others' units unseen."""
     if planned.empty:
         return sorted(runs.loc[runs["stage"] == args.stage, "rung"].unique())
     cells = {method: frozenset(map(tuple, group[results.KEYS].to_numpy().tolist()))
@@ -215,9 +222,9 @@ def output(campaign: str) -> Path:
 
 
 def compare_command(args: argparse.Namespace) -> int:
-    runs = load_runs(args.campaign)
-    rungs = args.rungs or default_methods(args, runs, "--rungs")
-    runs = select(args, runs, rungs)
+    runs, planned = load_runs(args.campaign), planned_of(args)
+    rungs = args.rungs or default_methods(args, runs, planned, "--rungs")
+    runs = select(args, runs, rungs, planned)
     missing = sorted(set(rungs) - set(runs["rung"]))
     if missing:
         raise SystemExit(f"no stage-{args.stage} runs for {missing}")
@@ -260,9 +267,9 @@ def compare_command(args: argparse.Namespace) -> int:
 def portfolio_command(args: argparse.Namespace) -> int:
     config = load_config()
     cost = config.primary_cost_bps_per_side if args.cost is None else args.cost
-    runs = load_runs(args.campaign)
-    methods = args.methods or default_methods(args, runs, "--methods")
-    runs = select(args, runs, methods)
+    runs, planned = load_runs(args.campaign), planned_of(args)
+    methods = args.methods or default_methods(args, runs, planned, "--methods")
+    runs = select(args, runs, methods, planned)
     absent = sorted(set(methods) - set(runs["rung"]))
     if absent:
         raise SystemExit(f"no stage-{args.stage} runs for {absent}")
@@ -283,6 +290,8 @@ def portfolio_command(args: argparse.Namespace) -> int:
     benchmark = args.benchmark or (max(benchmarks, key=lambda m: metrics.sharpe(returns[m].dropna()))
                                    if benchmarks else None)  # a flat portfolio (never trades) counts as zero
     candidates = [m for m in returns.columns if m not in benchmarks and m != benchmark]
+    if args.benchmark and not candidates:
+        raise SystemExit(f"no GP rung among the methods analysed to test against {args.benchmark}")
     if benchmark is None or not candidates:  # a FinBERT or expanding-window check: GP rungs alone
         log.warning("no SPA test: %s", "no benchmark among the methods analysed (--benchmark names one)"
                     if benchmark is None else "no GP rung to test against the benchmark")

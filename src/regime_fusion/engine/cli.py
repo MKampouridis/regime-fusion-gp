@@ -18,7 +18,8 @@ first used by them is development-only (no evaluation after the development
 period, no hold-out stock) unless --after-development says otherwise, and the
 overrides (--sources, --population, --generations) are for development-only
 campaigns. A direct run uses the campaign's exit settings where it has them
-(--exit only where it has none), and never overwrites a result.
+(--exit only where it has none), and never overwrites a result; nor does the
+direct exits command overwrite a stock-year's exit settings.
 """
 
 from __future__ import annotations
@@ -203,6 +204,15 @@ def exits_command(args: argparse.Namespace) -> int:
     if args.scheme:
         config = with_scheme(config, args.scheme)
     direct_campaign(args, config, tasks.Task("exits", args.stock, args.test_year, "A0", 1))
+    path = exits_path(args.campaign, args.stock, args.test_year)
+    if path.exists():  # results may have been made with them: never replaced
+        try:
+            days, rate = tasks.exit_settings(args.campaign, args.stock, args.test_year, config)
+        except ValueError as error:
+            raise SystemExit(str(error)) from None
+        log.info("%s %d already exits after %d days or at +%.1f%% (%s); delete the file to choose again",
+                 args.stock, args.test_year, days, 100 * rate, path)
+        return 0
     choice = choose_exits(args.stock, args.test_year, rungs["A0"], config, exit_grid(), campaign=args.campaign,
                           sources=tuple(args.sources) if args.sources else None, overrides=overrides(args))
     log.info("%s %d: exit after %d days or at +%.1f%%", args.stock, args.test_year, choice["days"],
@@ -283,7 +293,7 @@ def run_all_command(args: argparse.Namespace) -> int:
     name = args.plan or args.kind
     _, planned = tasks.load_plan(args.campaign, name)
     config, rungs = with_scheme(load_config(), tasks.plan_scheme(args.campaign, name)), load_rungs()
-    todo = [i for i, task in enumerate(planned) if not tasks.finished(task, args.campaign, config, rungs)]
+    todo = tasks.unfinished(args.campaign, name, config, rungs)
     log.info("%s %s: %d of %d tasks to do, %d at a time", args.campaign, name, len(todo), len(planned), args.workers)
     if args.workers <= 1:
         for index in todo:
@@ -320,7 +330,7 @@ def status_command(args: argparse.Namespace) -> int:
     for name in names:
         _, planned = tasks.load_plan(args.campaign, name)
         config, rungs = with_scheme(load_config(), tasks.plan_scheme(args.campaign, name)), load_rungs()
-        left = [i for i, task in enumerate(planned) if not tasks.finished(task, args.campaign, config, rungs)]
+        left = tasks.unfinished(args.campaign, name, config, rungs)
         log.info("%s %s: %d of %d tasks finished%s", args.campaign, name, len(planned) - len(left), len(planned),
                  f"; first unfinished: {left[:10]}" if left else "")
     return 0

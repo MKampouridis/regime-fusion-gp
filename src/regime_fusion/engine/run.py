@@ -128,7 +128,7 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
     }
     if write:
         record["provenance"] = provenance.collect(config, rung_digest=rung.digest(), rung_spec=rung.spec,
-                                                  sources=list(sources or rung.sources), overrides=overrides or {})
+                                                  sources=list(sources), overrides=overrides or {})
         provenance.write(result_path(campaign, rung.name, spec), record)
     return record
 

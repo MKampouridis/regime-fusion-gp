@@ -38,4 +38,6 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 
 ## Open
 
-None at the moment.
+| Raised | Question | Proposal |
+| --- | --- | --- |
+| 2026-10-30 | How the Deflated Sharpe Ratio tells "distinct configurations" apart (raised by a code review) | By a method's name together with the digest of the settings its plan froze: a method run again with other settings (say A0 with another population) counts again, and the same method with the same settings counts once, whichever campaigns list it. A renamed configuration counts again even if its settings match another's (if the pilot picks `A3-fine` and A3 takes its settings, both count), which errs towards more trials and so a stricter test. Counting by name alone, as first implemented, would have merged different settings of one name. In the code and the protocol since `43ce2f7`; Michael to confirm |
