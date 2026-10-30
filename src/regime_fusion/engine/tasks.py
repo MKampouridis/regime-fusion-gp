@@ -487,6 +487,8 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
         for state, shares in listening.get("by_state", {}).items():
             for source, share in shares.items():
                 row[f"listen_{source.lower()}_state{state}"] = share
+        for source, weight in (record.get("selection_weights") or {}).items():  # ML-TFT's counterpart
+            row[f"select_{source.lower()}"] = weight
         row["model"] = record.get("model")
         row["signal"] = record.get("signal")
         rows.append(row)

@@ -2,11 +2,11 @@ import numpy as np
 import pytest
 
 from regime_fusion.engine import gp, operators, selection
-from regime_fusion.engine.fitness import COMPONENTS, Evaluator, Market, Settings, sharpe
+from regime_fusion.engine.fitness import COMPONENTS, Evaluator, Market, Settings, block_means, sharpe
 from regime_fusion.engine.metrics import sharpe as metrics_sharpe
 from regime_fusion.engine.tree import (
     ARITY, ERC, FUSION, GT, LEAF, REGIME, SOURCES, VAR, Grammar, Individual, acttrade_fusion,
-    boolean, depth, end_of, fused, signals, text,
+    boolean, depth, end_of, fused, fusion_shape, signals, text,
 )
 
 INDICATORS = {"FA": ["fa:a", "fa:b"], "SA": ["sa:a", "sa:b"], "TA": ["ta:a", "ta:b", "ta:edge"],
@@ -43,6 +43,19 @@ def check_individual(individual, grammar):
         assert check_tree(individual.branches[s], s) == len(individual.branches[s])
         assert depth(individual.branches[s]) <= grammar.max_branch_depth
     assert check_tree(individual.fusion, "F") == len(individual.fusion)
+    fusion_depth, condition_depth = fusion_shape(individual.fusion)
+    assert fusion_depth <= grammar.max_fusion_depth and condition_depth <= grammar.max_regime_depth
+
+
+def test_fusion_depth_and_condition_depth_are_measured_apart():
+    leaf = lambda s: ("LEAF", FUSION, s)                                   # noqa: E731
+    compare = [("GT", REGIME, None), (VAR, REGIME, "rg:p1"), (ERC, None, 0.1)]
+    condition = [("AND", REGIME, None), *compare, *compare]                 # depth 2
+    tree = [("IF", FUSION, None), *condition, ("AND", FUSION, None), leaf("FA"), ("OR", FUSION, None),
+            leaf("SA"), leaf("TA"), leaf("TA")]
+    assert fusion_shape(tree) == (3, 2) and depth(tree) == 3
+    chain = [("AND", FUSION, None)] * 4 + [leaf("FA")] * 5                  # AND(AND(AND(AND(FA, FA), ...
+    assert fusion_shape(chain) == (4, 0)                                   # too deep for A1 (3)
 
 
 def test_tree_shape_helpers():
@@ -131,6 +144,14 @@ def test_fitness_is_the_weighted_sum_and_trees_are_cached():
         expected += 0.25 * value
     assert individual.fitness == pytest.approx(expected)
     assert individual.stats["cases"].shape == (4 * 4,)
+    for k, component in enumerate(("C", *SOURCES)):              # cases of a signal with < 3 trades are zero
+        daily, trades = market.daily(sig[component])
+        cases = individual.stats["cases"][4 * k:4 * k + 4]
+        np.testing.assert_allclose(cases, block_means(daily, 4) if trades >= 3 else 0.0)
+    few = Evaluator(data, market, Settings(weights=settings.weights, min_trades=10**6, blocks=4))
+    again = individual.copy()
+    few.evaluate(again)
+    assert again.fitness == 0.0 and not again.stats["cases"].any()
     calls = []
     original = market.daily
     object.__setattr__(market, "daily", lambda s: calls.append(1) or original(s))
@@ -164,6 +185,12 @@ def test_active_trading_offspring_follow_algorithm_1():
         for s in SOURCES:
             source = sharp if s == chosen else busy
             assert child.branches[s] == source.branches[s]
+    lucky = individual((2, 2, 2), (5.0, 5.0, 5.0))                 # two lucky trades: zero, as in the fitness
+    lucky.branches = {s: [("GT", s, None), (VAR, s, INDICATORS[s][-1]), (ERC, None, 0.9)] for s in SOURCES}
+    offspring = gp.active_trading_offspring([busy, sharp, lucky], acttrade_fusion(), min_trades=3)
+    assert [child.branches[s] for child, s in zip(offspring, SOURCES)] == [sharp.branches[s] for s in SOURCES]
+    unfloored = gp.active_trading_offspring([busy, sharp, lucky], acttrade_fusion())
+    assert unfloored[0].branches["FA"] == lucky.branches["FA"]
 
 
 @pytest.mark.parametrize("selection_method, functions", [

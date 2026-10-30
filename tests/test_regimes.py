@@ -70,6 +70,18 @@ def test_filter_never_looks_ahead_and_carries_missing_days_forward():
     assert out[100] == pytest.approx(out[99] @ model.transition)
 
 
+def test_the_filter_uses_what_a_day_has_and_survives_an_impossible_day():
+    model = hmm.GaussianHMM(np.array([0.5, 0.5]), np.array([[0.9, 0.1], [0.1, 0.9]]),
+                            np.array([[0.0, 0.0], [5.0, 5.0]]), np.ones((2, 2)), 0.0)
+    out = hmm.filter(model, np.array([[0.0, 0.0], [5.0, np.nan], [np.nan, np.nan]]))
+    assert out[1, 1] > 0.99                                      # the price input alone points to state 1
+    assert out[2] == pytest.approx(out[1] @ model.transition)    # no input at all: carried forward
+    absorbing = hmm.GaussianHMM(np.array([1.0, 0.0]), np.eye(2), np.array([[0.0], [100.0]]),
+                                np.array([[1e-6], [1.0]]), 0.0)
+    out = hmm.filter(absorbing, np.array([0.0, 100.0, 0.0]))     # day 2 is impossible in the only state left
+    assert np.isfinite(out).all() and out[1] == pytest.approx([1.0, 0.0])
+
+
 def test_fits_are_reproducible_and_need_enough_data():
     x, _ = simulate(500, seed=6)
     a = hmm.fit(x, 2, np.random.default_rng(7), restarts=2)
@@ -129,6 +141,14 @@ def test_attention_level_skips_uncovered_sessions_and_keeps_the_last_level():
     assert level[8] == 1 + 3 * 6.0
     together = news.market_articles({"A": pd.Series([1.0, np.nan]), "B": pd.Series([2.0, np.nan])})
     assert together[0] == 3.0 and np.isnan(together[1])
+
+
+def test_a_gdelt_outage_is_missing_news_not_calm_news():
+    articles = pd.Series(np.r_[np.linspace(10, 40, 60), np.full(12, np.nan), np.full(30, 40.0)],
+                         index=pd.bdate_range("2016-01-04", periods=102))
+    inputs = news.attention_inputs(articles, 5, 0.25, 20)
+    assert inputs.iloc[64:72].isna().all().all()                 # five or more sessions without coverage
+    assert inputs.iloc[60:64].notna().all().all() and inputs.iloc[72:].notna().all().all()
 
 
 def test_news_inputs_never_look_ahead():

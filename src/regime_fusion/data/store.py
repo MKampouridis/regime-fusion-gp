@@ -68,7 +68,7 @@ def write_parquet(path: str | Path, frame: pd.DataFrame, **details: Any) -> Path
 
 def _atomic(path: Path, write) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".part")
+    tmp = provenance.temporary(path)
     try:
         write(tmp)
         tmp.replace(path)

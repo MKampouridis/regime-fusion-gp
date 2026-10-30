@@ -30,7 +30,14 @@ per class). Reports filed after a stock split restate their share counts, so a
 count is multiplied only by the splits after its filing date. Only true splits
 count: not the spin-offs that Yahoo records as fractional splits, but DowDuPont's
 1-for-3 reverse split, which Yahoo merged with the Corteva spin-off, comes from
-``configs/price_corrections.yaml``.
+``configs/price_corrections.yaml``. Diluted EPS is per share of the stock's first
+session (the count divided by the splits since then), so that a split does not
+cut it in a day; like the technical price levels, it uses the splits up to t only.
+
+Stale values are dropped: a value whose period ended more than ``MAX_AGE_DAYS``
+before the session (a year and a quarter) has not been renewed by any annual
+report, so the firm no longer files it (a tag it stopped using, a debt it paid
+off), and the fallbacks above then apply.
 
 Values are raw: normalisation is fitted on training windows later. Ratios with a
 zero denominator are missing.
@@ -43,6 +50,7 @@ import pandas as pd
 
 from regime_fusion.data.prices import Correction
 
+MAX_AGE_DAYS = 456  # a year, plus a quarter for the annual report to be filed
 INDICATORS = (
     "net_profit_ratio", "return_on_equity", "quick_ratio", "price_earnings", "price_book",
     "price_sales", "debt_equity", "revenue", "ebitda", "levered_fcf", "eps_diluted",
@@ -83,8 +91,30 @@ def split_adjusted(shares: pd.Series, filed: pd.Series, splits: pd.Series) -> pd
     return shares.astype(float) * factor
 
 
+def splits_to_date(days: pd.DatetimeIndex, splits: pd.Series) -> np.ndarray:
+    """Product of the splits from the first session up to each day, ex-dates included."""
+    if splits.empty:
+        return np.ones(len(days))
+    cumulative = np.concatenate([[1.0], splits.cumprod().to_numpy()])
+    return cumulative[np.searchsorted(splits.index.to_numpy(), days.to_numpy(), side="right")]
+
+
+def fresh(panel: pd.DataFrame, max_age_days: int = MAX_AGE_DAYS) -> pd.DataFrame:
+    """The panel without values whose period ended more than ``max_age_days`` before the session."""
+    out = panel.copy()
+    sessions = pd.Series(panel.index, index=panel.index)
+    for end in [c for c in panel.columns if c.endswith("_end")]:
+        stale = ((sessions - panel[end]).dt.days > max_age_days).to_numpy()
+        name = end.removesuffix("_end")
+        for column in (name, f"{name}_ttm", f"{name}_ttm_prev"):
+            if column in out:
+                out.loc[stale, column] = np.nan
+    return out
+
+
 def indicators(panel: pd.DataFrame, traded_close: pd.Series, splits: pd.Series) -> pd.DataFrame:
     """The twelve indicators, plus market value and the share count used, per session."""
+    panel = fresh(panel)
     shares = split_adjusted(panel["diluted_shares"], panel["diluted_shares_filed"], splits)
     value = traded_close.reindex(panel.index) * shares
     income, equity = panel["net_income_ttm"], panel["equity"]
@@ -105,7 +135,7 @@ def indicators(panel: pd.DataFrame, traded_close: pd.Series, splits: pd.Series) 
             "revenue": revenue,
             "ebitda": operating + panel["depreciation_amortization_ttm"],
             "levered_fcf": panel["operating_cash_flow_ttm"] - panel["capital_expenditure_ttm"],
-            "eps_diluted": income / shares,
+            "eps_diluted": income / shares * splits_to_date(panel.index, splits),
             "research_development": research,
             "market_value": value,
             "diluted_shares": shares,

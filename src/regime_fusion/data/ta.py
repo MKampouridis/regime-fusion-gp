@@ -15,9 +15,12 @@ midprice_n          (highest high + lowest low) / 2 over the last n sessions
 Moving average, momentum and midprice are price levels. Yahoo's adjusted prices
 are scaled by every dividend and split up to the download date, so a level on
 day t would depend on later events. Levels are therefore expressed in the prices
-of day t: the window's adjusted prices times traded close / adjusted close of
-day t, which adjusts past prices for the events up to t only. Ratios are
-unaffected. Highs and lows are adjusted by the same factor as closes.
+of the stock's first session, carried forward by its total return: adjusted
+prices times traded close / adjusted close of that first session. The ratio of
+two adjusted prices depends only on the events between them, so a level on day
+t uses the events up to t only, and it runs on smoothly across splits (in the
+prices of day t, Netflix's moving average fell seven-fold on its 2015 split).
+Ratios are unaffected. Highs and lows are adjusted by the same factor as closes.
 
 Where the paper is ambiguous: the moving average averages n sessions
 (equation 8 sums n + 1 prices but divides by n), and the midprice is the
@@ -43,17 +46,18 @@ def columns(windows=WINDOWS) -> list[str]:
 def indicators(prices: pd.DataFrame, windows=WINDOWS) -> pd.DataFrame:
     """The indicators for each session of an aligned price table."""
     close, high, low = prices["adj_close"], prices["adj_high"], prices["adj_low"]
-    to_today = prices["traded_close"] / close  # past adjusted prices in day-t prices
+    first = (prices["traded_close"] / close).dropna()
+    to_first = first.iloc[0] if len(first) else np.nan  # adjusted prices in those of the first session
     out = {}
     for n in windows:
         past = close.shift(n)
         highest, lowest = high.rolling(n).max(), low.rolling(n).min()
         ratios = pd.concat([close.shift(i) / past - 1.0 for i in range(n)], axis=1)
-        out[f"moving_average_{n}"] = close.rolling(n).mean() * to_today
-        out[f"momentum_{n}"] = (close - past) * to_today
+        out[f"moving_average_{n}"] = close.rolling(n).mean() * to_first
+        out[f"momentum_{n}"] = (close - past) * to_first
         out[f"roc_{n}"] = (close / past - 1.0) * 100.0
         out[f"volatility_{n}"] = ratios.std(axis=1, ddof=1, skipna=False)
         out[f"williams_r_{n}"] = -100.0 * (highest - close) / (highest - lowest)
-        out[f"midprice_{n}"] = (highest + lowest) / 2.0 * to_today
+        out[f"midprice_{n}"] = (highest + lowest) / 2.0 * to_first
     frame = pd.DataFrame(out, index=prices.index).loc[:, columns(windows)]
     return frame.replace([np.inf, -np.inf], np.nan)

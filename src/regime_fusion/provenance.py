@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import hashlib
 import json
+import os
+import secrets
 import platform
 import subprocess
 import sys
@@ -23,7 +26,13 @@ TRACKED_PACKAGES = (
 
 
 def git_state(repo: Path = REPO_ROOT) -> dict[str, Any]:
-    """Current commit and whether the working tree has uncommitted changes."""
+    """Commit and whether the working tree had uncommitted changes, when this process first asked:
+    the code it runs, even if the files change while it works (and no git call per file written)."""
+    return dict(_git_state(repo))
+
+
+@functools.lru_cache(maxsize=None)
+def _git_state(repo: Path) -> dict[str, Any]:
 
     def run(*args: str) -> str | None:
         try:
@@ -45,6 +54,11 @@ def digest(value: Any) -> str:
 
 
 def package_versions() -> dict[str, str]:
+    return dict(_package_versions())
+
+
+@functools.lru_cache(maxsize=1)
+def _package_versions() -> dict[str, str]:
     versions = {}
     for name in TRACKED_PACKAGES:
         try:
@@ -75,9 +89,16 @@ def write(path: str | Path, record: dict[str, Any]) -> None:
     """Write a record as JSON, whole or not at all (a stopped job leaves no partial file)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".part")
+    tmp = temporary(path)
     try:
         tmp.write_text(json.dumps(record, indent=2, sort_keys=True, default=str) + "\n")
         tmp.replace(path)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def temporary(path: Path) -> Path:
+    """A temporary name beside ``path``, its own to this process and write, so that two jobs writing
+    the same file at once never mix their parts (the last whole file wins)."""
+    return path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(4)}.part")
+

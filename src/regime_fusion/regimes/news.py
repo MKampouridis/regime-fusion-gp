@@ -3,7 +3,11 @@
 The attention level of a session is 1 + the articles of the last ``sessions``
 sessions, from ``interim/news`` (``regime_fusion.data.sa``; counts scaled up for
 missing GDELT files). Sessions without enough GDELT files are left out of the
-window's mean, and when none in the window has enough, the last level is kept.
+window's mean, and when none in the window has enough (a GDELT outage), the last
+level is kept so that the directional changes run on, but the inputs of those
+sessions are missing: the regime filter then uses the price inputs alone rather
+than reading an outage as calm news (``regime_fusion.regimes.hmm``). Right after
+an outage, the event count still covers fewer observed sessions than its window.
 
 Directional changes are taken on the logarithm of the level with an absolute
 threshold, so that a threshold of 0.25 means a rise or fall of about 28% and
@@ -32,7 +36,8 @@ def attention_inputs(articles: pd.Series, sessions: int, threshold: float, windo
     level = np.log(attention_level(articles, sessions)).dropna()
     frame = dc_indicators(level, threshold, mode="absolute", window=window, prefix="")
     frame = frame.reindex(articles.index)
-    return pd.DataFrame({"log_events": np.log1p(frame["ndc"]), "trend_move": frame["tmv"]})
+    outage = articles.rolling(sessions, min_periods=1).mean().isna()  # no covered session in the window
+    return pd.DataFrame({"log_events": np.log1p(frame["ndc"]), "trend_move": frame["tmv"]}).mask(outage)
 
 
 def market_articles(per_stock: dict[str, pd.Series]) -> pd.Series:

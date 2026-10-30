@@ -72,24 +72,24 @@ def random_entry(prices: pd.DataFrame, days: int, rate: float, cost_bps: float, 
     arrays = [prices[c].to_numpy(dtype=np.float64) for c in ("adj_open", "adj_high", "adj_low", "adj_close")]
     cost = cost_bps / 1e4
 
-    def run(probability: float, n: int) -> tuple[np.ndarray, np.ndarray]:
-        sharpes, trades = np.empty(n), np.empty(n)
-        for k in range(n):
-            signal = rng.random(len(prices)) < probability
-            out = _simulate(signal, *arrays, days, rate, cost)
+    def run(probability: float, uniforms: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        sharpes, trades = np.empty(len(uniforms)), np.empty(len(uniforms))
+        for k, row in enumerate(uniforms):
+            out = _simulate(row < probability, *arrays, days, rate, cost)
             sharpes[k], trades[k] = fast_sharpe(out[0]), out[-1]
         return sharpes, trades
 
     if target_trades <= 0:
         return {"probability": 0.0, "mean_trades": 0.0, "mean_sharpe": 0.0, "sharpes": np.zeros(draws)}
+    fixed = rng.random((40, len(prices)))  # the same draws at every step, so the search is not misled by noise
     low, high = 0.0, 1.0
     for _ in range(20):  # bisection on the daily entry probability
         middle = (low + high) / 2
-        if run(middle, 40)[1].mean() < target_trades:
+        if run(middle, fixed)[1].mean() < target_trades:
             low = middle
         else:
             high = middle
-    sharpes, trades = run((low + high) / 2, draws)
+    sharpes, trades = run((low + high) / 2, rng.random((draws, len(prices))))
     return {"probability": (low + high) / 2, "mean_trades": float(trades.mean()),
             "mean_sharpe": float(sharpes.mean()), "sharpes": sharpes}
 

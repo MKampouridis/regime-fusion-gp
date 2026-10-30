@@ -80,13 +80,16 @@ def evolve(grammar: Grammar, evaluator: Evaluator, config: GPConfig, rng: np.ran
     return Evolution(best, history, checkpoints)
 
 
-def active_trading_offspring(population: list[Individual], fusion: list) -> list[Individual]:
+def active_trading_offspring(population: list[Individual], fusion: list, min_trades: int = 0) -> list[Individual]:
     """ActTrade's three offspring: each takes one source's highest-Sharpe branch and the
-    other sources' most-trading branches; ties go to the smaller branch."""
+    other sources' most-trading branches; ties go to the smaller branch. A branch with fewer
+    than ``min_trades`` trades has a Sharpe ratio of zero here, as in the fitness."""
     sources = list(population[0].branches)
     most_trades, best_sharpe = {}, {}
     for s in sources:
-        branches = [(ind.stats[s]["trades"], ind.stats[s]["sharpe"], -len(ind.branches[s]), ind.branches[s])
+        branches = [(ind.stats[s]["trades"],
+                     ind.stats[s]["sharpe"] if ind.stats[s]["trades"] >= min_trades else 0.0,
+                     -len(ind.branches[s]), ind.branches[s])
                     for ind in population]
         most_trades[s] = max(branches, key=lambda b: (b[0], b[2]))[3]
         best_sharpe[s] = max(branches, key=lambda b: (b[1], b[2]))[3]
@@ -103,7 +106,8 @@ def _next_generation(population, grammar, evaluator, config, rng):
     following = [population[i] for i in order[:config.elitism]]
     offspring = []
     if config.active_trading:
-        offspring = active_trading_offspring(population, population[order[0]].fusion)
+        offspring = active_trading_offspring(population, population[order[0]].fusion,
+                                             evaluator.settings.min_trades)
         following += offspring
 
     cases = epsilon = None

@@ -23,6 +23,7 @@ def fake_result(spec, name, config, method, data="v1"):
     inputs = {f"interim/prices/{spec.stock}.parquet@{spec.test_year}": data}
     return {**spec.__dict__, "rung": name, "fitness": 1.0, "seconds": 0.1, "model": "GT(x, 0.1)",
             "evaluation": evaluation, "branches": {"TA": {"sharpe": 0.2, "trades": 3.0}},
+            "selection_weights": {"FA": 0.2, "SA": 0.3, "TA": 0.5},     # as ML-TFT keeps them
             "fingerprint": {"config": config.digest(), "method": method, "inputs": inputs,
                             "evaluation_prices": data}}
 
@@ -141,7 +142,7 @@ def test_commands_plan_run_and_collect_a_campaign(fake_engine, tmp_path, config)
     assert cli.main(["collect", "--campaign", "pilot"]) == 0
     table = pd.read_parquet(tmp_path / "results" / "pilot" / "runs.parquet")
     assert len(table) == 8 and set(table["rung"]) == {"A0", "A1"}
-    assert {"sharpe_10bps", "trades_0bps", "ta_sharpe_10bps", "model"} <= set(table.columns)
+    assert {"sharpe_10bps", "trades_0bps", "ta_sharpe_10bps", "model", "select_ta"} <= set(table.columns)
     assert table.loc[table["run"] == 1, "sharpe_10bps"].eq(1.5).all()
     plan = json.loads((tmp_path / "results" / "pilot" / "tasks.runs.json").read_text())
     assert plan["development_only"] is True and len(plan["tasks"]) == 4

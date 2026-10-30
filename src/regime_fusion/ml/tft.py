@@ -327,7 +327,8 @@ def run_tft(test_year: int, stage: int, run: int, stocks: list[str], exits: dict
             "sources": list(settings.sources),
             "train": [str(fitted_on.start), str(fitted_on.end)],
             "evaluate": [str(evaluated_on.start), str(evaluated_on.end)],
-            "indicators": len(final.columns),
+            "indicators": {kind: sum(c.startswith(f"{kind.lower()}:") for c in final.columns)
+                           for kind in (*SOURCES, "RG")},
             "model": f"{model.name} {best['params']} (pooled over {len(stocks)} stocks), "
                      f"buy at or above the {quantile:g} quantile",
             "fitness": metrics.sharpe(train_result.daily),

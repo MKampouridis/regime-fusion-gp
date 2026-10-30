@@ -22,10 +22,11 @@ An individual has one **branch** per analysis type and a **fusion tree** that co
 | Population, generations | 1000, 50 (ActTrade's), until the GP-parameter pilot sets them with the tournament size (`PROTOCOL.md`, §9.1). A rung may override them (`gp:` in `configs/rungs.yaml`) |
 | Initialisation | Ramped half-and-half, branch depth up to 2 (ActTrade's depth 3 counts its root) |
 | Maximum branch depth | 5 (ActTrade: 6 with the root) |
+| Maximum fusion depth | 3 for the fusion nodes, and 2 for each IF condition, checked apart after crossover (choice 11) |
 | Crossover | Probability 0.95. Subtree crossover in each branch in turn (FA, SA, TA, then the fusion tree when it evolves), with points of the same type and class; function nodes 90% of the time. A child that is too deep keeps the first parent's tree |
 | Point mutation | Probability 0.05. One tree is picked; each of its nodes changes with probability 0.5 (AND↔OR, GT↔LT, another indicator of the same type, a new constant; in the fusion tree AND↔OR, ALL/ANY/VOTE, another leaf) |
 | Selection | Tournament of 4, with elitism of 1 |
-| Active-trading operator | Each generation, three offspring join the next generation (Algorithm 1 of the paper). Each takes one type's highest-Sharpe branch and the other types' most-trading branches, ties going to smaller branches. The first parent of a crossover (or the parent of a mutation) is selected with probability 0.4 and is one of these offspring with probability 0.2 each |
+| Active-trading operator | Each generation, three offspring join the next generation (Algorithm 1 of the paper). Each takes one type's highest-Sharpe branch and the other types' most-trading branches, ties going to smaller branches; a branch with fewer than 3 trades has a Sharpe ratio of zero there, as in the fitness. The first parent of a crossover (or the parent of a mutation) is selected with probability 0.4 and is one of these offspring with probability 0.2 each |
 | Fitness | Weighted sum of the Sharpe ratios of the whole tree and of each branch alone. A signal with fewer than 3 trades scores zero |
 | Model of a run | The best individual by that fitness in the last generation, for every rung |
 
@@ -38,7 +39,7 @@ An individual has one **branch** per analysis type and a **fusion tree** that co
 | A2 | + IF gating on volatility regimes | Probabilities of the HMM on realised volatility |
 | A3 | DC regimes instead of volatility regimes | A3 vs A2 isolates "DC vs volatility" |
 | A4 | + news-attention DC in the regime inputs | Attention of the 50 main stocks together, so regimes stay shared (`configs/regimes.yaml`) |
-| A5 | + ε-lexicase selection | Cases: annualised mean daily return of each signal (whole tree, each branch) in each of 8 time blocks; ε = median absolute deviation |
+| A5 | + ε-lexicase selection | Cases: annualised mean daily return of each signal (whole tree, each branch) in each of 8 time blocks, zero in every block for a signal with fewer than 3 trades (as in the fitness); ε = median absolute deviation |
 | A5-dalex | DALex instead of ε-lexicase | Particularity pressure 20 |
 | GP-FA, GP-SA, GP-TA | One branch only, fitness = its Sharpe ratio | No active-trading operator (it needs three branches) |
 
@@ -89,7 +90,7 @@ python -m regime_fusion.engine collect --campaign pilot     # results/pilot/runs
 - **Plans are fixed.** The numbering is saved in `results/<campaign>/tasks.<kind>.json` and is not overwritten while jobs may be using it (`--replace` plans again).
 - **Expanding windows** (the robustness check): `tasks --scheme expanding` plans a campaign whose training windows all start at the beginning of the data. Every task of the campaign follows it, exit settings included. It needs the regimes fitted on the same windows: `python -m regime_fusion.data regimes --scheme expanding` keeps them apart, in `processed/regimes/<inputs>/expanding/`.
 - **One scheme per campaign.** A campaign records its scheme when first planned or run (`results/<campaign>/campaign.json`) and refuses work under the other one, since result files carry no scheme in their names: expanding windows need a campaign of their own. Every result records its scheme, and `collect` keeps it.
-- `collect` gives one row per run: rung, stock, test year, stage, run, exit settings, training fitness, every evaluation measure at every cost (such as `sharpe_10bps`), each branch's Sharpe ratio and trades, the model in readable form, and the digest of the prices it was evaluated on.
+- `collect` gives one row per run: rung, stock, test year, stage, run, exit settings, training fitness, every evaluation measure at every cost (such as `sharpe_10bps`), each branch's Sharpe ratio and trades, ML-TFT's variable-selection weight of each analysis type (`select_fa`, …, its counterpart of the trust map), the model in readable form, and the digest of the prices it was evaluated on.
 - A run whose stock has no usable indicator of a needed type (values on fewer than half of the training days) stops with a message, as A0 does now for sentiment until the GDELT extraction is finished.
 
 ## Analysis (`src/regime_fusion/analysis`)
@@ -131,7 +132,7 @@ Random entry at the model's trade frequency (1,000 draws, `benchmarks.random_ent
 | ML-TFT | Temporal Fusion Transformer (`ml/tft.py`), one model across all stocks: static encoders from a stock embedding, variable selection, an LSTM encoder, interpretable attention masked to past days, over the last 20 sessions. 10 runs |
 
 - **Features:** the GP's indicators (FA, SA and TA, scaled on the training rows as for the GP) plus the regime probabilities of rung A3.
-- **Labels match the exit rule:** for each day, whether the trade a buy signal would open (at the next open, sold at the take-profit or at the close of the *d*-th day) gains after costs at the primary level. Labels come from the training rows alone, so the last trades of a training window, which would end in the next period, are left out.
+- **Labels match the exit rule:** for each day, whether the trade a buy signal would open (at the next open, sold at the take-profit or at the close of the *d*-th day) gains after costs at the primary level. Labels come from the training rows alone, so the last trades of a training window, which would end in the next period, are left out: every trade whose time exit falls after the window, including those that reach their target before it ends. Keeping those early winners would leave only gains among the last labels, since their losers end at the time exit.
 - **Decision threshold:** buy when the predicted probability reaches the *q*-quantile of the model's own training predictions. A quantile rather than a fixed probability carries over when the model is retrained on four years. A model whose training predictions are all equal (it saw one class only) ranks nothing: it buys every day only if it predicts gains more often than not, and otherwise never.
 - **Tuning on validation only.** In stage 1, every combination of the model's grid (4 for ML-LR, 12 for the LightGBM models) is trained on the three training years, and each is paired with each quantile (0.5 to 0.9). The pair with the highest validation Sharpe ratio wins; fewer than 3 trades score zero, as in the GP's fitness. In stage 2, the chosen pair is retrained on all four years and trades the test year.
 - **Runs and seeds.** Seeds use the GP's keys (stock, test year, run, stage). ML-LR, ML-LGBM and ML-RS-LGBM are deterministic, so they get one run each.
@@ -150,3 +151,4 @@ Random entry at the model's trade frequency (1,000 draws, `benchmarks.random_ent
 8. **News regimes.** A4's news attention pools the 50 main stocks, so its regimes are shared like A2's and A3's, as the plan asks. Regimes from each stock's own news are one setting away (`scope: stock`), for the pilot to try.
 9. **Benchmark thresholds as quantiles.** "Decision thresholds maximise validation Sharpe" is read as choosing, on the validation year, the quantile of the model's training predictions above which it buys.
 10. **Sessions without a bar.** The backtest can trade across a session without prices (it returns zero that day, refuses to buy on it, and delays a time exit due on it to the next close), but the loaders used to drop such sessions, which changes how days are counted. The price data have none (`DATA.md`), so the engine now refuses a gap rather than choose between the two. If a later download has one, the rule needs a decision.
+11. **Fusion depth.** The grammar has a fusion depth of 3 and an IF-condition depth of 2. Crossover used to check only the sum (5) for the whole fusion tree, so A1's fusion trees, which have no IF, could grow to depth 5. The two limits are now checked apart.

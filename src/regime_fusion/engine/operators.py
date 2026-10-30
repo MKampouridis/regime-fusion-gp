@@ -4,7 +4,9 @@
   tree when it evolves): a random node of the first parent's tree is replaced by
   a subtree of the second parent's tree of the same class. Function nodes are
   picked 90% of the time and terminals 10% (Koza's bias, as in ActTrade). A child
-  deeper than allowed keeps the first parent's tree.
+  deeper than allowed keeps the first parent's tree: a branch deeper than its
+  maximum, or a fusion tree whose fusion nodes or IF conditions are deeper than
+  theirs (``Grammar.max_fusion_depth``, ``Grammar.max_regime_depth``).
 * Point mutation changes one tree, picked at random (ActTrade's paper: "point
   mutation occurs in one of the three branches"; its code mutates the whole
   tree). Each node of that tree changes with probability ``flip``: AND<->OR,
@@ -24,7 +26,7 @@ import numpy as np
 
 from regime_fusion.engine.tree import (
     AND, COMPARISONS, ERC, ERC_RANGE, F_ALL, F_AND, F_ANY, F_OR, F_VOTE, FUSION, GT, LEAF, LOGIC,
-    LT, OR, VAR, Grammar, Individual, Node, Tree, arity, depth, end_of,
+    LT, OR, VAR, Grammar, Individual, Node, Tree, arity, depth, end_of, fusion_shape,
 )
 
 FUNCTION_BIAS = 0.9
@@ -42,7 +44,9 @@ def node_class(node: Node) -> tuple:
     return ("bool", kind_type)
 
 
-def subtree_crossover(first: Tree, second: Tree, rng: np.random.Generator, max_depth: int) -> Tree:
+def subtree_crossover(first: Tree, second: Tree, rng: np.random.Generator, max_depth: int,
+                      fits=None) -> Tree:
+    """``fits`` (the child is allowed) replaces the depth limit when given."""
     functions = [i for i, node in enumerate(first) if arity(node) > 0]
     terminals = [i for i, node in enumerate(first) if arity(node) == 0]
     pool = functions if functions and rng.random() < FUNCTION_BIAS else terminals
@@ -53,7 +57,8 @@ def subtree_crossover(first: Tree, second: Tree, rng: np.random.Generator, max_d
         return list(first)
     j = matches[rng.integers(len(matches))]
     child = first[:i] + second[j:end_of(second, j)] + first[end_of(first, i):]
-    return child if depth(child) <= max_depth else list(first)
+    allowed = fits(child) if fits is not None else depth(child) <= max_depth
+    return child if allowed else list(first)
 
 
 def crossover(first: Individual, second: Individual, grammar: Grammar,
@@ -62,8 +67,11 @@ def crossover(first: Individual, second: Individual, grammar: Grammar,
                 for s in grammar.sources}
     fusion = list(first.fusion)
     if not grammar.fixed_fusion:
-        fusion = subtree_crossover(first.fusion, second.fusion, rng,
-                                   grammar.max_fusion_depth + grammar.max_regime_depth)
+        def fits(child: Tree) -> bool:
+            fusion_depth, condition_depth = fusion_shape(child)
+            return fusion_depth <= grammar.max_fusion_depth and condition_depth <= grammar.max_regime_depth
+
+        fusion = subtree_crossover(first.fusion, second.fusion, rng, 0, fits)
     return Individual(fusion, branches)
 
 

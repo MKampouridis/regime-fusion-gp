@@ -34,6 +34,19 @@ def test_levels_do_not_depend_on_later_dividends():
     pd.testing.assert_frame_equal(ta.indicators(after).iloc[early], ta.indicators(before).iloc[early])
 
 
+def test_levels_run_on_smoothly_across_a_split():
+    economic = 100 + np.cumsum(np.random.default_rng(2).normal(0, 1, 40))  # in post-split units
+    traded = np.where(np.arange(40) < 20, 2 * economic, economic)          # a 2-for-1 split on day 20
+    prices = pd.DataFrame({"traded_close": traded, "adj_close": economic, "adj_high": economic + 1,
+                           "adj_low": economic - 1}, index=DAYS)
+    out = ta.indicators(prices, windows=(5,))
+    level = out["moving_average_5"]
+    assert level.iloc[19] == pytest.approx(2 * economic[15:20].mean())    # in the first session's prices
+    assert level.iloc[20] == pytest.approx(2 * economic[16:21].mean())    # no fall by half on the split
+    before = ta.indicators(prices.iloc[:20], windows=(5,))                  # known before the split: unchanged
+    pd.testing.assert_frame_equal(before, out.iloc[:20])
+
+
 def test_no_lookahead():
     close = 50 * np.exp(np.cumsum(np.random.default_rng(1).normal(0, 0.02, 40)))
     check_no_lookahead(ta.indicators, frame(close), range(40))

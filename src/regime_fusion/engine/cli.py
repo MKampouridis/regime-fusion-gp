@@ -275,7 +275,7 @@ def run_all_command(args: argparse.Namespace) -> int:
             for done, future in enumerate(as_completed(futures), start=1):
                 try:
                     future.result()
-                except Exception as error:  # report and go on; the task stays unfinished
+                except (Exception, SystemExit) as error:  # report and go on; the task stays unfinished
                     failed += 1
                     log.error("task %d failed: %s", futures[future], error)
                 log.info("%s %s: %d of %d done", args.campaign, name, done, len(todo))

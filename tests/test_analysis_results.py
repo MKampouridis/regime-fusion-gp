@@ -275,14 +275,17 @@ def test_regime_breakdown_and_random_entry(monkeypatch, tmp_path):
     close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, len(days))))
     prices = pd.DataFrame({"adj_open": close, "adj_high": close * 1.01, "adj_low": close * 0.99,
                            "adj_close": close}, index=days)
-    runs = pd.DataFrame([{"rung": "A3", "stock": "S1", "test_year": 2019, "stage": 2, "run": r, "exit_days": 5,
+    runs = pd.DataFrame([{"rung": rung, "stock": "S1", "test_year": 2019, "stage": 2, "run": r, "exit_days": 5,
                           "exit_rate": 0.02, "evaluate_start": "2019-01-01", "evaluate_end": "2019-12-31",
                           "sharpe_10bps": 3.0 + r, "trades_10bps": 20.0, "signal": pack_signal([True])}
-                         for r in range(3)])
-    check = portfolio.random_entry_check(runs, "A3", 10, np.random.default_rng(3), draws=50,
+                         for rung in ("A3", "A2") for r in range(3)])
+    check = portfolio.random_entry_check(runs, "A3", 10, lambda stock, year: np.random.default_rng(3), draws=50,
                                          prices_of=lambda stock: prices)
     assert check.loc[0, "trades"] == 20 and check.loc[0, "sharpe"] == 4.0
     assert check.loc[0, "percentile"] > 0.9  # a Sharpe ratio of 4 beats almost every random entry
+    other = portfolio.random_entry_check(runs, "A2", 10, lambda stock, year: np.random.default_rng(3), draws=50,
+                                         prices_of=lambda stock: prices)
+    assert other.loc[0, "random_mean_sharpe"] == check.loc[0, "random_mean_sharpe"]   # the same random entries
 
 
 def test_gp_parameter_pilot_picks_the_cheapest_converged_setting():

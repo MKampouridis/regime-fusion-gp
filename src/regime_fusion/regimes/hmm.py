@@ -8,8 +8,12 @@ drawn from a generator of ``regime_fusion.seeds``, keeping the best likelihood.
 States are then ordered by the mean of the first feature, so that state 0 is,
 for example, the calmest when the first feature is a volatility.
 
-Rows with a missing value carry no information: the filter only moves the
-probabilities forward through the transition matrix on such days.
+A row's missing values count for nothing: with diagonal covariances the density
+of the values observed is exact, so a day without news still counts through its
+price inputs, and a row with no value carries no information (the filter only
+moves the probabilities forward through the transition matrix that day). A day
+so unlikely under every reachable state that its likelihoods underflow is
+treated in the same way.
 """
 
 from __future__ import annotations
@@ -50,8 +54,10 @@ def fit(x: np.ndarray, n_states: int, rng: np.random.Generator, *, restarts: int
     best = None
     for _ in range(restarts):
         model = _em(x, _initial(x, n_states, rng), floor, max_iter, tol)
-        if best is None or model.log_likelihood > best.log_likelihood:
+        if best is None or not np.isfinite(best.log_likelihood) or model.log_likelihood > best.log_likelihood:
             best = model
+    if not np.isfinite(best.log_likelihood):
+        raise ValueError("no EM start reached a finite likelihood")
     return _ordered(best)
 
 
@@ -82,9 +88,8 @@ def _log_emission(model: GaussianHMM, x: np.ndarray) -> np.ndarray:
 
 
 def _emission(model: GaussianHMM, x: np.ndarray) -> np.ndarray:
+    """Likelihoods of each row under each state, scaled by the row's largest (see the module notes)."""
     log_b = _log_emission(model, x)
-    missing = np.isnan(x).any(axis=1)
-    log_b[missing] = 0.0
     return np.exp(log_b - log_b.max(axis=1, keepdims=True))
 
 
@@ -109,11 +114,12 @@ def _em(x, model, floor, max_iter, tol) -> GaussianHMM:
         gamma /= gamma.sum(axis=1, keepdims=True)
         xi = (alpha[:-1, :, None] * model.transition[None] * (b[1:] * beta[1:])[:, None, :]
               / scale[1:, None, None]).sum(axis=0)
-        weights = gamma.sum(axis=0)
+        weights = np.maximum(gamma.sum(axis=0), 1e-300)  # a state no day belongs to: no division by zero
         means = (gamma.T @ x) / weights[:, None]
         variances = (gamma.T @ x ** 2) / weights[:, None] - means ** 2
-        model = GaussianHMM(gamma[0], xi / xi.sum(axis=1, keepdims=True), means,
-                            np.maximum(variances, floor), log_likelihood)
+        leaving = xi.sum(axis=1, keepdims=True)
+        transition = np.where(leaving > 0, xi / np.where(leaving > 0, leaving, 1.0), 1.0 / len(weights))
+        model = GaussianHMM(gamma[0], transition, means, np.maximum(variances, floor), log_likelihood)
     return GaussianHMM(model.start, model.transition, model.means, model.variances,
                        _forward(model, x)[3])
 
@@ -124,17 +130,23 @@ def _forward_pass(start, transition, b):
     n, k = b.shape
     alpha = np.empty((n, k))
     scale = np.empty(n)
+    prior = np.empty(k)
     for t in range(n):
         for j in range(k):
             if t == 0:
-                prior = start[j]
+                prior[j] = start[j]
             else:
-                prior = 0.0
+                prior[j] = 0.0
                 for i in range(k):
-                    prior += alpha[t - 1, i] * transition[i, j]
-            alpha[t, j] = prior * b[t, j]
-        scale[t] = alpha[t].sum()
-        alpha[t] /= scale[t]
+                    prior[j] += alpha[t - 1, i] * transition[i, j]
+            alpha[t, j] = prior[j] * b[t, j]
+        total = alpha[t].sum()
+        if total > 0.0:
+            scale[t] = total
+            alpha[t] /= total
+        else:  # the day's likelihood underflowed under every reachable state: it carries no information
+            scale[t] = 1e-300
+            alpha[t] = prior / prior.sum()
     return alpha, scale
 
 

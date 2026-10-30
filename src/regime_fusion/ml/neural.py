@@ -9,6 +9,8 @@ indicator values enter as 0, the middle of the scaled range.
 
 Runs are reproducible: PyTorch and the batch order are seeded from
 ``regime_fusion.seeds`` (through the run's seed), and PyTorch uses one thread.
+A training set with a single class gives a constant prediction, as for the
+other models (``regime_fusion.ml.models``).
 """
 
 from __future__ import annotations
@@ -66,6 +68,11 @@ class Gated:
         self.dropout, self.learning_rate, self.batch = float(dropout), float(learning_rate), int(batch)
 
     def fit(self, x: np.ndarray, y: np.ndarray, states: np.ndarray | None = None):
+        from regime_fusion.ml.models import Constant
+
+        self.constant = Constant(y) if len(np.unique(y)) < 2 else None
+        if self.constant is not None:
+            return self
         torch = _torch()
         torch.manual_seed(self.seed)
         rng = np.random.default_rng(self.seed)
@@ -87,6 +94,8 @@ class Gated:
         return self
 
     def predict(self, x: np.ndarray, states: np.ndarray | None = None) -> np.ndarray:
+        if self.constant is not None:
+            return self.constant.predict(x)
         torch = _torch()
         with torch.no_grad():
             logits = self.model(torch.tensor(np.nan_to_num(x), dtype=torch.float32))

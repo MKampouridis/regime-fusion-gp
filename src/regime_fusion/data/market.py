@@ -10,8 +10,9 @@ Index and fund bars go through ``regime_fusion.data.prices`` like any stock.
 
 The VIX is calculated until 16:15 New York time, a quarter of an hour after the
 stock market closes, so the VIX close of day t is not strictly available by the
-close of t. The interim table keeps each value on its own day. Whether features
-use the close of t or of t-1 is an open question (``docs/DECISIONS.md``).
+close of t. The interim table keeps each value on its own day; a feature built
+from it must use the close of t-1 (decided on 28 October 2026, ``docs/DECISIONS.md``).
+No feature uses the VIX yet.
 """
 
 from __future__ import annotations

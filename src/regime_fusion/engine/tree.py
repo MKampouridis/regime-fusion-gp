@@ -69,6 +69,30 @@ def depth(tree: Sequence[Node]) -> int:
     return deepest
 
 
+def fusion_shape(tree: Sequence[Node]) -> tuple[int, int]:
+    """(fusion depth, deepest regime condition) of a fusion tree: the edges from the root to its deepest
+    leaf through fusion nodes, and the depth of its deepest IF condition (0 without IF)."""
+    deepest = [0, 0]
+
+    def walk(i: int, level: int) -> int:
+        kind = tree[i][0]
+        if kind == LEAF:
+            deepest[0] = max(deepest[0], level)
+            return i + 1
+        i += 1
+        if kind == F_IF:
+            end = end_of(tree, i)
+            deepest[1] = max(deepest[1], depth(tree[i:end]))
+            i = end
+            return walk(walk(i, level + 1), level + 1)
+        for _ in range(ARITY[kind]):
+            i = walk(i, level + 1)
+        return i
+
+    walk(0, 0)
+    return deepest[0], deepest[1]
+
+
 @dataclass
 class Individual:
     fusion: Tree

@@ -72,6 +72,7 @@ def _simulate(signal, open_, high, low, close, days, rate, cost):
     reason = np.zeros(n, dtype=np.int64)
     trades = 0
     holding = False
+    marked = False  # whether a close has been seen since the entry
     start = 0
     target = 0.0
     last = 0.0  # value of the position at the last close, per share and net of the entry cost
@@ -79,7 +80,7 @@ def _simulate(signal, open_, high, low, close, days, rate, cost):
         if not holding:
             if day == 0 or not signal[day - 1] or np.isnan(open_[day]):
                 continue
-            holding, start = True, day
+            holding, marked, start = True, False, day
             p_in[trades] = open_[day]
             entry[trades] = day
             target = open_[day] * (1.0 + rate)
@@ -88,6 +89,7 @@ def _simulate(signal, open_, high, low, close, days, rate, cost):
         if np.isnan(close[day]):
             held[day] = True  # no bar: nothing happens, the return is zero
             continue
+        marked = True
         sell, kind = 0.0, 0
         if day > start and open_[day] >= target:
             sell, kind = open_[day], GAP
@@ -110,9 +112,13 @@ def _simulate(signal, open_, high, low, close, days, rate, cost):
             held[day] = True
     if holding:  # the last session had no bar: close at the last known price
         exit_[trades] = n - 1
-        p_out[trades] = last
         reason[trades] = END
-        daily[n - 1] = (1.0 + daily[n - 1]) * (1.0 - cost) - 1.0
+        if marked:
+            p_out[trades] = last
+            daily[n - 1] = (1.0 + daily[n - 1]) * (1.0 - cost) - 1.0
+        else:  # no close since the entry: sold at the entry price, both costs paid on the last day
+            p_out[trades] = p_in[trades]
+            daily[n - 1] = (1.0 - cost) / (1.0 + cost) - 1.0
         held[n - 1] = False
         trades += 1
     return daily, held, entry, exit_, p_in, p_out, reason, trades

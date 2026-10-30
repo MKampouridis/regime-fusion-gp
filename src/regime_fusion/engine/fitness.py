@@ -10,7 +10,9 @@ a Sharpe ratio (annualised, from daily returns, as the study's primary metric).
   code computes Sharpe ratios from per-trade returns; here they come from daily
   returns, like every metric of the study.
 * Lexicase-type selection uses *cases*: the annualised mean daily return of each
-  signal in each of ``blocks`` consecutive time blocks of the training period.
+  signal in each of ``blocks`` consecutive time blocks of the training period. A
+  signal with fewer than ``min_trades`` trades scores zero in every block, as it
+  does in the weighted sum, so a lucky trade or two cannot win a block.
 
 Results are cached by tree, so identical branches are backtested once.
 """
@@ -105,7 +107,8 @@ class Evaluator:
             weights.get(c, 0.0) * (stats[c][2] if stats[c][1] >= floor else 0.0) for c in components
         ))
         individual.stats = {c: {"sharpe": float(stats[c][2]), "trades": int(stats[c][1])} for c in components}
-        individual.stats["cases"] = np.concatenate([stats[c][3] for c in components])
+        individual.stats["cases"] = np.concatenate([stats[c][3] if stats[c][1] >= floor else np.zeros_like(stats[c][3])
+                                                    for c in components])
 
     def retain(self, population) -> None:
         keep = set()

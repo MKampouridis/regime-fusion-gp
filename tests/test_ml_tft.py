@@ -64,6 +64,7 @@ def test_the_pooled_model_runs_once_and_writes_a_record_per_stock(data_dir):
     config, settings = load_config(), models.load_settings()
     exits = {"XYZ": (1, 0.5), "ABC": (1, 0.5)}
     records = tft.run_tft(2019, 2, 0, ["XYZ", "ABC"], exits, SMALL, settings, config, campaign="t")
+    assert set(records["XYZ"]["indicators"]) == {"FA", "SA", "TA", "RG"}       # counted by type, as elsewhere
     assert set(records) == {"XYZ", "ABC"}
     for stock, record in records.items():
         assert record["evaluate"] == ["2019-01-01", "2019-12-31"] and record["rung"] == "ML-TFT"

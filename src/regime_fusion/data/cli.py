@@ -639,7 +639,7 @@ def gdelt_path(day: str, kind: str) -> Path:
 def gdelt_day_done(day: str, retry_failed: bool) -> bool:
     """Whether a day was extracted, with the current method (and, if asked, without failures)."""
     path = gdelt_path(day, "hourly")
-    if not path.exists():
+    if not path.exists() or not store.sidecar(path).exists():  # stopped between the file and its record
         return False
     summary = json.loads(store.sidecar(path).read_text())
     if summary.get("extraction") != gdelt.EXTRACTION:

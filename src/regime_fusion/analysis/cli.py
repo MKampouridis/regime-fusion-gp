@@ -32,7 +32,7 @@ from regime_fusion.analysis import pilot, portfolio, results
 from regime_fusion.ml.models import load_settings as load_benchmarks
 from regime_fusion.config import load_config
 from regime_fusion.data import store
-from regime_fusion.engine import tasks
+from regime_fusion.engine import metrics, tasks
 from regime_fusion.seeds import make_rng
 
 log = logging.getLogger("regime_fusion.analysis")
@@ -222,8 +222,8 @@ def portfolio_command(args: argparse.Namespace) -> int:
         runs = results.keep_stock_years(runs, shared)
     returns = portfolio.method_returns(runs, cost)
     benchmarks = [m for m in returns.columns if m.startswith(("RB-", "ML-"))]
-    benchmark = args.benchmark or (max(benchmarks, key=lambda m: returns[m].mean() / returns[m].std())
-                                   if benchmarks else None)
+    benchmark = args.benchmark or (max(benchmarks, key=lambda m: metrics.sharpe(returns[m].dropna()))
+                                   if benchmarks else None)  # a flat portfolio (never trades) counts as zero
     if benchmark is None:
         raise SystemExit("no benchmark in the campaign; pass --benchmark")
     candidates = [m for m in returns.columns if m not in benchmarks]
@@ -258,9 +258,11 @@ def random_command(args: argparse.Namespace) -> int:
     cost = config.primary_cost_bps_per_side if args.cost is None else args.cost
     runs = select(args, load_runs(args.campaign), args.methods)
     folder = output(args.campaign)
+    def rng_of(stock: str, year: int):  # seeds by stock-year, never by method (CLAUDE.md)
+        return make_rng(config.base_seed, "analysis", "random", stock, year)
+
     for method in args.methods:
-        rng = make_rng(config.base_seed, "analysis", "random", args.campaign, method)
-        table = portfolio.random_entry_check(runs, method, cost, rng, draws=args.draws)
+        table = portfolio.random_entry_check(runs, method, cost, rng_of, draws=args.draws)
         if table.empty:
             raise SystemExit(f"no stage-{args.stage} runs of {method}")
         table.to_csv(folder / f"random_entry.{method}.{cost:g}bps.stage{args.stage}.csv", index=False)

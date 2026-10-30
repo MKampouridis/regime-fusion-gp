@@ -35,15 +35,11 @@ def test_labels_are_the_trades_the_backtest_would_make():
         signal[t] = True
         trades = backtest(signal, prices, 5, 0.03, 10).trades
         assert trades["net_return"].iloc[0] == pytest.approx(outcome.iloc[t])
-    for t in range(len(prices) - 6, len(prices) - 1):  # near the end, some trades cannot finish
-        signal = np.zeros(len(prices), dtype=bool)
-        signal[t] = True
-        trade = backtest(signal, prices, 5, 0.03, 10).trades.iloc[0]
-        if trade["reason"] == "end":  # the backtest closes it on the last day; it has no label
-            assert np.isnan(outcome.iloc[t])
-        else:
-            assert trade["net_return"] == pytest.approx(outcome.iloc[t])
-    assert np.isnan(outcome.iloc[-1])
+    last = len(prices) - 1
+    signal = np.zeros(len(prices), dtype=bool)
+    signal[last - 5] = True                      # its time exit is the last day: it has a label
+    assert backtest(signal, prices, 5, 0.03, 10).trades["net_return"].iloc[0] == pytest.approx(outcome.iloc[last - 5])
+    assert outcome.iloc[last - 4:].isna().all()  # time exits after the last day: none, winners included
     assert np.isnan(outcome.iloc[49])  # the next session has no bar to buy at
 
 
@@ -55,6 +51,9 @@ def test_labels_by_hand():
     assert outcome.iloc[1] == pytest.approx(9.5 / 10.2 - 1)    # time exit at the close of day 2
     assert outcome.iloc[2] == pytest.approx(9.5 / 10 - 1)
     assert np.isnan(outcome.iloc[3]) and np.isnan(outcome.iloc[4])
+    rally = prices.copy()
+    rally.iloc[4, 1] = 11.0                      # the trade opened on day 4 would reach its target that day,
+    assert np.isnan(trade_returns(rally, 2, 0.05, 0).iloc[3])   # but a loser could not be told apart yet
 
 
 def test_models_learn_a_clear_pattern_and_regimes_split_the_data():
@@ -174,3 +173,9 @@ def test_a_model_that_saw_one_class_does_not_buy_every_day():
     assert ranked.tolist() == [False, True, True]
     constant = models.Constant(np.zeros(30))
     assert not decide(constant.predict(np.zeros((30, 2))), constant.predict(np.zeros((5, 2))), 0.5).any()
+    pytest.importorskip("torch")
+    from regime_fusion.ml.neural import Gated
+
+    x = np.random.default_rng(0).uniform(-1, 1, size=(60, 3))
+    losing = Gated(seed=1, columns=["fa:a", "ta:a", "rg:p_state0"], epochs=2).fit(x, np.zeros(60))
+    assert not decide(losing.predict(x), losing.predict(x[:5]), 0.7).any()   # the network too

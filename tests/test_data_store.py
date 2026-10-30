@@ -45,3 +45,20 @@ def test_a_failed_write_leaves_nothing_behind(tmp_path):
     with pytest.raises(Exception):
         write_parquet(tmp_path / "bad.parquet", unwritable)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_concurrent_writers_never_share_a_temporary_file(tmp_path, monkeypatch):
+    from regime_fusion import provenance
+    from regime_fusion.data import cli, gdelt
+
+    path = tmp_path / "results" / "x.json"
+    names = {provenance.temporary(path) for _ in range(50)}
+    assert len(names) == 50 and all(n.name.endswith(".part") and n.parent == path.parent for n in names)
+    monkeypatch.setenv("RFGP_DATA_DIR", str(tmp_path))
+    day = "20150301"
+    hourly = cli.gdelt_path(day, "hourly")
+    write_parquet(hourly, pd.DataFrame({"x": [1]}), extraction=gdelt.EXTRACTION)
+    assert cli.gdelt_day_done(day, retry_failed=False)
+    sidecar(hourly).unlink()                                   # stopped between the file and its record
+    assert not cli.gdelt_day_done(day, retry_failed=False)     # the day is done again, not a crash
+

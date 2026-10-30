@@ -77,6 +77,16 @@ def test_an_open_position_is_closed_at_the_end_and_a_last_day_signal_is_ignored(
     assert result.trades.iloc[0]["exit"] == DAYS[7]
 
 
+def test_a_last_session_without_a_close_ends_the_trade_at_the_last_known_price():
+    rows = FLAT[:7] + [(100, np.nan, np.nan, np.nan)]          # an open on the last session, but no close
+    for signal_day in (4, 6):                                  # bought earlier, or on that last session
+        result = backtest(signals(signal_day), bars(rows), 5, 0.05, 10)
+        trade = result.trades.iloc[0]
+        assert trade["exit_price"] == 100 and trade["reason"] == "end"
+        assert trade["net_return"] == pytest.approx(0.999 / 1.001 - 1)          # both costs, nothing else
+        assert (1 + result.daily).prod() - 1 == pytest.approx(trade["net_return"])
+
+
 def test_no_signal_no_trade():
     result = backtest(np.zeros(8, dtype=bool), bars(FLAT), days=5, rate=0.02, cost_bps=10)
     assert result.trades.empty and result.daily.eq(0).all()

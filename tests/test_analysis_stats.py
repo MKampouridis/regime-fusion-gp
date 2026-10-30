@@ -46,6 +46,15 @@ def test_conover_by_hand_and_for_perfectly_consistent_rankings():
     assert post.loc[("A", "B"), "p"] == 1.0 and post.loc[("A", "C"), "p"] == 0.0
 
 
+def test_a_strategy_that_never_trades_has_a_defined_deflated_sharpe():
+    flat = np.zeros(500)
+    assert stats.probabilistic_sharpe(flat) == pytest.approx(0.5)            # a Sharpe ratio of exactly zero
+    from scipy.stats import norm
+
+    expected = stats.expected_max_sharpe(10, 0.002)                             # zero minus the expected best
+    assert stats.deflated_sharpe(flat, 10, 0.002) == pytest.approx(norm.cdf(-expected * np.sqrt(499)))
+
+
 def test_deflated_sharpe_shrinks_with_the_number_of_trials():
     rng = np.random.default_rng(1)
     returns = rng.normal(0.001, 0.01, 1000)

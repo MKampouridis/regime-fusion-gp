@@ -81,6 +81,27 @@ def test_indicators_never_look_ahead():
     check_no_lookahead(compute, panel, range(0, len(DAYS), 7))
 
 
+def test_eps_runs_on_smoothly_across_a_split():
+    panel = make_panel()
+    splits = pd.Series({pd.Timestamp("2020-08-31"): 4.0})
+    price = pd.Series(np.where(DAYS < pd.Timestamp("2020-08-31"), 120.0, 30.0), index=DAYS)
+    table = fa.indicators(panel, price, splits)
+    eps = table["eps_diluted"]
+    assert eps[pd.Timestamp("2020-08-28")] == eps[pd.Timestamp("2020-08-31")] == 5.0   # per first-session share
+    assert table["price_earnings"][pd.Timestamp("2020-08-31")] == pytest.approx(30.0 * 40 / 50)  # unchanged
+
+
+def test_values_a_firm_stopped_filing_are_dropped():
+    panel = make_panel()
+    old = DAYS[0] - pd.Timedelta(days=fa.MAX_AGE_DAYS + 30)
+    panel["current_debt"], panel["current_debt_end"] = 20.0, old           # paid off, the tag no longer filed
+    panel["revenue_ttm"], panel["revenue_end"] = 999.0, old                # a bank that changed its tags
+    panel["net_interest_income_ttm"], panel["noninterest_income_ttm"] = 120.0, 80.0
+    panel["equity_end"] = DAYS[0] - pd.Timedelta(days=90)                  # renewed every quarter: kept
+    first = fa.indicators(panel, pd.Series(30.0, index=DAYS), pd.Series(dtype=float)).iloc[0]
+    assert first["debt_equity"] == 0.3 and first["revenue"] == 200.0 and first["return_on_equity"] == 0.5
+
+
 def test_fallbacks_for_banks_and_firms_without_operating_income():
     panel = make_panel()
     panel["revenue_ttm"] = np.nan

@@ -9,7 +9,10 @@ trade gains.
 A trade that would end after the last day given has no outcome, so labels are
 always computed on the training rows alone: the last trades of a training
 window, which would end in the validation or test period, are left out
-(purged) rather than peeking at it.
+(purged) rather than peeking at it. A trade is labelled only if its time exit
+falls within the rows given, even when it reaches its target earlier: keeping
+the early winners among the last trades would leave only gains there, since
+their losers end at the time exit, after the window.
 """
 
 from __future__ import annotations
@@ -34,8 +37,8 @@ def _trade_returns(open_, high, low, close, days, rate, cost):
     out = np.full(n, np.nan)
     for t in range(n - 1):
         start = t + 1
-        if np.isnan(open_[start]):
-            continue
+        if np.isnan(open_[start]) or start + days - 1 > n - 1:
+            continue  # no bar to buy at, or a time exit after the last row: no outcome either way
         target = open_[start] * (1.0 + rate)
         for day in range(start, n):
             if np.isnan(close[day]):

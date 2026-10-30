@@ -95,10 +95,15 @@ def expected_max_sharpe(n_trials: int, variance: float) -> float:
 
 
 def probabilistic_sharpe(returns, benchmark: float = 0.0) -> float:
-    """P(true per-period Sharpe ratio > benchmark) given the observed returns."""
+    """P(true per-period Sharpe ratio > benchmark) given the observed returns. Returns that never vary
+    (a strategy that never trades) have a Sharpe ratio of zero, with the skewness and kurtosis of a
+    normal distribution."""
     r = np.asarray(returns, dtype=float)
-    sr = r.mean() / r.std(ddof=1)
-    skew, kurt = stats.skew(r), stats.kurtosis(r, fisher=False)
+    if r.std(ddof=1) == 0:
+        sr, skew, kurt = 0.0, 0.0, 3.0
+    else:
+        sr = r.mean() / r.std(ddof=1)
+        skew, kurt = stats.skew(r), stats.kurtosis(r, fisher=False)
     denominator = np.sqrt(1 - skew * sr + (kurt - 1) / 4 * sr ** 2)
     return float(stats.norm.cdf((sr - benchmark) * np.sqrt(len(r) - 1) / denominator))
 

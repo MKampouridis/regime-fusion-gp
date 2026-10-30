@@ -92,7 +92,7 @@ def tests(returns: pd.DataFrame, benchmark: str, candidates: list[str], n_trials
     """
     complete = returns.dropna()
     differences = complete[candidates].sub(complete[benchmark], axis=0)
-    sharpes = complete.mean() / complete.std(ddof=1)
+    sharpes = pd.Series(stats._sharpes(complete.to_numpy()), index=complete.columns)  # zero for a flat portfolio
     trial_variance = float(sharpes.var(ddof=1)) if len(sharpes) > 1 else 0.0
     out: dict[str, object] = {
         "days": len(complete),
@@ -138,12 +138,16 @@ def by_regime(returns: pd.DataFrame, states: pd.Series) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index(["method", "state"])
 
 
-def random_entry_check(runs: pd.DataFrame, method: str, cost_bps: float, rng: np.random.Generator,
+def random_entry_check(runs: pd.DataFrame, method: str, cost_bps: float, rng_of: Callable[[str, int], np.random.Generator],
                        draws: int = 1000, prices_of: Callable[[str], pd.DataFrame] = stock_prices) -> pd.DataFrame:
-    """Per stock-year: the method's median Sharpe ratio and its percentile among random entries."""
+    """Per stock-year: the method's median Sharpe ratio and its percentile among random entries.
+
+    ``rng_of(stock, year)`` gives each stock-year its own stream, the same for every method, so two
+    methods with the same exit rule and number of trades meet the same random entries."""
     rows = []
     cost = f"{cost_bps:g}bps"
     for (stock, year), cell in runs[runs["rung"] == method].groupby(["stock", "test_year"]):
+        rng = rng_of(stock, int(year))
         first = cell.iloc[0]
         days = prices_of(stock).loc[str(first["evaluate_start"]):str(first["evaluate_end"])]
         trades = int(round(cell[f"trades_{cost}"].median()))
