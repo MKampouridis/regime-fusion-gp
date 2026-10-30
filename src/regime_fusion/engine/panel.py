@@ -27,9 +27,11 @@ For the robustness check, FinBERT headline sentiment from one source
 are then named ``sa:finbert_...``, and the source must cover every year of the
 window.
 
-A panel also lists the data it read (``Panel.inputs``): for each file, the
-sessions used and a digest of their values. Runs keep the list, so a campaign
-can tell when its runs did not all see the same data (``engine/tasks.py``).
+A panel also lists the data it read (``Panel.inputs``): for each file and
+each calendar year the run reads from it, a digest of the file's rows of that
+whole year. Runs keep the list, so a campaign can tell when its runs did not
+all see the same data (``engine/tasks.py``), even when their windows differ:
+runs whose windows share a year compare the same entries.
 """
 
 from __future__ import annotations
@@ -61,7 +63,7 @@ class Panel:
     prices: pd.DataFrame       # adjusted open, high, low, close
     train: pd.DatetimeIndex
     evaluate: pd.DatetimeIndex
-    inputs: dict[str, str] = field(default_factory=dict)  # "<file>@<first>..<last>" -> digest of those rows
+    inputs: dict[str, str] = field(default_factory=dict)  # "<file>@<year>" -> digest of that year's rows
 
     def names(self) -> dict[str, list[str]]:
         groups = {s: [] for s in (*SOURCES, "RG")}
@@ -89,20 +91,26 @@ def frame_digest(frame: pd.DataFrame) -> str:
     return digest.hexdigest()[:16]
 
 
-def input_entry(path: Path, rows: pd.DataFrame, root: Path | None = None) -> tuple[str, str]:
-    """(``<file>@<first session>..<last session>``, digest) for the rows of one file a run uses."""
+def input_entries(path: Path, table: pd.DataFrame, used: pd.DatetimeIndex, root: Path | None = None) -> dict[str, str]:
+    """``{<file>@<year>: digest}`` for each calendar year of the sessions ``used`` from a file.
+
+    The digest covers the file's rows of the whole year (``table`` is the whole file), not only the
+    sessions used, so every run that reads a year of a file records the same entry for the same
+    version of it, whatever its window.
+    """
     base = Path(root) if root is not None else store.data_dir()
     try:
         name = Path(path).relative_to(base).as_posix()
     except ValueError:
         name = Path(path).as_posix()
-    span = f"{rows.index[0].date()}..{rows.index[-1].date()}" if len(rows) else "none"
-    return f"{name}@{span}", frame_digest(rows)
+    index = pd.DatetimeIndex(table.index)
+    return {f"{name}@{year}": frame_digest(table.loc[index.year == year])
+            for year in sorted(set(pd.DatetimeIndex(used).year))}
 
 
-def price_entry(stock: str, rows: pd.DataFrame, root: Path | None = None) -> tuple[str, str]:
-    """``input_entry`` for rows of a stock's prices (``stock_prices``)."""
-    return input_entry(store.layer("interim", "prices", f"{stock}.parquet", root=root), rows, root)
+def price_entries(stock: str, prices: pd.DataFrame, used: pd.DatetimeIndex, root: Path | None = None) -> dict[str, str]:
+    """``input_entries`` for the sessions ``used`` of a stock's prices (``prices`` from ``stock_prices``)."""
+    return input_entries(store.layer("interim", "prices", f"{stock}.parquet", root=root), prices, used, root)
 
 
 def stock_prices(stock: str, root: Path | None = None) -> pd.DataFrame:
@@ -136,12 +144,11 @@ def load_panel(stock: str, train: DateRange, evaluate: DateRange, sources: tuple
     train_days = sessions[sessions <= pd.Timestamp(train.end)]
     evaluate_days = sessions[sessions >= pd.Timestamp(evaluate.start)]
 
-    inputs = dict([price_entry(stock, prices.loc[sessions], root), price_entry(stock, prices.loc[evaluate_days], root)])
+    inputs = price_entries(stock, prices, sessions, root)
 
     def read(path: Path) -> pd.DataFrame:
         table = pd.read_parquet(path)
-        key, digest = input_entry(path, table.reindex(sessions), root)
-        inputs[key] = digest
+        inputs.update(input_entries(path, table, sessions, root))
         return table
 
     frames = []

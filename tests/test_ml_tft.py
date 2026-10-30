@@ -10,7 +10,7 @@ from regime_fusion import provenance  # noqa: E402
 from regime_fusion.config import load_config  # noqa: E402
 from regime_fusion.data.store import DATA_DIR_ENV  # noqa: E402
 from regime_fusion.engine import cli, tasks  # noqa: E402
-from regime_fusion.engine.run import RunSpec, exits_path, result_path  # noqa: E402
+from regime_fusion.engine.run import FINGERPRINT_FORMAT, RunSpec, exits_path, result_path  # noqa: E402
 from regime_fusion.ml import models, tft  # noqa: E402
 from regime_fusion.windows import DateRange  # noqa: E402
 
@@ -90,11 +90,12 @@ def test_campaigns_give_the_pooled_model_one_task_for_all_stocks(data_dir, monke
         calls.append(run)
         for stock in stocks:
             spec = RunSpec(stock, year, run, stage, *exits[stock])
-            mark = {"config": config.digest(), "method": settings.method_digest(model.name), "inputs": {},
-                    "evaluation_prices": ""}
+            mark = {"format": FINGERPRINT_FORMAT, "config": config.digest(),
+                    "method": settings.method_digest(model.name), "inputs": {}, "evaluation_prices": ""}
+            measures = dict.fromkeys(tasks.MEASURES, 0.0)
             provenance.write(result_path(campaign, model.name, spec), {
-                **spec.__dict__, "rung": model.name, "fingerprint": mark,
-                "evaluation": {f"{c:g}bps": {} for c in config.costs_bps_per_side}})
+                **spec.__dict__, "rung": model.name, "fingerprint": mark, "signal": "AA==",
+                "evaluation": {f"{c:g}bps": measures for c in config.costs_bps_per_side}})
 
     monkeypatch.setattr("regime_fusion.ml.tft.run_tft", fake_tft)
     for stock in ("AAPL", "F"):

@@ -128,17 +128,20 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
     }
     if write:
         record["provenance"] = provenance.collect(config, rung_digest=rung.digest(), rung_spec=rung.spec,
-                                                  overrides=overrides or {})
+                                                  sources=list(sources or rung.sources), overrides=overrides or {})
         provenance.write(result_path(campaign, rung.name, spec), record)
     return record
+
+
+FINGERPRINT_FORMAT = 2  # 2: inputs keyed by file and year (1: by file and the sessions read)
 
 
 def fingerprint(config: StudyConfig, method: str, inputs: dict[str, str], evaluated: pd.DataFrame) -> dict[str, Any]:
     """What a result depends on: the configuration, the method's settings (``method``, a digest) and
     the data read (``panel.Panel.inputs``). ``evaluated`` holds the prices of the evaluation days; the
     analysis checks them before it rebuilds the run's daily returns."""
-    return {"config": config.digest(), "method": method, "inputs": dict(sorted(inputs.items())),
-            "evaluation_prices": frame_digest(evaluated)}
+    return {"format": FINGERPRINT_FORMAT, "config": config.digest(), "method": method,
+            "inputs": dict(sorted(inputs.items())), "evaluation_prices": frame_digest(evaluated)}
 
 
 def listening(individual, panel) -> dict[str, Any]:
@@ -208,6 +211,7 @@ def choose_exits(stock: str, test_year: int, rung: Rung, config: StudyConfig, gr
     best = max(scores, key=lambda s: (s["median_sharpe"], -s["days"]))
     choice = {"stock": stock, "test_year": test_year, "days": best["days"], "rate": best["rate"],
               "rung": rung.name, "scheme": config.windows.scheme, "candidates": scores}
-    provenance.write(exits_path(campaign, stock, test_year),
-                     {**choice, "provenance": provenance.collect(config, rung_digest=rung.digest())})
+    provenance.write(exits_path(campaign, stock, test_year), {**choice, "provenance": provenance.collect(
+        config, rung_digest=rung.digest(), method_digest=rung.digest(sources, overrides),
+        sources=list(sources or rung.sources), overrides=overrides or {})})
     return choice

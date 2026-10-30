@@ -137,14 +137,17 @@ def select(args: argparse.Namespace, runs: pd.DataFrame, methods: list[str]) -> 
 
 def trial_count(args: argparse.Namespace, methods: list[str]) -> dict[str, object]:
     """How many configurations count as trials for the Deflated Sharpe Ratio, and where from: the
-    distinct methods the plans of ``--trials-from`` list (docs/PROTOCOL.md, section 5)."""
+    distinct configurations the plans of ``--trials-from`` list (docs/PROTOCOL.md, section 5). A
+    configuration is a method's name with the digest of the settings its plan froze, so a method run
+    with other settings in another campaign counts again, and the same settings count once."""
     if args.trials:
         return {"count": args.trials, "from": "given (--trials)"}
     campaigns = args.trials_from or [args.campaign]
-    unplanned = [c for c in args.trials_from or [] if not tasks.plan_names(c)]
+    unplanned = [c for c in args.trials_from or [] if tasks.planned_runs(c).empty]
     if unplanned:
-        raise SystemExit(f"--trials-from: no plans for {unplanned}")
-    configurations = sorted({name for campaign in campaigns for name in tasks.planned_runs(campaign)["rung"]})
+        raise SystemExit(f"--trials-from: no plans of runs for {unplanned}")
+    configurations = sorted({name if digest is None else f"{name}@{digest}"
+                             for campaign in campaigns for name, digest in tasks.planned_methods(campaign)})
     if not configurations:
         log.warning("Deflated Sharpe: no plans list the configurations tried; counting the %d methods analysed",
                     len(methods))
@@ -176,6 +179,28 @@ def paired_comparisons(given: list[str] | None, methods: list[str]) -> list[tupl
     return pairs
 
 
+def default_methods(args: argparse.Namespace, runs: pd.DataFrame, option: str) -> list[str]:
+    """The methods to analyse when none are named: those the plans (or --plan) list for the stage, so
+    that a planned method without results stops the analysis instead of dropping out of it; when no
+    plan lists any, those with results. Methods planned on different stock-years (the FinBERT rungs
+    cover fewer) must be named with ``option``, so that they never shrink the others' units unseen."""
+    try:
+        planned = tasks.planned_runs(args.campaign, args.plan)
+    except FileNotFoundError as error:
+        raise SystemExit(str(error)) from None
+    planned = planned[planned["stage"] == args.stage]
+    if planned.empty:
+        return sorted(runs.loc[runs["stage"] == args.stage, "rung"].unique())
+    cells = {method: frozenset(map(tuple, group[results.KEYS].to_numpy().tolist()))
+             for method, group in planned.groupby("rung")}
+    if len(set(cells.values())) > 1:
+        widest = max(len(c) for c in cells.values())
+        fewer = sorted(m for m, c in cells.items() if len(c) < widest) or sorted(cells)
+        raise SystemExit(f"the planned methods cover different stock-years ({', '.join(f'{m}: {len(cells[m])}' for m in fewer)}"
+                         f", of {widest} at most); name the methods to analyse together with {option}")
+    return sorted(cells)
+
+
 def load_runs(campaign: str) -> pd.DataFrame:
     path = store.data_dir() / "results" / campaign / "runs.parquet"
     if not path.exists():
@@ -191,7 +216,7 @@ def output(campaign: str) -> Path:
 
 def compare_command(args: argparse.Namespace) -> int:
     runs = load_runs(args.campaign)
-    rungs = args.rungs or sorted(runs.loc[runs["stage"] == args.stage, "rung"].unique())
+    rungs = args.rungs or default_methods(args, runs, "--rungs")
     runs = select(args, runs, rungs)
     missing = sorted(set(rungs) - set(runs["rung"]))
     if missing:
@@ -236,28 +261,32 @@ def portfolio_command(args: argparse.Namespace) -> int:
     config = load_config()
     cost = config.primary_cost_bps_per_side if args.cost is None else args.cost
     runs = load_runs(args.campaign)
-    methods = args.methods or sorted(runs.loc[runs["stage"] == args.stage, "rung"].unique())
+    methods = args.methods or default_methods(args, runs, "--methods")
     runs = select(args, runs, methods)
     absent = sorted(set(methods) - set(runs["rung"]))
     if absent:
         raise SystemExit(f"no stage-{args.stage} runs for {absent}")
     pairs = paired_comparisons(args.pairs, methods)
     shared = results.common_stock_years(runs)
+    if shared.empty:
+        raise SystemExit(f"the methods analysed share no stock-year: {methods}")
     every = runs[results.KEYS].drop_duplicates()
     if len(shared) < len(every):
         fewest = runs.groupby("rung")[results.KEYS].apply(lambda g: len(g.drop_duplicates())).idxmin()
         log.warning("the methods cover different stock-years: the portfolios use the %d that all of them "
                     "cover, of %d (%s covers the fewest)", len(shared), len(every), fewest)
         runs = results.keep_stock_years(runs, shared)
+    if args.benchmark and args.benchmark not in methods:
+        raise SystemExit(f"--benchmark {args.benchmark} is not among the methods analysed")
     returns = portfolio.method_returns(runs, cost)
     benchmarks = [m for m in returns.columns if m.startswith(("RB-", "ML-"))]
     benchmark = args.benchmark or (max(benchmarks, key=lambda m: metrics.sharpe(returns[m].dropna()))
                                    if benchmarks else None)  # a flat portfolio (never trades) counts as zero
-    if benchmark is None:
-        raise SystemExit("no benchmark in the campaign; pass --benchmark")
-    candidates = [m for m in returns.columns if m not in benchmarks]
-    if not candidates:
-        raise SystemExit("no GP rung in the campaign to test against the benchmark")
+    candidates = [m for m in returns.columns if m not in benchmarks and m != benchmark]
+    if benchmark is None or not candidates:  # a FinBERT or expanding-window check: GP rungs alone
+        log.warning("no SPA test: %s", "no benchmark among the methods analysed (--benchmark names one)"
+                    if benchmark is None else "no GP rung to test against the benchmark")
+        benchmark, candidates = None, []
     rng = make_rng(config.base_seed, "analysis", "spa", args.campaign)
     trials = trial_count(args, list(returns.columns))
     outcome = portfolio.tests(returns, benchmark, candidates, int(trials["count"]), rng)
@@ -274,8 +303,13 @@ def portfolio_command(args: argparse.Namespace) -> int:
     (folder / f"portfolio_tests.{name}.json").write_text(json.dumps(outcome, indent=2, default=float) + "\n")
     log.info("%s at %g bps: annualised Sharpe of each portfolio %s", args.campaign, cost,
              outcome["annualised_sharpe"])
-    log.info("SPA against %s: p = %.4f; Deflated Sharpe: %s", benchmark, outcome["spa"]["p"],
+    if outcome["spa"]:
+        log.info("SPA against %s: p = %.4f", benchmark, outcome["spa"]["p"])
+    log.info("Deflated Sharpe (%d trials): %s", outcome["n_trials"],
              {k: round(v, 3) for k, v in outcome["deflated_sharpe"].items()})
+    if args.methods:
+        log.warning("Deflated Sharpe: the trials' variance comes from the %d portfolios analysed (--methods); "
+                    "the protocol's comes from all the campaign's methods", returns.shape[1])
     if args.stage == 2:
         years = sorted(int(y) for y in runs["test_year"].unique())
         schemes = set(runs["scheme"].dropna()) if "scheme" in runs else set()

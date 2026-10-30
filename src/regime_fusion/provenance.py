@@ -28,7 +28,7 @@ TRACKED_PACKAGES = (
 def git_state(repo: Path = REPO_ROOT) -> dict[str, Any]:
     """Commit and whether the working tree had uncommitted changes, when this process first asked:
     the code it runs, even if the files change while it works (and no git call per file written)."""
-    return dict(_git_state(repo))
+    return dict(_git_state(Path(repo).resolve()))
 
 
 @functools.lru_cache(maxsize=None)

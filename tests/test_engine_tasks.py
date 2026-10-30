@@ -9,7 +9,7 @@ from regime_fusion.config import load_config
 from regime_fusion.data.store import DATA_DIR_ENV
 from regime_fusion.engine import cli, tasks
 from regime_fusion.engine.rungs import load_rungs
-from regime_fusion.engine.run import exits_path, result_path
+from regime_fusion.engine.run import FINGERPRINT_FORMAT, exits_path, result_path
 
 
 @pytest.fixture
@@ -19,13 +19,15 @@ def config():
 
 def fake_result(spec, name, config, method, data="v1"):
     """A small result as a run writes it, fingerprint included (``data`` names the data's version)."""
-    evaluation = {f"{c:g}bps": {"sharpe": 0.5 + spec.run, "trades": 4.0} for c in config.costs_bps_per_side}
+    evaluation = {f"{c:g}bps": {"sharpe": 0.5 + spec.run, "annual_return": 0.1, "max_drawdown": -0.1,
+                                "cvar_95": -0.02, "trades": 4.0, "trades_per_year": 4.0}
+                  for c in config.costs_bps_per_side}
     inputs = {f"interim/prices/{spec.stock}.parquet@{spec.test_year}": data}
     return {**spec.__dict__, "rung": name, "fitness": 1.0, "seconds": 0.1, "model": "GT(x, 0.1)",
-            "evaluation": evaluation, "branches": {"TA": {"sharpe": 0.2, "trades": 3.0}},
+            "evaluation": evaluation, "signal": "AA==", "branches": {"TA": {"sharpe": 0.2, "trades": 3.0}},
             "selection_weights": {"FA": 0.2, "SA": 0.3, "TA": 0.5},     # as ML-TFT keeps them
-            "fingerprint": {"config": config.digest(), "method": method, "inputs": inputs,
-                            "evaluation_prices": data}}
+            "fingerprint": {"format": FINGERPRINT_FORMAT, "config": config.digest(), "method": method,
+                            "inputs": inputs, "evaluation_prices": data}}
 
 
 @pytest.fixture
@@ -85,6 +87,10 @@ def test_tasks_are_saved_once_and_resume_where_they_stopped(fake_engine, config)
     assert tasks.execute(exit_task, "c", config, rungs, development_only=False) == {"done": 0, "skipped": 1}
     one = tasks.RunSpec("AAPL", 2019, 1, 2, 10, 0.02)
     provenance.write(result_path("c", "A0", one), {"done": True})               # not a result: refused
+    with pytest.raises(ValueError, match="not a whole result"):
+        tasks.execute(loaded[0], "c", config, rungs, development_only=False)
+    other = fake_result(tasks.RunSpec("AAPL", 2019, 2, 2, 10, 0.02), "A0", config, rungs["A0"].digest())
+    provenance.write(result_path("c", "A0", one), other)                        # another run's result: refused
     with pytest.raises(ValueError, match="another run"):
         tasks.execute(loaded[0], "c", config, rungs, development_only=False)
     provenance.write(result_path("c", "A0", one), fake_result(one, "A0", config, rungs["A0"].digest()))
@@ -118,7 +124,7 @@ def test_a_campaign_refuses_results_made_under_other_settings_or_data(fake_engin
         cli.main(["collect", "--campaign", "c"])
     for broken in ({}, [], {**fake_result(spec, "A1", config, rungs["A1"].digest()), "fingerprint": {"config": "x"}}):
         provenance.write(result_path("c", "A1", spec), broken)
-        with pytest.raises(SystemExit, match="not a whole result"):
+        with pytest.raises(SystemExit, match="not a (whole )?result"):
             cli.main(["collect", "--campaign", "c"])
 
 
@@ -240,6 +246,36 @@ def test_a_pooled_run_checks_every_stocks_result_before_it_runs(fake_engine, con
     with pytest.raises(ValueError, match="other settings of ML-TFT"):
         tasks.execute(task, "c", config, {}, development_only=True)
     assert calls == []                                                # nothing run, so nothing overwritten
+
+
+def test_fingerprints_of_overlapping_windows_compare_the_years_they_share(tmp_path):
+    from regime_fusion.engine.panel import input_entries
+
+    days = pd.bdate_range("2015-01-01", "2019-12-31")
+    table = pd.DataFrame({"x": range(len(days))}, index=days, dtype=float)
+    path = tmp_path / "processed" / "ta" / "S.parquet"
+    early = input_entries(path, table, days[days.year <= 2018], tmp_path)      # one test year's window
+    late = input_entries(path, table, days[days.year >= 2016], tmp_path)       # the next year's
+    shared = sorted(set(early) & set(late))
+    assert shared == [f"processed/ta/S.parquet@{y}" for y in (2016, 2017, 2018)]
+    assert all(early[k] == late[k] for k in shared)
+    rebuilt = table.copy()
+    rebuilt.loc["2017-06-01", "x"] = -1.0                                      # the file changes in between
+    again = input_entries(path, rebuilt, days[days.year >= 2016], tmp_path)
+    assert [k for k in shared if again[k] != early[k]] == ["processed/ta/S.parquet@2017"]   # so collect sees it
+
+
+def test_a_whole_result_is_the_same_for_resuming_and_collecting(config):
+    spec = tasks.RunSpec("AAPL", 2019, 0, 2, 10, 0.02)
+    whole = fake_result(spec, "A0", config, "m")
+    costs = config.costs_bps_per_side
+    assert tasks.record_problem(whole, costs) is None
+    empty = {**whole, "evaluation": {f"{c:g}bps": {} for c in costs}}
+    assert "lacks the evaluation" in tasks.record_problem(empty, costs)
+    assert tasks.record_problem({**whole, "signal": None}, costs) == "it has no stored signal"
+    assert tasks.record_problem({**whole, "rung": "RB-BH", "signal": None}, costs) is None   # holds, no signal
+    older = {**whole, "fingerprint": {k: v for k, v in whole["fingerprint"].items() if k != "format"}}
+    assert "not a whole result" in tasks.record_problem(older, costs)
 
 
 def test_run_all_does_every_unfinished_task(fake_engine):

@@ -89,6 +89,27 @@ def test_the_filter_uses_what_a_day_has_and_survives_an_impossible_day():
     assert np.isfinite(refit.means).all() and np.isfinite(refit.log_likelihood)
 
 
+def test_a_broken_em_start_never_wins(monkeypatch):
+    model = hmm.GaussianHMM(np.array([0.5, 0.5]), np.eye(2), np.array([[np.nan], [0.0]]), np.ones((2, 1)), 0.0)
+    log_b = hmm._log_emission(model, np.array([[1.0], [np.nan]]))
+    assert np.isnan(log_b[0, 0]) and np.isfinite(log_b[0, 1])                 # a missing parameter: no likelihood
+    assert (log_b[1] == 0).all()                                               # a missing observation: no evidence
+    x, _ = simulate(400, seed=4)
+    real_em = hmm._em
+    calls = []
+
+    def first_start_broken(*args):
+        fitted = real_em(*args)
+        calls.append(fitted)
+        if len(calls) == 1:  # NaN means with a likelihood of 0, above every real start's
+            return hmm.GaussianHMM(fitted.start, fitted.transition, fitted.means * np.nan, fitted.variances, 0.0)
+        return fitted
+
+    monkeypatch.setattr(hmm, "_em", first_start_broken)
+    best = hmm.fit(x, 2, np.random.default_rng(0), restarts=3)
+    assert np.isfinite(best.means).all() and best.log_likelihood < 0
+
+
 def test_fits_are_reproducible_and_need_enough_data():
     x, _ = simulate(500, seed=6)
     a = hmm.fit(x, 2, np.random.default_rng(7), restarts=2)

@@ -174,6 +174,15 @@ def test_portfolio_returns_are_rebuilt_from_the_stored_signals(monkeypatch, tmp_
     for pairs, message in ((["A1-A0"], "not FIRST:SECOND"), (["A5:A0"], "no portfolio for")):
         with pytest.raises(SystemExit, match=message):
             cli.main(["portfolio", "--campaign", "main", "--pairs", *pairs])
+    gp_only = ["portfolio", "--campaign", "main", "--methods", "A0", "A1"]         # as for a FinBERT check
+    assert cli.main(gp_only) == 0
+    saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
+    assert saved["spa"] is None and saved["sharpe_difference"][0]["first"] == "A1"   # no SPA; the paired test
+    assert cli.main([*gp_only, "--benchmark", "A0"]) == 0
+    saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
+    assert saved["spa"]["candidates"] == ["A1"]                                 # never against itself
+    with pytest.raises(SystemExit, match="not among the methods"):
+        cli.main([*gp_only, "--benchmark", "RB-BH"])
 
 
 def test_analyses_check_the_runs_against_the_plans(monkeypatch, tmp_path):
@@ -237,7 +246,10 @@ def test_portfolios_share_their_stock_years_count_trials_and_check_prices(monkey
                     development_only=True, stocks=["S1"])
     folder = tmp_path / "results" / "main"
     runs.to_parquet(folder / "runs.parquet")
-    assert cli.main(["portfolio", "--campaign", "main"]) == 0
+    with pytest.raises(SystemExit, match="cover different stock-years"):     # never shrunk unseen
+        cli.main(["portfolio", "--campaign", "main"])
+    portfolio_of = ["portfolio", "--campaign", "main", "--methods", "A0", "A1", "RB-BH"]
+    assert cli.main(portfolio_of) == 0
     saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
     assert (saved["stock_years"], saved["stock_years_left_out"]) == (3, 1)    # S2 2020 left out for all
     assert saved["trials"]["count"] == 3 and saved["n_trials"] == 3           # this campaign's plans only
@@ -245,16 +257,58 @@ def test_portfolios_share_their_stock_years_count_trials_and_check_prices(monkey
     alone = portfolio.run_returns(runs[(runs.rung == "A0") & (runs.stock == "S1") & (runs.test_year == 2020)].iloc[0],
                                   portfolio.stock_prices("S1"), 10)
     assert returns.loc["2020", "A0"].to_numpy() == pytest.approx(alone.to_numpy())
-    assert cli.main(["portfolio", "--campaign", "main", "--trials-from", "pilot", "main"]) == 0
+    assert cli.main([*portfolio_of, "--trials-from", "pilot", "main"]) == 0
     saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
     assert saved["trials"]["configurations"] == ["A0", "A1", "A1-rank", "RB-BH"] and saved["n_trials"] == 4
-    with pytest.raises(SystemExit, match="no plans for"):                     # a misspelt campaign
-        cli.main(["portfolio", "--campaign", "main", "--trials-from", "pilott", "main"])
+    with pytest.raises(SystemExit, match="no plans of runs for"):             # a misspelt campaign
+        cli.main([*portfolio_of, "--trials-from", "pilott", "main"])
     changed = pd.read_parquet(tmp_path / "interim" / "prices" / "S1.parquet")
     changed.loc["2019-06-03", "adj_close"] *= 1.01                             # the data changed after the runs
     changed.to_parquet(tmp_path / "interim" / "prices" / "S1.parquet")
     with pytest.raises(ValueError, match="have changed since the run"):
-        cli.main(["portfolio", "--campaign", "main"])
+        cli.main(portfolio_of)
+
+
+def test_the_default_analysis_takes_its_methods_from_the_plans(monkeypatch, tmp_path):
+    from regime_fusion.engine import tasks
+
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    stocks, years = ["S1", "S2", "S3", "S4"], [2019, 2020, 2021]
+    plan = [tasks.Task("runs", s, y, r, 2, tuple(range(5))) for r in ("A", "B", "C", "D") for y in years for s in stocks]
+    tasks.save_plan("main", "runs", plan, development_only=False, stocks=stocks)
+    folder = tmp_path / "results" / "main"
+    fake_runs().to_parquet(folder / "runs.parquet")                              # D's jobs all failed
+    with pytest.raises(SystemExit, match="planned runs have no result"):         # D does not drop out unseen
+        cli.main(["compare", "--campaign", "main"])
+    with pytest.raises(SystemExit, match="no stage-2 runs for"):                 # not even with --incomplete
+        cli.main(["compare", "--campaign", "main", "--incomplete"])
+    assert cli.main(["compare", "--campaign", "main", "--rungs", "A", "B", "C"]) == 0   # named: fine
+
+
+def test_trials_count_configurations_by_their_settings(monkeypatch, tmp_path):
+    import argparse
+
+    from regime_fusion.engine import tasks
+
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+
+    def planned(campaign, digest, kind="runs"):
+        task = [tasks.Task(kind, "S1", 2019, "A0", 1, (0,))]
+        tasks.save_plan(campaign, kind, task, development_only=True, stocks=["S1"],
+                        frozen={"config": "c", "methods": {"A0": digest}})
+
+    planned("pilot", "d1")
+    planned("main", "d1")
+    planned("robust", "d2")                                                    # A0 with other settings
+    planned("exits-only", "d1", kind="exits")
+
+    def count(*campaigns):
+        return cli.trial_count(argparse.Namespace(trials=None, trials_from=list(campaigns), campaign="main"), [])
+
+    assert count("pilot", "main")["count"] == 1                                 # the same settings: one trial
+    assert count("pilot", "main", "robust")["configurations"] == ["A0@d1", "A0@d2"]
+    with pytest.raises(SystemExit, match="no plans of runs for"):
+        count("pilot", "exits-only")
 
 
 def test_trust_map_averages_listening_by_regime():

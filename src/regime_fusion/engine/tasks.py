@@ -26,11 +26,12 @@ settings and data:
 * a plan freezes the digests of the study configuration, of each method's
   settings and of the exit grid (``manifest``), and every task checks them
   before it runs;
-* a result already there is skipped only if it is whole and was made under the
-  current settings (``finished_result``); anything else stops the task;
+* a result already there is skipped only if it is whole (``record_problem``, the
+  same rule as ``collect``'s) and was made under the current settings
+  (``finished_result``); anything else stops the task;
 * ``collect`` refuses a campaign whose results disagree on the configuration, on
-  a method's settings or on the data of any file and sessions they read (their
-  fingerprints, ``engine/run.py``).
+  a method's settings or on the data of any file and year they read (their
+  fingerprints, ``engine/run.py`` and ``engine/panel.py``).
 
 A changed setting or new data therefore need a campaign of their own.
 
@@ -51,6 +52,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import functools
 import json
 import logging
 from collections import defaultdict
@@ -65,12 +67,13 @@ from regime_fusion.config import StudyConfig
 from regime_fusion.data import store
 from regime_fusion.engine.panel import finbert_years
 from regime_fusion.engine.rungs import Rung, exit_grid, finbert_source
-from regime_fusion.engine.run import RunSpec, choose_exits, exits_path, result_path, run
+from regime_fusion.engine.run import FINGERPRINT_FORMAT, RunSpec, choose_exits, exits_path, result_path, run
 from regime_fusion.ml.models import load_settings as load_benchmarks
 from regime_fusion.windows import DateRange, walk_forward
 
 KINDS = ("exits", "runs")
-FINGERPRINT = {"config", "method", "inputs", "evaluation_prices"}  # what every result's fingerprint holds
+FINGERPRINT = {"format", "config", "method", "inputs", "evaluation_prices"}  # what every result's fingerprint holds
+MEASURES = {"sharpe", "annual_return", "max_drawdown", "cvar_95", "trades", "trades_per_year"}  # read by the analysis
 log = logging.getLogger("regime_fusion.engine")
 
 
@@ -237,19 +240,43 @@ def result_problem(path: Path, name: str, spec: RunSpec, config: StudyConfig, me
         record = json.loads(path.read_text())
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return "not a readable result"
-    if not isinstance(record, dict):
-        return "not a result"
+    problem = record_problem(record, config.costs_bps_per_side)
+    if problem:
+        return problem
     wrong = sorted(key for key, value in {"rung": name, **spec.__dict__}.items() if record.get(key) != value)
     if wrong:
         return f"it is the result of another run ({', '.join(wrong)} differ)"
-    if not {f"{c:g}bps" for c in config.costs_bps_per_side} <= set(record.get("evaluation") or {}):
-        return "it lacks the evaluation at some cost"
-    mark = record.get("fingerprint") or {}
+    mark = record["fingerprint"]
     if mark.get("config") != config.digest():
         return "it was made under another study configuration, or before results carried one"
     if mark.get("method") != method:
         return f"it was made with other settings of {name}"
     return None
+
+
+def record_problem(record: Any, costs) -> str | None:
+    """Why a result is not whole (None when it is): the same rule for resuming a task and for collecting
+    a campaign. A whole result has a fingerprint of the current format, every measure the analysis
+    reads at every cost, and the buy signal that rebuilds its daily returns (buy-and-hold has none)."""
+    if not isinstance(record, dict):
+        return "not a result"
+    mark = record.get("fingerprint")
+    if not isinstance(mark, dict) or not FINGERPRINT <= set(mark) or mark["format"] != FINGERPRINT_FORMAT:
+        return "not a whole result, or written before results carried this kind of fingerprint"
+    evaluation = record.get("evaluation")
+    for cost in costs:
+        measures = evaluation.get(f"{cost:g}bps") if isinstance(evaluation, dict) else None
+        if not isinstance(measures, dict) or not all(isinstance(measures.get(m), (int, float)) for m in MEASURES):
+            return f"it lacks the evaluation at {cost:g} bps"
+    if not isinstance(record.get("signal"), str) and record.get("rung") not in buy_and_hold_methods():
+        return "it has no stored signal"
+    return None
+
+
+@functools.lru_cache(maxsize=1)
+def buy_and_hold_methods() -> frozenset[str]:
+    """The benchmarks that hold from the first day to the last, so store no buy signal."""
+    return frozenset(name for name, rule in load_benchmarks().rules.items() if rule.kind == "buy_and_hold")
 
 
 def check_roles(stocks: list[str]) -> None:
@@ -338,6 +365,18 @@ def plan_scheme(campaign: str, name: str) -> str:
 def plan_stocks(campaign: str, name: str) -> list[str]:
     """The stocks of a plan (those a pooled task covers)."""
     return list(json.loads(plan_path(campaign, name).read_text())["stocks"])
+
+
+def planned_methods(campaign: str) -> set[tuple[str, str | None]]:
+    """The methods a campaign's plans of runs list, each with the digest of the settings its plan froze
+    (None for a plan made before plans froze them)."""
+    out = set()
+    for plan in plan_names(campaign):
+        record = json.loads(plan_path(campaign, plan).read_text())
+        if record["kind"] == "runs":
+            frozen = (record.get("manifest") or {}).get("methods") or {}
+            out |= {(task["rung"], frozen.get(task["rung"])) for task in record["tasks"]}
+    return out
 
 
 def planned_runs(campaign: str, name: str | None = None) -> pd.DataFrame:
@@ -480,7 +519,7 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
     """One row per run of the campaign: its settings, fitness and evaluation measures.
 
     Refuses a campaign whose results are not all whole and made under one study configuration, one
-    version of each method's settings and one version of the data of each file and sessions read.
+    version of each method's settings and one version of the data of each file and year read.
     """
     root = store.data_dir() / "results" / campaign
     rows, problems, commits = [], [], set()
@@ -491,10 +530,11 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
         except (UnicodeDecodeError, json.JSONDecodeError):
             problems.append(f"{path}: not a readable result")
             continue
-        mark = record.get("fingerprint") if isinstance(record, dict) else None
-        if not isinstance(mark, dict) or not FINGERPRINT <= set(mark) or "evaluation" not in record:
-            problems.append(f"{path}: not a whole result, or written before results carried fingerprints")
+        problem = record_problem(record, costs)
+        if problem:
+            problems.append(f"{path}: {problem}")
             continue
+        mark = record["fingerprint"]
         configs[mark["config"]].add(str(record.get("rung")))
         methods[record.get("rung")].add(mark["method"])
         for key, digest in mark["inputs"].items():

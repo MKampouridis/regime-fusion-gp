@@ -8,7 +8,8 @@ from regime_fusion.config import load_config
 from regime_fusion.engine import cli
 from regime_fusion.engine.panel import frame_digest, load_panel, scale
 from regime_fusion.engine.rungs import finbert_source, load_rungs
-from regime_fusion.engine.run import RunSpec, choose_exits, result_path, run, unpack_signal
+from regime_fusion.engine.run import (FINGERPRINT_FORMAT, RunSpec, choose_exits, exits_path, result_path, run,
+                                      unpack_signal)
 from regime_fusion.engine.tree import from_record, signals
 from regime_fusion.windows import walk_forward
 from regime_fusion.data import store
@@ -83,9 +84,12 @@ def test_runs_are_reproducible_and_written_with_provenance(data_dir):
     assert mark["method"] != rungs["A0"].digest()                # overridden settings are other settings
     window = next(w for w in walk_forward(config) if w.test_year == 2019)
     first_day = pd.read_parquet(data_dir / "interim/prices/XYZ.parquet").loc[str(window.final_train.start):].index[0]
-    span = f"{first_day.date()}..2019-12-31"
-    assert set(mark["inputs"]) == {f"interim/prices/XYZ.parquet@{span}", "interim/prices/XYZ.parquet@2019-01-01..2019-12-31",
-                                   *(f"processed/{k}/XYZ.parquet@{span}" for k in ("fa", "sa", "ta"))}
+    years = range(first_day.year, 2020)                          # every year the run reads, whole
+    assert set(mark["inputs"]) == {f"{name}@{year}" for year in years for name in (
+        "interim/prices/XYZ.parquet", *(f"processed/{k}/XYZ.parquet" for k in ("fa", "sa", "ta")))}
+    ta = pd.read_parquet(data_dir / "processed/ta/XYZ.parquet")
+    assert mark["inputs"]["processed/ta/XYZ.parquet@2017"] == frame_digest(ta.loc["2017"])
+    assert mark["format"] == FINGERPRINT_FORMAT
     panel = load_panel("XYZ", window.final_train, window.test, ("FA", "SA", "TA"))
     assert mark["evaluation_prices"] == frame_digest(panel.prices.loc[panel.evaluate])
     assert panel.inputs == mark["inputs"]
@@ -110,6 +114,8 @@ def test_exit_settings_are_chosen_on_the_validation_year(data_dir):
     choice = choose_exits("XYZ", 2019, rungs["A0"], config, grid, campaign="test", overrides=SMALL)
     assert (choice["days"], choice["rate"]) in {(5, 0.02), (10, 0.02)}
     assert len(choice["candidates"]) == 2
+    made = json.loads(exits_path("test", "XYZ", 2019).read_text())["provenance"]
+    assert made["overrides"] == SMALL and made["method_digest"] == rungs["A0"].digest(None, SMALL)
     assert cli.main(["run", "--rung", "A0", "--stock", "XYZ", "--test-year", "2019", "--campaign", "test",
                      "--population", "20", "--generations", "2"]) == 0
 

@@ -36,7 +36,7 @@ from regime_fusion.config import StudyConfig
 from regime_fusion.engine import metrics
 from regime_fusion.engine.backtest import Result, _simulate, backtest
 from regime_fusion.engine.fitness import sharpe as fast_sharpe
-from regime_fusion.engine.panel import price_entry, stock_prices
+from regime_fusion.engine.panel import price_entries, stock_prices
 from regime_fusion.engine.run import RunSpec, fingerprint, pack_signal, result_path
 from regime_fusion.windows import walk_forward
 
@@ -176,8 +176,8 @@ def run_rule(spec: RunSpec, rule, settings, config: StudyConfig, *, campaign: st
         "evaluation": evaluation,
         "signal": None if signal is None else pack_signal(signal),  # buy-and-hold has no signal
         "branches": {},
-        "fingerprint": fingerprint(config, settings.method_digest(rule.name), dict(
-            [price_entry(spec.stock, prices.loc[:str(evaluated_on.end)]), price_entry(spec.stock, later)]), later),
+        "fingerprint": fingerprint(config, settings.method_digest(rule.name),
+                                   price_entries(spec.stock, prices, prices.loc[:str(evaluated_on.end)].index), later),
         "seconds": round(time.perf_counter() - started, 2),
     }
     if write:

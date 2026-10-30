@@ -55,11 +55,17 @@ def fit(x: np.ndarray, n_states: int, rng: np.random.Generator, *, restarts: int
     best = None
     for _ in range(restarts):
         model = _em(x, _initial(x, n_states, rng), floor, max_iter, tol)
-        if best is None or not np.isfinite(best.log_likelihood) or model.log_likelihood > best.log_likelihood:
+        if _finite(model) and (best is None or model.log_likelihood > best.log_likelihood):
             best = model
-    if not np.isfinite(best.log_likelihood):
-        raise ValueError("no EM start reached a finite likelihood")
+    if best is None:
+        raise ValueError("no EM start reached a finite likelihood with finite parameters")
     return _ordered(best)
+
+
+def _finite(model: GaussianHMM) -> bool:
+    """Whether a fitted model's likelihood and every one of its parameters are finite."""
+    arrays = (model.start, model.transition, model.means, model.variances)
+    return bool(np.isfinite(model.log_likelihood) and all(np.isfinite(a).all() for a in arrays))
 
 
 def filter(model: GaussianHMM, x: np.ndarray) -> np.ndarray:  # noqa: A001 (the standard name)
@@ -85,7 +91,8 @@ def _initial(x: np.ndarray, k: int, rng: np.random.Generator) -> GaussianHMM:
 def _log_emission(model: GaussianHMM, x: np.ndarray) -> np.ndarray:
     diff = x[:, None, :] - model.means[None, :, :]
     terms = np.log(2 * np.pi * model.variances)[None] + diff ** 2 / model.variances[None]
-    return -0.5 * np.nansum(terms, axis=2)  # missing features contribute nothing
+    # A missing feature contributes nothing; a model with missing parameters gives NaN, never a likelihood.
+    return -0.5 * np.where(np.isnan(x)[:, None, :], 0.0, terms).sum(axis=2)
 
 
 def _emission(model: GaussianHMM, x: np.ndarray) -> np.ndarray:

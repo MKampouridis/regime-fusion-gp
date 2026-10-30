@@ -36,7 +36,7 @@ from regime_fusion.engine import benchmarks
 from regime_fusion.engine.benchmarks import buy_and_hold
 from regime_fusion.engine.panel import frame_digest, stock_prices
 from regime_fusion.engine.run import unpack_signal
-from regime_fusion.ml.models import load_settings as load_benchmarks
+from regime_fusion.engine.tasks import buy_and_hold_methods
 
 
 def run_returns(row: pd.Series, prices: pd.DataFrame, cost_bps: float) -> pd.Series:
@@ -54,11 +54,6 @@ def run_returns(row: pd.Series, prices: pd.DataFrame, cost_bps: float) -> pd.Ser
         raise ValueError(f"{row['rung']} {row['stock']} {row['test_year']} run {row['run']}: "
                          f"{len(signal)} signal days for {len(days)} sessions")
     return backtest(signal, days, int(row["exit_days"]), float(row["exit_rate"]), cost_bps).daily
-
-
-def buy_and_hold_methods() -> set[str]:
-    rules = load_benchmarks().rules
-    return {name for name, rule in rules.items() if rule.kind == "buy_and_hold"}
 
 
 def method_returns(runs: pd.DataFrame, cost_bps: float,
@@ -82,23 +77,27 @@ def method_returns(runs: pd.DataFrame, cost_bps: float,
     return pd.DataFrame(columns).sort_index()
 
 
-def tests(returns: pd.DataFrame, benchmark: str, candidates: list[str], n_trials: int,
+def tests(returns: pd.DataFrame, benchmark: str | None, candidates: list[str], n_trials: int,
           rng: np.random.Generator, bootstraps: int = 1000, blocks: int = 16) -> dict[str, object]:
-    """SPA of ``candidates`` against ``benchmark``; Deflated Sharpe of every method; PBO of all methods.
+    """SPA of ``candidates`` against ``benchmark`` (none without a benchmark); Deflated Sharpe of every
+    method; PBO of all methods.
 
     The Deflated Sharpe Ratio needs the number of trials and the variance of their Sharpe ratios.
     The variance is that of the daily Sharpe ratios of the portfolios given, as a stand-in for all
     the trials (the pilot's were evaluated on another year); both are recorded with the results.
     """
     complete = returns.dropna()
-    differences = complete[candidates].sub(complete[benchmark], axis=0)
     sharpes = pd.Series(stats.sharpe_ratios(complete.to_numpy()), index=complete.columns)  # zero for a flat portfolio
     trial_variance = float(sharpes.var(ddof=1)) if len(sharpes) > 1 else 0.0
+    spa = None
+    if benchmark is not None and candidates:
+        differences = complete[candidates].sub(complete[benchmark], axis=0)
+        spa = {"benchmark": benchmark, "candidates": candidates,
+               **stats.spa(differences.to_numpy(), rng, bootstraps=bootstraps)}
     out: dict[str, object] = {
         "days": len(complete),
         "annualised_sharpe": (sharpes * np.sqrt(252)).round(4).to_dict(),
-        "spa": {"benchmark": benchmark, "candidates": candidates,
-                **stats.spa(differences.to_numpy(), rng, bootstraps=bootstraps)},
+        "spa": spa,
         "deflated_sharpe": {method: stats.deflated_sharpe(complete[method].to_numpy(), n_trials, trial_variance)
                             for method in complete.columns},
         "n_trials": n_trials,
