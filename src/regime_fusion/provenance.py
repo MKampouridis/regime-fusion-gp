@@ -35,9 +35,12 @@ def git_state(repo: Path = REPO_ROOT) -> dict[str, Any]:
 def _git_state(repo: Path) -> dict[str, Any]:
 
     def run(*args: str) -> str | None:
+        # GIT_OPTIONAL_LOCKS=0: `git status` then never takes the index lock, so many jobs starting at
+        # once do not contend for it, and one stopped at the time limit cannot leave the lock behind.
         try:
             result = subprocess.run(
-                ["git", *args], cwd=repo, capture_output=True, text=True, check=True, timeout=10
+                ["git", *args], cwd=repo, capture_output=True, text=True, check=True, timeout=10,
+                env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
             )
         except (OSError, subprocess.SubprocessError):
             return None
