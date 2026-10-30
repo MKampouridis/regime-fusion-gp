@@ -97,8 +97,8 @@ python -m regime_fusion.engine collect --campaign pilot     # results/pilot/runs
 
 `python -m regime_fusion.analysis` reads a campaign's `runs.parquet` and writes tables to `results/<campaign>/analysis/`, following [`PROTOCOL.md`](PROTOCOL.md):
 
-- `compare`: per-stock-year medians, the paired Wilcoxon-Holm tests with bootstrap intervals (`--confirmatory` for the protocol's six), Friedman and Conover, best-fitness runs, results by year, a summary of secondary measures, and the trust map.
-- `portfolio`: each method's equal-weight portfolio, rebuilt from the runs' stored buy signals; Hansen's SPA against the best benchmark, Deflated Sharpe Ratios, PBO, and results by regime.
+- `compare`: per-stock-year medians; the paired Wilcoxon-Holm tests, the per-stock view (`--confirmatory` for the protocol's six), each with a bootstrap interval and a check clustered by year (a t-test over the years of each year's mean difference); Friedman and Conover, best-fitness runs, results by year, a summary of secondary measures, and the trust map.
+- `portfolio`: each method's equal-weight portfolio, rebuilt from the runs' stored buy signals; the confirmatory tests (the difference between two portfolios' Sharpe ratios, by a stationary block bootstrap of the days, Holm-adjusted: the protocol's six comparisons among the methods analysed, or those given with `--pairs`); Hansen's SPA against the best benchmark, Deflated Sharpe Ratios, PBO, and results by regime.
 - `random`: each method's percentile among 1,000 random entries with its exit rule and number of trades, per stock-year.
 - `pilot`: timing, convergence and the 100-run check.
 

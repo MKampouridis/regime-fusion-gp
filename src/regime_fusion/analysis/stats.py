@@ -1,8 +1,13 @@
 """Statistical tests of the study (docs/RESEARCH_PLAN.md, evaluation protocol).
 
 * ``holm``: Holm's step-down adjustment of p-values.
+* ``sharpe_differences``: the confirmatory tests (docs/PROTOCOL.md, section 4):
+  the difference between two portfolios' Sharpe ratios, by a stationary
+  bootstrap of the days, Holm-adjusted.
 * ``wilcoxon_pairs``: Wilcoxon signed-rank tests between methods on paired
-  per-stock-year results (medians over runs), Holm-adjusted.
+  per-stock-year results (medians over runs), Holm-adjusted: the per-stock view.
+* ``clustered_by_year``: the same comparisons clustered by year, a t-test over
+  the years of each year's mean difference (a model with a random year effect).
 * ``friedman`` and ``conover``: the Friedman test across methods and Conover's
   post-hoc comparisons for the Friedman design (Conover, 1999), Holm-adjusted.
 * ``deflated_sharpe``: the Deflated Sharpe Ratio (Bailey and Lopez de Prado,
@@ -28,12 +33,13 @@ EULER_GAMMA = 0.5772156649015329
 
 
 def holm(p_values) -> np.ndarray:
+    """Holm's adjustment; a missing p-value stays missing and does not count as a test."""
     p = np.asarray(p_values, dtype=float)
-    order = np.argsort(p)
-    adjusted = np.empty_like(p)
+    finite = np.flatnonzero(~np.isnan(p))
+    adjusted = np.full_like(p, np.nan)
     running = 0.0
-    for rank, i in enumerate(order):
-        running = max(running, (len(p) - rank) * p[i])
+    for rank, i in enumerate(finite[np.argsort(p[finite])]):
+        running = max(running, (len(finite) - rank) * p[i])
         adjusted[i] = min(1.0, running)
     return adjusted
 
@@ -49,6 +55,36 @@ def wilcoxon_pairs(table: pd.DataFrame, pairs: list[tuple[str, str]]) -> pd.Data
         rows.append({"first": a, "second": b, "n": int(both.sum()), "median_difference": float(difference.median()),
                      "statistic": np.nan if result is None else float(result.statistic),
                      "p": 1.0 if result is None else float(result.pvalue)})
+    out = pd.DataFrame(rows)
+    out["p_holm"] = holm(out["p"]) if len(out) else []
+    return out
+
+
+def clustered_by_year(table: pd.DataFrame, pairs: list[tuple[str, str]], years) -> pd.DataFrame:
+    """The paired comparisons of ``wilcoxon_pairs`` with the units clustered by year, Holm-adjusted.
+
+    Each year's mean difference over its units (stock-years) is tested against zero with a t-test
+    over the years. With a random year effect (difference = mu + year effect + noise) this is the
+    test of mu (exact when every year has the same units), so a gain that comes and goes with the
+    year counts once per year, not once per stock. ``years`` gives the year of each row of ``table``.
+    """
+    years = np.asarray(years)
+    rows = []
+    for a, b in pairs:
+        difference = (table[a] - table[b]).to_numpy(dtype=float)
+        both = ~np.isnan(difference)
+        yearly = pd.Series(difference[both]).groupby(years[both]).mean().to_numpy()
+        mean = float(yearly.mean()) if len(yearly) else np.nan
+        statistic, p = np.nan, np.nan                          # one year has no spread to test against
+        if len(yearly) >= 2:
+            spread = yearly.std(ddof=1)
+            if spread > 0:
+                statistic = mean / (spread / np.sqrt(len(yearly)))
+                p = float(2 * stats.t.sf(abs(statistic), len(yearly) - 1))
+            else:                                              # the same difference every year
+                statistic, p = (np.sign(mean) * np.inf, 0.0) if mean != 0 else (np.nan, 1.0)
+        rows.append({"first": a, "second": b, "years": len(yearly), "mean_difference": mean,
+                     "statistic": float(statistic), "p": p})
     out = pd.DataFrame(rows)
     out["p_holm"] = holm(out["p"]) if len(out) else []
     return out
@@ -138,14 +174,52 @@ def pbo(performance: np.ndarray, blocks: int = 16) -> dict[str, float]:
 
 
 def stationary_bootstrap(n: int, mean_block: float, rng: np.random.Generator) -> np.ndarray:
-    """Indices of one stationary-bootstrap resample (blocks of geometric length)."""
-    index = np.empty(n, dtype=np.int64)
-    index[0] = rng.integers(n)
+    """Indices of one stationary-bootstrap resample (blocks of geometric length).
+
+    Each day either starts a new block at a random day (with probability 1 / ``mean_block``)
+    or follows the day before, wrapping round at the end.
+    """
+    first = rng.integers(n)
     restart = rng.random(n) < 1.0 / mean_block
     starts = rng.integers(n, size=n)
-    for t in range(1, n):
-        index[t] = starts[t] if restart[t] else (index[t - 1] + 1) % n
-    return index
+    restart[0], starts[0] = True, first
+    days = np.arange(n)
+    began = np.maximum.accumulate(np.where(restart, days, 0))  # where each day's block began
+    return (starts[began] + days - began) % n
+
+
+def sharpe_differences(returns: pd.DataFrame, pairs: list[tuple[str, str]], rng: np.random.Generator,
+                       bootstraps: int = 10_000, mean_block: float = 10.0, level: float = 0.95) -> pd.DataFrame:
+    """Paired tests of the difference between two portfolios' Sharpe ratios, Holm-adjusted.
+
+    Rows of ``returns`` are days and columns methods. Each resample draws days by the stationary
+    bootstrap, the same days for every method, so the tests keep both the dependence between the
+    portfolios and that over time (after Ledoit and Wolf, 2008, with the stationary bootstrap and
+    without their studentisation). H0: equal Sharpe ratios. The two-sided p-value is the share of
+    resampled differences at least as far from the observed one as it lies from zero, and the
+    interval is the symmetric one that matches it. Sharpe ratios are annualised (252 days); a
+    portfolio that never varies has zero.
+    """
+    methods = list(dict.fromkeys(method for pair in pairs for method in pair))
+    values = returns[methods].dropna().to_numpy()
+    observed = _sharpes(values)
+    resampled = np.empty((bootstraps, len(methods)))
+    for draw in range(bootstraps):
+        resampled[draw] = _sharpes(values[stationary_bootstrap(len(values), mean_block, rng)])
+    scale = np.sqrt(252)
+    rows = []
+    for a, b in pairs:
+        i, j = methods.index(a), methods.index(b)
+        difference = observed[i] - observed[j]
+        distance = np.abs(resampled[:, i] - resampled[:, j] - difference)
+        half_width = float(np.quantile(distance, level))
+        rows.append({"first": a, "second": b, "days": len(values), "sharpe_first": observed[i] * scale,
+                     "sharpe_second": observed[j] * scale, "difference": difference * scale,
+                     "ci_low": (difference - half_width) * scale, "ci_high": (difference + half_width) * scale,
+                     "p": float((1 + np.sum(distance >= abs(difference))) / (1 + bootstraps))})
+    out = pd.DataFrame(rows)
+    out["p_holm"] = holm(out["p"]) if len(out) else []
+    return out
 
 
 def spa(differences: np.ndarray, rng: np.random.Generator, bootstraps: int = 1000,

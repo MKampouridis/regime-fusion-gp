@@ -27,9 +27,8 @@ No test-year or hold-out result is computed before the protocol is frozen. Devel
 
 ## 4. Primary analysis
 
-- **Measure:** annualised Sharpe ratio of daily returns at 10 basis points per side, in the test year.
-- **Unit:** the median over runs of each stock-year: 50 stocks × 7 years = 350 paired units.
-- **Confirmatory tests:** two-sided Wilcoxon signed-rank tests on the paired stock-year medians, with Holm's adjustment across these six at α = 0.05:
+- **Measure:** annualised Sharpe ratio of daily returns at 10 basis points per side.
+- **Confirmatory tests** (decided on 30 October 2026): for each of the six comparisons below, the difference between the Sharpe ratios of the two methods' equal-weight portfolios (§5) over the seven test years. The test is two-sided, by a stationary block bootstrap of the days (Politis and Romano, 1994; a mean block of 10 days, as in the SPA test, and 10,000 resamples, both portfolios resampled on the same days), with Holm's adjustment across the six at α = 0.05 (`analysis portfolio`):
 
   | Comparison | Question |
   | --- | --- |
@@ -40,15 +39,16 @@ No test-year or hold-out result is computed before the protocol is frozen. Devel
   | A5 vs A4 | Does ε-lexicase beat the weighted-sum fitness? |
   | A5 vs A0 | Does the full method beat ActTrade? |
 
-  Each result is reported with the median paired difference and a bootstrap 95% confidence interval (stock-years resampled).
-- **All methods together** (exploratory): the Friedman test on stock-years that every method covers, with Conover's comparisons, Holm-adjusted.
+  Each result is reported with the difference and its 95% bootstrap interval. The tests compare portfolios rather than stock-years because the stocks share each year's market and a stock's years are related: a paired test on the 350 stock-years would count a gain that comes and goes with the market once per stock, and its p-values would come out far too small. Seven yearly differences of 0.3, −0.2, 0.5, −0.4, −0.1, 0.6 and 0.2 give p = 0.41, but the same seven repeated for 50 stocks give p ≈ 3 × 10⁻¹².
+- **Per-stock view** (reported with the confirmatory tests, comparable with ActTrade; not confirmatory): two-sided Wilcoxon signed-rank tests on the paired stock-year medians (the median over runs of each stock-year: 50 stocks × 7 years = 350 paired units), Holm-adjusted across the six. Each is reported with the median paired difference, a bootstrap 95% confidence interval (stock-years resampled) and a check clustered by year: a t-test over the seven years of each year's mean difference, the test of a model with a random year effect (`analysis compare --confirmatory`).
+- **All methods together** (exploratory): the Friedman test on stock-years that every method covers, with Conover's comparisons, Holm-adjusted. Like the per-stock view, it treats the stock-years as independent.
 
-## 5. Portfolio-level tests
+## 5. Portfolios
 
-For each method, an equal-weight portfolio: within a stock-year the daily returns of all its runs are averaged (no run is picked after the fact), then the stocks are averaged day by day, over the seven test years (`analysis portfolio`).
+For each method, an equal-weight portfolio: within a stock-year the daily returns of all its runs are averaged (no run is picked after the fact), then the stocks are averaged day by day, over the seven test years (`analysis portfolio`). The confirmatory tests of §4 compare these portfolios, and so do the following.
 
 - **Hansen's SPA test:** every GP rung against the best non-GP benchmark, the one with the highest test-period Sharpe ratio. Picking the benchmark after the fact favours the benchmark.
-- **Deflated Sharpe Ratio** of each method. The number of trials counts every configuration evaluated, in the pilot and in the main campaign, as listed in the campaigns' task plans (`analysis portfolio --trials-from gp-pilot pilot <main campaign>`).
+- **Deflated Sharpe Ratio** of each method (decided on 30 October 2026). The number of trials counts every configuration evaluated (rungs and benchmarks), in the GP-parameter pilot, the pilot and the main campaign, as listed in the campaigns' plans of runs (`analysis portfolio --trials-from gp-pilot pilot <main campaign>`). Exit candidates are not counted, since they are part of every method's recipe. The variance of the trials' Sharpe ratios is that of the daily Sharpe ratios of the stage-2 portfolios analysed, as a stand-in, since the pilot's trials were evaluated on 2018.
 - **Probability of backtest overfitting** across all methods' portfolios, by combinatorially symmetric cross-validation with 16 blocks.
 
 ## 6. Secondary analyses
@@ -66,7 +66,7 @@ All reported, none confirmatory:
 ## 7. Robustness
 
 - **Expanding windows** (all data since 2015 for training) for the six rungs of §4.
-- **FinBERT headline sentiment** (option B): A0, A1 and the best rung by §4 re-run with FinBERT scores added to the sentiment branch, 2019–2025: FNSPID headlines for test years 2019–2023 and GDELT page titles for 2024–2025, one source per window. Only stock-years whose whole window the source covers are compared ([`DATA.md`](DATA.md)); the paired tests use those stock-years for both methods.
+- **FinBERT headline sentiment** (option B): A0, A1 and the best rung by §4 re-run with FinBERT scores added to the sentiment branch, 2019–2025: FNSPID headlines for test years 2019–2023 and GDELT page titles for 2024–2025, one source per window. Only stock-years whose whole window the source covers are compared ([`DATA.md`](DATA.md)); the paired tests use those stock-years for both methods (`analysis portfolio --pairs A0-FB:A0 A1-FB:A1`, and `compare` for the per-stock view). For GDELT's titles, which come from a complete archive, a covered test year means headlines for the firm in at least ten of its months, so the check selects stock-years on the amount of news in the test year, though not on returns; the paper says so (decided on 30 October 2026).
 - **Hold-out stocks:** every method, with the analysis of §4–6 unchanged.
 
 ## 8. Reporting rules

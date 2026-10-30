@@ -2,8 +2,9 @@
 
 Commands (each has --help):
 
-  compare    per-stock-year medians of a campaign's methods and the paired tests between them
-  portfolio  daily returns of each method's equal-weight portfolio; SPA, Deflated Sharpe, PBO, by regime
+  compare    per-stock-year medians of a campaign's methods and the per-stock paired tests between them
+  portfolio  daily returns of each method's equal-weight portfolio; the confirmatory paired tests, SPA,
+             Deflated Sharpe, PBO, by regime
   random     each method's percentile among random entries with the same exit rule and trades
   pilot      timing, convergence and the 100-run check of the pilot
   gp-params  the GP-parameter pilot: population, generations and tournament size
@@ -28,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from regime_fusion.analysis import pilot, portfolio, results
+from regime_fusion.analysis import pilot, portfolio, results, stats
 from regime_fusion.ml.models import load_settings as load_benchmarks
 from regime_fusion.config import load_config
 from regime_fusion.data import store
@@ -49,12 +50,14 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--rungs", nargs="+", help="methods in ladder order (default: all, sorted)")
     sub.add_argument("--against", help="also compare every method with this one")
     sub.add_argument("--confirmatory", action="store_true",
-                     help="test exactly the six confirmatory comparisons of docs/PROTOCOL.md")
+                     help="test exactly the six comparisons of docs/PROTOCOL.md (their per-stock view; "
+                          "their confirmatory tests are portfolio's)")
     sub.add_argument("--stage", type=int, choices=(1, 2), default=2, help="1 for the pilot (validation year)")
     add_selection(sub)
     sub.set_defaults(handler=compare_command)
 
-    sub = commands.add_parser("portfolio", help="portfolio returns of each method; SPA, Deflated Sharpe, PBO")
+    sub = commands.add_parser("portfolio", help="portfolio returns of each method; the confirmatory tests, SPA, "
+                                                "Deflated Sharpe, PBO")
     sub.add_argument("--campaign", required=True)
     sub.add_argument("--methods", nargs="+", help="methods to compare (default: all in the campaign)")
     sub.add_argument("--cost", type=float, help="basis points per side (default: the primary cost)")
@@ -65,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--trials-from", nargs="+", metavar="CAMPAIGN",
                      help="campaigns whose plans list the configurations tried (default: this one; the "
                           "protocol counts the pilot's too)")
+    sub.add_argument("--pairs", nargs="+", metavar="FIRST:SECOND",
+                     help="comparisons for the paired Sharpe-ratio tests (default: the six confirmatory ones of "
+                          "docs/PROTOCOL.md whose methods are analysed)")
     sub.add_argument("--regimes", default="dc", help="market regimes for the breakdown (default dc, A3's)")
     add_selection(sub)
     sub.set_defaults(handler=portfolio_command)
@@ -149,6 +155,27 @@ def trial_count(args: argparse.Namespace, methods: list[str]) -> dict[str, objec
     return {"count": len(configurations), "from": f"the plans of {campaigns}", "configurations": configurations}
 
 
+def paired_comparisons(given: list[str] | None, methods: list[str]) -> list[tuple[str, str]]:
+    """The comparisons of the paired Sharpe-ratio tests: ``--pairs`` as given, or else the protocol's
+    six confirmatory ones whose methods are both analysed."""
+    if not given:
+        pairs = [pair for pair in results.CONFIRMATORY if set(pair) <= set(methods)]
+        if 0 < len(pairs) < len(results.CONFIRMATORY):
+            log.warning("%d of the protocol's %d confirmatory comparisons have both methods here; Holm's "
+                        "adjustment covers those only", len(pairs), len(results.CONFIRMATORY))
+        return pairs
+    pairs = []
+    for item in given:
+        first, colon, second = item.partition(":")
+        if not (first and colon and second):
+            raise SystemExit(f"--pairs: {item!r} is not FIRST:SECOND")
+        pairs.append((first, second))
+    absent = sorted({method for pair in pairs for method in pair} - set(methods))
+    if absent:
+        raise SystemExit(f"--pairs: no portfolio for {absent}")
+    return pairs
+
+
 def load_runs(campaign: str) -> pd.DataFrame:
     path = store.data_dir() / "results" / campaign / "runs.parquet"
     if not path.exists():
@@ -199,7 +226,8 @@ def compare_command(args: argparse.Namespace) -> int:
              "mean_ranks": tests["mean_ranks"].round(3).to_dict()}, indent=2) + "\n")
     log.info("%s, stage %d, %s: median over stock-years\n%s", args.campaign, args.stage, args.measure,
              medians.median().round(3).to_string())
-    log.info("Wilcoxon-Holm:\n%s", tests["pairs"].round(4).to_string(index=False))
+    log.info("Wilcoxon-Holm on stock-years, with the check clustered by year:\n%s",
+             tests["pairs"].round(4).to_string(index=False))
     log.info("tables in %s", folder)
     return 0
 
@@ -213,6 +241,7 @@ def portfolio_command(args: argparse.Namespace) -> int:
     absent = sorted(set(methods) - set(runs["rung"]))
     if absent:
         raise SystemExit(f"no stage-{args.stage} runs for {absent}")
+    pairs = paired_comparisons(args.pairs, methods)
     shared = results.common_stock_years(runs)
     every = runs[results.KEYS].drop_duplicates()
     if len(shared) < len(every):
@@ -234,6 +263,13 @@ def portfolio_command(args: argparse.Namespace) -> int:
     outcome = portfolio.tests(returns, benchmark, candidates, int(trials["count"]), rng)
     outcome.update(trials=trials, stock_years=len(shared), stock_years_left_out=len(every) - len(shared))
     folder, name = output(args.campaign), f"{cost:g}bps.stage{args.stage}"
+    if pairs:  # the same resampled days for every comparison and cost
+        paired = stats.sharpe_differences(returns, pairs, make_rng(config.base_seed, "analysis",
+                                                                   "sharpe-difference", args.campaign))
+        paired.to_csv(folder / f"sharpe_difference.{name}.csv", index=False)
+        outcome["sharpe_difference"] = paired.to_dict(orient="records")
+        log.info("difference of annualised Sharpe ratios (stationary bootstrap, Holm):\n%s",
+                 paired.round(4).to_string(index=False))
     store.write_parquet(folder / f"portfolio.{name}.parquet", returns, campaign=args.campaign, cost_bps=cost)
     (folder / f"portfolio_tests.{name}.json").write_text(json.dumps(outcome, indent=2, default=float) + "\n")
     log.info("%s at %g bps: annualised Sharpe of each portfolio %s", args.campaign, cost,

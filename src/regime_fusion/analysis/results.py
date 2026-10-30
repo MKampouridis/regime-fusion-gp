@@ -13,9 +13,11 @@ training fitness and evaluation measures at every cost.
 * ``summary``: per method, the medians and means over stock-years of several
   measures, and the share of runs that never trade.
 * ``compare``: Wilcoxon-Holm tests between named pairs, each with a bootstrap
-  confidence interval for the median paired difference, and the Friedman test
-  with Conover's comparisons across all methods, on stock-years that every
-  method covers. ``CONFIRMATORY`` holds the six comparisons of docs/PROTOCOL.md.
+  confidence interval for the median paired difference and a check clustered
+  by year, and the Friedman test with Conover's comparisons across all
+  methods, on stock-years that every method covers. This is the per-stock view:
+  the confirmatory tests compare portfolios (``stats.sharpe_differences``).
+  ``CONFIRMATORY`` holds the six comparisons of docs/PROTOCOL.md.
 * ``trust_map``: per method and regime state, the mean share of days on which
   each branch is on the model's active path (research question 4).
 * ``missing_runs`` and ``common_stock_years``: which planned runs have no
@@ -91,12 +93,18 @@ def median_difference_ci(differences, rng: np.random.Generator, draws: int = 10_
 
 def compare(table: pd.DataFrame, pairs: list[tuple[str, str]],
             rng: np.random.Generator | None = None) -> dict[str, object]:
-    """Paired tests on a stock-year table; Friedman and Conover use the stock-years every method has."""
+    """Paired tests on a stock-year table; Friedman and Conover use the stock-years every method has.
+
+    The check clustered by year (``stats.clustered_by_year``) needs the test year in the index."""
     complete = table.dropna()
     tested = stats.wilcoxon_pairs(table, pairs)
     if rng is not None:
         bounds = [median_difference_ci(table[a] - table[b], rng) for a, b in pairs]
         tested["ci_low"], tested["ci_high"] = [b[0] for b in bounds], [b[1] for b in bounds]
+    if pairs and "test_year" in table.index.names:
+        yearly = stats.clustered_by_year(table, pairs, table.index.get_level_values("test_year"))
+        tested["years"], tested["year_mean_difference"] = yearly["years"], yearly["mean_difference"]
+        tested["p_by_year"], tested["p_by_year_holm"] = yearly["p"], yearly["p_holm"]
     out: dict[str, object] = {"pairs": tested, "stock_years": len(complete)}
     if table.shape[1] >= 3 and len(complete) >= 2:
         statistic, p = stats.friedman(complete)

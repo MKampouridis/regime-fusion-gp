@@ -73,7 +73,7 @@ GP baselines also include single-type GPs (FA only, SA only, TA only), and DALex
 - **Secondary metrics.** Return, maximum drawdown, CVaR 95%, turnover, the share of runs that never trade, and integration versus the best single branch (ΔSRC_Max).
 - **Costs.** 0, 5, 10 and 25 basis points per side.
 - **Statistics.**
-  - Wilcoxon signed-rank tests with Holm correction between rungs.
+  - Paired tests between rungs on their portfolios' Sharpe ratios (stationary block bootstrap), with Holm correction; Wilcoxon signed-rank tests on stock-years as the per-stock view.
   - Friedman tests with post-hoc comparisons across methods.
   - Deflated Sharpe Ratio counting every configuration tried.
   - Probability of backtest overfitting.

@@ -55,6 +55,8 @@ def test_summary_and_comparisons():
     with_ci = results.compare(medians, [("B", "A")], np.random.default_rng(0))["pairs"].iloc[0]
     assert with_ci["ci_low"] < 0.5 < with_ci["ci_high"] and with_ci["ci_high"] - with_ci["ci_low"] < 0.3
     assert tests["friedman"]["p"] < 0.001 and list(tests["mean_ranks"].index) == ["C", "B", "A"]
+    assert (pairs["years"] == 3).all() and (pairs["p_by_year"] < 0.05).all()   # the gain is there every year
+    assert pairs.loc[("B", "A"), "year_mean_difference"] == pytest.approx(0.5, abs=0.1)
     assert results.by_year(runs, "sharpe_10bps").shape == (3, 3)
 
 
@@ -160,6 +162,18 @@ def test_portfolio_returns_are_rebuilt_from_the_stored_signals(monkeypatch, tmp_
     assert cli.main(["portfolio", "--campaign", "main"]) == 0
     saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
     assert saved["spa"]["benchmark"] == "RB-BH" and saved["n_trials"] == 3
+    [paired] = saved["sharpe_difference"]                       # the one confirmatory comparison here
+    assert (paired["first"], paired["second"], paired["days"]) == ("A1", "A0", len(returns))
+    assert paired["sharpe_first"] == pytest.approx(saved["annualised_sharpe"]["A1"], abs=1e-4)
+    assert 0 < paired["p"] <= 1 and paired["ci_low"] < paired["difference"] < paired["ci_high"]
+    table = pd.read_csv(folder / "analysis" / "sharpe_difference.10bps.stage2.csv")
+    assert table.loc[0, "p_holm"] == pytest.approx(paired["p_holm"])
+    assert cli.main(["portfolio", "--campaign", "main", "--pairs", "A0:RB-BH", "A1:RB-BH"]) == 0
+    saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
+    assert [(row["first"], row["second"]) for row in saved["sharpe_difference"]] == [("A0", "RB-BH"), ("A1", "RB-BH")]
+    for pairs, message in ((["A1-A0"], "not FIRST:SECOND"), (["A5:A0"], "no portfolio for")):
+        with pytest.raises(SystemExit, match=message):
+            cli.main(["portfolio", "--campaign", "main", "--pairs", *pairs])
 
 
 def test_analyses_check_the_runs_against_the_plans(monkeypatch, tmp_path):
