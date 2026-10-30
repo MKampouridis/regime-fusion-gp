@@ -4,6 +4,7 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 
 | Date | Decision | Decided by |
 | --- | --- | --- |
+| 2026-10-30 | FinBERT's five-session indicators treat a session whose GDELT files were mostly not read as the GDELT sentiment indicators do: it adds nothing to the window rather than counting as a day without news, a window needs at least three read sessions, its headline count is scaled to five sessions, and the session's own row stays missing | MK |
 | 2026-10-30 | The confirmatory tests compare portfolios: for each of the six comparisons, the difference between the two methods' equal-weight portfolio Sharpe ratios over the seven test years, two-sided, by a stationary block bootstrap of the days (a mean block of 10 days, as in the SPA test; 10,000 resamples), Holm-adjusted. The Wilcoxon tests on the stock-year medians (the unit decided on 28 October) stay as the per-stock view, comparable with ActTrade, each with a check clustered by year: a t-test over the years of each year's mean difference, the test of a model with a random year effect. Reason (raised by an outside review of the code): the stocks share each year's market and a stock's years are related, so tests that treat the 350 stock-years as independent give p-values far too small when a gain varies from year to year: seven yearly differences give p = 0.41, the same seven repeated for 50 stocks p ≈ 3 × 10⁻¹² (`PROTOCOL.md`, §4) | MK |
 | 2026-10-30 | Deflated Sharpe Ratio: the trials are the distinct configurations (rungs and benchmarks) in the plans of runs of the GP-parameter pilot, the pilot and the main campaign; exit candidates are not counted, since they are part of every method's recipe. The variance of the trials' Sharpe ratios is that of the daily Sharpe ratios of the stage-2 portfolios analysed, as a stand-in, since the pilot's trials were evaluated on 2018 | MK |
 | 2026-10-30 | Stock-years of the FinBERT check: a source covers a stock in a year if at most two of the year's months have no headline for it, and a stock-year enters the check only if its source covers every year of its window (the first training year to the test year). For GDELT's titles, which come from a complete archive, this selects stock-years on the amount of news in the test year (not on returns), and the paper says so | MK |
@@ -37,6 +38,4 @@ Newest first. "MK" is Michael Kampouridis (supervisor). [`RESEARCH_PLAN.md`](RES
 
 ## Open
 
-| Raised | Question | Proposal |
-| --- | --- | --- |
-| 2026-10-29 | How FinBERT's five-session indicators treat sessions whose GDELT files were mostly not read | As the GDELT sentiment indicators do: such a session adds nothing to the window rather than counting as a day without news, the window needs at least three read sessions, and its headline count is scaled to five sessions. The unread session's own row stays missing. (Before this, unread sessions counted as zero headlines, which understated attention on the four sessions after them.) |
+None at the moment.
