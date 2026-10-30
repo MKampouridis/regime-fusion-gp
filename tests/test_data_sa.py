@@ -37,6 +37,7 @@ def rules(tmp_path):
             "F": {"accept": ["(.* )?ford motor( .*)?"], "reject": ["(.* )?ford motor credit( .*)?"]},
             "UTX": {"accept": ["(.* )?united technologies( .*)?",
                                {"pattern": "(.* )?raytheon( .*)?", "since": "2020-04-03"}]},
+            "KODK": {"accept": [".*"], "reject": ["(.* )?kodak black( .*)?"], "veto": ["(.* )?kodak black( .*)?"]},
         }}))
     return sa.load_rules(path)
 
@@ -63,6 +64,10 @@ def test_names_count_by_whole_name_with_prefixes_rejects_and_dates(rules):
     assert rules.counts("UTX", "raytheon co", "2020-06-01")
     assert not rules.counts("UTX", "raytheon co", "2019-06-03")
     assert rules.counts("UTX", "united technologies corp", "2019-06-03")
+    # A veto rules out the whole record: the rapper's articles also call him plain "kodak".
+    assert rules.counts("KODK", "eastman kodak|kodak", day)
+    assert not rules.counts("KODK", "kodak black|kodak", day)
+    assert not rules.counts("KODK", "the kodak black", day)          # after the prefixes are removed
 
 
 def test_rules_are_required_for_every_stock(tmp_path):
@@ -103,6 +108,12 @@ def test_repository_rules_cover_the_universe_and_known_cases():
         ("TSLA", "tesla model"): True, ("TSLA", "nikola tesla"): False, ("AAPL", "apple carplay"): True,
         ("AMZN", "amazon india"): True, ("AMZN", "peruvian amazon"): False, ("HAL", "benjamin halliburton"): False,
         ("HAL", "houston-based halliburton"): True, ("VZ", "verizon wireless arena"): False,
+        ("KODK", "kodak black|kodak"): False, ("KODK", "eastman kodak|kodak"): True,
+        ("INTC", "flynn intel group|intel"): False, ("INTC", "intel corp|intel"): True,
+        ("INTC", "senate intel committee|intel"): False, ("KO", "coca-cola scholars foundation|coca-cola"): False,
+        ("MET", "metlife investment advisors llc"): True,   # its own unit, though in notices of stakes
+        ("DD", "dupont fire chief larry creekmore|dupont"): False, ("DD", "dupont|dowdupont inc"): True,
+        ("DD", "nisqually national wildlife refuge in dupont|dupont"): False,
     }
     for (stock, name), expected in cases.items():
         assert rules.counts(stock, name, day) is expected, (stock, name)

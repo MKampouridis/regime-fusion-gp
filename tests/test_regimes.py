@@ -259,3 +259,18 @@ def test_regimes_command_keeps_expanding_windows_apart(monkeypatch, tmp_path):
     assert path.exists() and not market.probabilities_path("volatility", 2021, 2).exists()
     assert pd.read_parquet(path).index[0] == pd.Timestamp("2015-02-02")  # fitted from the start of the data
     assert json.loads(store.layer("reports", "regimes_expanding.json").read_text())
+
+
+def test_regimes_command_fits_the_test_years_asked_for(monkeypatch, tmp_path):
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    store.write_parquet(store.layer("interim", "market", "GSPC.parquet"), market_close().to_frame("close"))
+    settings = {**market.load_settings(), "restarts": 1}
+    settings["inputs"] = {"volatility": settings["inputs"]["volatility"]}
+    monkeypatch.setattr(market, "load_settings", lambda path=None: settings)
+    assert cli.main(["regimes"]) == 0
+    assert cli.main(["regimes", "--years", "2019"]) == 0          # the pilot's window, before the rest of GDELT
+    assert market.probabilities_path("volatility", 2019, 1).exists()
+    report = json.loads(store.layer("reports", "regimes.json").read_text())
+    assert "volatility 2025 stage 2" in report                      # the other years' entries are kept
+    with pytest.raises(SystemExit, match="no walk-forward window"):
+        cli.main(["regimes", "--years", "2030"])

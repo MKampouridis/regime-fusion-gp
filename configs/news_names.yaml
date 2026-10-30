@@ -10,7 +10,11 @@
 #                   unambiguous, such as "abbvie");
 #   accept/reject   regular expressions matched against the whole lower-case
 #                   name; a name counts if an accept pattern matches and no
-#                   reject pattern does. "(.* )?" allows any words before a name
+#                   reject pattern does.
+#   veto            patterns for names that rule out the whole record, for a
+#                   namesake that articles also call by the firm's bare name
+#                   ("kodak black" is often just "kodak"), which a reject of the
+#                   namesake alone would let count through the bare name. "(.* )?" allows any words before a name
 #                   and "( .*)?" any words after it; {S} stands for optional
 #                   corporate endings (inc, corp, co, company, ltd, plc, group,
 #                   holdings...). A pattern can be limited to UTC days with
@@ -20,7 +24,7 @@
 #
 # First version, drafted from the most frequent names in the first months of
 # GDELT; the main firms' rules were reviewed on 29 October 2026 on the news of
-# 2015 to May 2016 (docs/DATA.md). The `sa` command reports each firm's most
+# 2015 to May 2016, and on 30 October 2026 on that of 2017-18 (docs/DATA.md). The `sa` command reports each firm's most
 # frequent names counted and left out, in the development period (to 2018) only;
 # names adopted later come from the firms' public renamings, listed with their
 # dates.
@@ -63,6 +67,8 @@ stocks:
   DD:
     accept: ["(.* )?dowdupont( .*)?", "(e ?i )?du ?pont{S}", "(.* )?(e ?i )?du ?pont de nemours( .*)?",
              "du ?pont (nutrition|pioneer|crop protection|performance materials|safety|sustainable solutions|electronics|industrial biosciences|tate|danisco|teijin films|specialty products|water)( .*)?"]
+    # DuPont, Washington (the Amtrak derailment of 18 December 2017), where its own names show it
+    veto: ["(.* )?du ?pont (fire|police|city|mayor|wash|washington)( .*)?", "(.* )?(in|of|near) du ?pont( .*)?"]
   DIS:
     accept: [".*"]
     reject: ["(.* )?walt disney (concert hall|family museum)( .*)?"]
@@ -100,12 +106,16 @@ stocks:
   INTC:
     accept: [".*"]
     reject: ["(.* )?(senate|house|military|defense|defence|us|u s) intel( .*)?", "intel committee( .*)?"]
+    # Michael Flynn's consultancy (2017) and the intelligence committees, also called just "intel"
+    veto: ["(.* )?flynn intel( .*)?", "(.* )?(senate|house) intel( .*)?", "(.* )?intel committee( .*)?"]
   KO:
     accept: ["(.* )?coca ?-?cola( .*)?", "(.* )?(diet|cherry|vanilla) coke( .*)?", "(.* )?coke (zero|life|energy)( .*)?"]
     reject: ["(.* )?coca ?-?cola (european partners|europacific partners|enterprises|femsa|hbc|hellenic|amatil|icecek|consolidated|bottling|bottlers japan|beverages africa|west|600|zero sugar 400)( .*)?"]
+    veto: ["(.* )?coca ?-?cola scholars?( .*)?"]   # the scholarship foundation's students
   KODK:
     accept: [".*"]
     reject: ["(.* )?kodak black( .*)?", "(.* )?kodak (theat(er|re)|hall|center|centre|alaris)( .*)?"]
+    veto: ["(.* )?kodak black( .*)?", "(.* )?rapper kodak( .*)?"]   # the rapper, often just "kodak"
   LLY:
     accept: ["(.* )?eli lilly( .*)?", "lilly (usa|research laboratories|oncology|diabetes|bio-?medicines|foundation)( .*)?"]
   LMT:

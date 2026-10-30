@@ -117,6 +117,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub = commands.add_parser("regimes", help="market regimes per walk-forward window")
     sub.add_argument("--inputs", nargs="+", default=None, help="input sets (default: all in the settings)")
+    sub.add_argument("--years", nargs="+", type=int, default=None,
+                     help="only these test years' windows (default: all); the news regimes need GDELT's "
+                          "news of their training years, so the pilot fits 2019's before the rest is in")
     sub.add_argument("--scheme", choices=("rolling", "expanding"), default=None,
                      help="walk-forward windows (default: the study's, rolling; expanding for robustness)")
     add_stock_options(sub, refresh=False)  # for regimes from each stock's news (rung A4)
@@ -839,7 +842,9 @@ def run_regimes(args: argparse.Namespace) -> int:
     settings = regimes.load_settings()
     source = store.layer("interim", "market", f"{settings['series']}.parquet")
     close = pd.read_parquet(source)["close"]
-    windows = walk_forward(config)
+    windows = [w for w in walk_forward(config) if not args.years or w.test_year in args.years]
+    if not windows:
+        raise SystemExit(f"no walk-forward window has a test year in {args.years}")
     report, per_stock_report = {}, {}
     for name in args.inputs or list(settings["inputs"]):
         if not regimes.uses_news(name, settings):
@@ -856,10 +861,10 @@ def run_regimes(args: argparse.Namespace) -> int:
             features = regimes.inputs(close, name, settings, articles)
             fits = regimes.walk_forward(features, windows, settings, config.base_seed)
             report.update(save_regimes(name, fits, settings, scheme=scheme))
-        log.info("regimes: %s fitted for %d test years", name, len(config.period.test_years))
+        log.info("regimes: %s fitted for test years %s", name, sorted({w.test_year for w in windows}))
     suffix = "" if scheme == "rolling" else f"_{scheme}"
-    if report:
-        write_report(f"regimes{suffix}.json", report, merge=False)
+    if report:  # a run of some inputs or years keeps the report's other entries
+        write_report(f"regimes{suffix}.json", report, merge=bool(args.inputs or args.years))
     if per_stock_report:
         write_report(f"regimes_per_stock{suffix}.json", per_stock_report)
     return 0

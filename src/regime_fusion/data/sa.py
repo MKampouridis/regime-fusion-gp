@@ -94,6 +94,7 @@ class NameRules:
     accept: dict[str, tuple[Pattern, ...]]
     reject: dict[str, tuple[Pattern, ...]]
     digest: str
+    veto: dict[str, tuple[Pattern, ...]] = field(default_factory=dict)  # names that rule out the whole record
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property
@@ -109,12 +110,16 @@ class NameRules:
                 and not any(p.matches(name, day) for p in self.reject.get(stock, ())))
 
     def counts(self, stock: str, variants: str, day) -> bool:
-        """Whether a record whose matched names are ``variants`` ("a|b") is about ``stock``."""
+        """Whether a record whose matched names are ``variants`` ("a|b") is about ``stock``: one of its
+        names counts, and none is vetoed (a veto, such as "kodak black", rules out a record whose other
+        names, such as a bare "kodak", would count)."""
         day = pd.Timestamp(day)
-        patterns = (*self.accept[stock], *self.reject.get(stock, ()))
+        patterns = (*self.accept[stock], *self.reject.get(stock, ()), *self.veto.get(stock, ()))
         key = (stock, variants, tuple(p.active(day) for p in patterns if p.dated))
         if key not in self._cache:
-            self._cache[key] = any(self.name_counts(stock, name, day) for name in variants.split("|") if name)
+            names = [self.clean(name) for name in variants.split("|") if name]
+            vetoed = any(p.matches(name, day) for p in self.veto.get(stock, ()) for name in names)
+            self._cache[key] = not vetoed and any(self.name_counts(stock, name, day) for name in names)
         return self._cache[key]
 
 
@@ -126,7 +131,7 @@ def load_rules(path: str | Path = DEFAULT_NAMES, stocks: Iterable[str] | None = 
     missing = sorted(set(wanted) - set(entries))
     if missing:
         raise ValueError(f"{path}: no name rules for {missing}")
-    accept, reject, normalised = {}, {}, {}
+    accept, reject, veto, normalised = {}, {}, {}, {}
     for stock in wanted:
         entry = entries[stock]
         if entry == "all":
@@ -135,12 +140,14 @@ def load_rules(path: str | Path = DEFAULT_NAMES, stocks: Iterable[str] | None = 
             raise ValueError(f"{path}: {stock} needs 'all' or a list of accept patterns")
         accept[stock] = tuple(_pattern(item) for item in entry["accept"])
         reject[stock] = tuple(_pattern(item) for item in entry.get("reject", []))
-        normalised[stock] = {"accept": entry["accept"], "reject": entry.get("reject", [])}
+        veto[stock] = tuple(_pattern(item) for item in entry.get("veto", []))
+        normalised[stock] = {"accept": entry["accept"], "reject": entry.get("reject", []),
+                             **({"veto": entry["veto"]} if entry.get("veto") else {})}
     prefixes = [str(p).lower() for p in raw.get("prefixes", [])]
     prefix = re.compile(r"^(?:(?:" + "|".join(map(re.escape, prefixes)) + r") )+") if prefixes else re.compile(r"(?!)")
     digest = hashlib.sha256(json.dumps({"prefixes": prefixes, "stocks": normalised}, sort_keys=True,
                                        default=str).encode()).hexdigest()[:12]
-    return NameRules(prefix, accept, reject, digest)
+    return NameRules(prefix, accept, reject, digest, veto)
 
 
 def keep(hourly: pd.DataFrame, rules: NameRules, day) -> np.ndarray:
