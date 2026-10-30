@@ -8,9 +8,10 @@ Commands (each has --help):
   random     each method's percentile among random entries with the same exit rule and trades
   pilot      timing, convergence and the 100-run check of the pilot
   gp-params  the GP-parameter pilot: population, generations and tournament size
+  figures    the campaign's figures, as PDFs in reports/figures/<campaign>/ (needs matplotlib)
 
-Both read results/<campaign>/runs.parquet (``python -m regime_fusion.engine collect``)
-and write tables to results/<campaign>/analysis/.
+They read results/<campaign>/runs.parquet (``python -m regime_fusion.engine collect``)
+or the run records, and write tables to results/<campaign>/analysis/.
 
 compare, portfolio and random check the runs against the campaign's plans:
 every planned run of the methods analysed must have a result (--incomplete
@@ -94,6 +95,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--campaign", required=True)
     sub.add_argument("--measure", default="sharpe_10bps")
     sub.set_defaults(handler=pilot_command)
+
+    sub = commands.add_parser("figures", help="the campaign's figures, as PDFs in reports/figures/<campaign>/")
+    sub.add_argument("--campaign", required=True)
+    sub.add_argument("--png", action="store_true", help="a PNG of each figure as well")
+    sub.set_defaults(handler=figures_command)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -400,8 +406,40 @@ def pilot_command(args: argparse.Namespace) -> int:
         converged["still_improving"].to_csv(folder / "still_improving.csv")
         log.info("runs still improving over their last 10 generations:\n%s",
                  converged["still_improving"].round(3).to_string())
-    counts = pilot.run_count_check(runs, args.measure, make_rng(config.base_seed, "pilot", "run-count"))
+    counts = run_counts(runs, args.measure)
     counts.to_csv(folder / f"run_count.{args.measure}.csv")
     log.info("seconds per run and campaign CPU hours:\n%s", speed.round(2).to_string())
     log.info("spread of the median of n runs (%s):\n%s", args.measure, counts.round(4).to_string())
+    return 0
+
+
+def run_counts(runs: pd.DataFrame, measure: str) -> pd.DataFrame:
+    """The 100-run check, with the same draws for its table and its figure."""
+    return pilot.run_count_check(runs, measure, make_rng(load_config().base_seed, "pilot", "run-count"))
+
+
+def figures_command(args: argparse.Namespace) -> int:
+    try:
+        from regime_fusion.analysis import figures
+    except ImportError:  # matplotlib is optional
+        raise SystemExit('the figures need matplotlib: pip install -e ".[figures]"') from None
+    config = load_config()
+    folder = store.data_dir() / "reports" / "figures" / args.campaign
+    drawn = []
+    history = pilot.histories(args.campaign)
+    if len(history) and history["rung"].str.extract(pilot.CANDIDATE)["base"].notna().any():
+        checkpoints = pilot.histories(args.campaign, field="checkpoints")
+        table, choice = pilot.gp_parameters(history, checkpoints)
+        drawn += figures.save(figures.gp_parameters(history, checkpoints, table, choice), folder, "gp_parameters",
+                              args.png)
+    if (store.data_dir() / "results" / args.campaign / "runs.parquet").exists():
+        counts = run_counts(load_runs(args.campaign), f"sharpe_{config.primary_cost_bps_per_side:g}bps")
+        if len(counts):
+            drawn += figures.save(figures.run_count(counts, runs=config.runs_per_configuration), folder,
+                                  "run_count", args.png)
+    if not drawn:
+        raise SystemExit(f"{args.campaign}: nothing to draw yet (so far the figures cover the GP-parameter pilot "
+                         "and the 100-run check)")
+    for path in drawn:
+        log.info("wrote %s (%.0f KB)", path, path.stat().st_size / 1024)
     return 0

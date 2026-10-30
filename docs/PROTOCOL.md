@@ -106,6 +106,7 @@ $E tasks --campaign gp-pilot --kind runs --years 2019 --stages 1 --runs 10 --dev
     A3-p250-t2 A3-p250-t4 A3-p500-t2 A3-p500-t4 A3-p1000-t2 A3-p1000-t4 A3-p2000-t2 A3-p2000-t4
 $E run-all --campaign gp-pilot --kind runs --workers 7
 python -m regime_fusion.analysis gp-params --campaign gp-pilot
+python -m regime_fusion.analysis figures --campaign gp-pilot
 ```
 
 The chosen values then go into `configs/rungs.yaml` (`gp:`), and the decision is logged.
@@ -128,6 +129,7 @@ $E run-all --campaign pilot --kind runs --workers 7
 $E run-all --campaign pilot --plan check100 --workers 7
 $E collect --campaign pilot
 python -m regime_fusion.analysis pilot --campaign pilot
+python -m regime_fusion.analysis figures --campaign pilot
 python -m regime_fusion.analysis compare --campaign pilot --stage 1 --plan runs --rungs A0 A1 A2 A3 A4 A5
 ```
 

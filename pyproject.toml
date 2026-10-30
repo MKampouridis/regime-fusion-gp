@@ -35,6 +35,8 @@ ml = [
 neural = ["torch>=2.2"]
 # FinBERT headline sentiment for the robustness check (needs "neural" too).
 finbert = ["transformers>=4.40"]
+# The figures (src/regime_fusion/analysis/figures.py).
+figures = ["matplotlib>=3.8"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

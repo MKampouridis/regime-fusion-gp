@@ -17,7 +17,7 @@ Set-up and the directional-change module are done. Data pipeline (Phase 2): buil
 | `src/regime_fusion/data/` | Data pipeline: downloads, trading calendar, point-in-time alignment, checks |
 | `src/regime_fusion/engine/` | Typed GP (ActTrade and the ablation ladder), backtester, metrics, runs; see `docs/ENGINE.md` |
 | `src/regime_fusion/regimes/` | Market regimes: Gaussian HMMs with filtered probabilities, per walk-forward window |
-| `src/regime_fusion/analysis/` | Analysis of campaigns and statistics: paired Sharpe-ratio tests on portfolios (stationary bootstrap), Wilcoxon-Holm, Friedman-Conover, Deflated Sharpe Ratio, PBO, Hansen's SPA |
+| `src/regime_fusion/analysis/` | Analysis of campaigns and statistics: paired Sharpe-ratio tests on portfolios (stationary bootstrap), Wilcoxon-Holm, Friedman-Conover, Deflated Sharpe Ratio, PBO, Hansen's SPA; figures |
 | `src/regime_fusion/ml/` | Machine-learning benchmarks |
 | `configs/study.yaml` | Settled study design: periods, walk-forward windows, runs, costs, base seed |
 | `configs/data_sources.yaml` | Settings for the data pipeline (download range, rate limits, contacts) |
@@ -34,6 +34,7 @@ python3 -m venv ~/.venvs/rfgp
 source ~/.venvs/rfgp/bin/activate
 pip install -e ".[dev,download]"   # "download" is needed only where data are downloaded
 pip install -e ".[ml,neural]"      # the machine-learning and neural benchmarks
+pip install -e ".[figures]"        # the figures (matplotlib)
 pytest
 ```
 
