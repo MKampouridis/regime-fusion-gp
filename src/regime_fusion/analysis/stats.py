@@ -164,8 +164,8 @@ def pbo(performance: np.ndarray, blocks: int = 16) -> dict[str, float]:
     for chosen in combinations(range(blocks), blocks // 2):
         inside = np.concatenate([parts[i] for i in chosen])
         outside = np.concatenate([parts[i] for i in range(blocks) if i not in chosen])
-        best = int(np.argmax(_sharpes(m[inside])))
-        oos = _sharpes(m[outside])
+        best = int(np.argmax(sharpe_ratios(m[inside])))
+        oos = sharpe_ratios(m[outside])
         omega = stats.rankdata(oos)[best] / (m.shape[1] + 1)
         logits.append(np.log(omega / (1 - omega)))
     logits = np.array(logits)
@@ -202,10 +202,10 @@ def sharpe_differences(returns: pd.DataFrame, pairs: list[tuple[str, str]], rng:
     """
     methods = list(dict.fromkeys(method for pair in pairs for method in pair))
     values = returns[methods].dropna().to_numpy()
-    observed = _sharpes(values)
+    observed = sharpe_ratios(values)
     resampled = np.empty((bootstraps, len(methods)))
     for draw in range(bootstraps):
-        resampled[draw] = _sharpes(values[stationary_bootstrap(len(values), mean_block, rng)])
+        resampled[draw] = sharpe_ratios(values[stationary_bootstrap(len(values), mean_block, rng)])
     scale = np.sqrt(252)
     rows = []
     for a, b in pairs:
@@ -247,6 +247,7 @@ def spa(differences: np.ndarray, rng: np.random.Generator, bootstraps: int = 100
     return {"statistic": statistic, "p": float((boot_stats >= statistic).mean())}
 
 
-def _sharpes(returns: np.ndarray) -> np.ndarray:
+def sharpe_ratios(returns: np.ndarray) -> np.ndarray:
+    """Per-period Sharpe ratio of each column; zero for one that never varies (never trades)."""
     spread = returns.std(axis=0, ddof=1)
     return np.where(spread > 0, returns.mean(axis=0) / np.where(spread > 0, spread, 1), 0.0)

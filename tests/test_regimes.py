@@ -80,6 +80,13 @@ def test_the_filter_uses_what_a_day_has_and_survives_an_impossible_day():
                                 np.array([[1e-6], [1.0]]), 0.0)
     out = hmm.filter(absorbing, np.array([0.0, 100.0, 0.0]))     # day 2 is impossible in the only state left
     assert np.isfinite(out).all() and out[1] == pytest.approx([1.0, 0.0])
+    x = np.array([[0.0], [100.0], [0.0]])
+    alpha, scale, b, log_likelihood = hmm._forward(absorbing, x)
+    gamma = alpha * hmm._backward_pass(absorbing.transition, b, scale)
+    assert np.isfinite(gamma / gamma.sum(axis=1, keepdims=True)).all()  # the backward pass agrees: no 0 / 0
+    assert -1000 < log_likelihood < -600                                 # the impossible day counts at the floor
+    refit = hmm._em(x, absorbing, np.array([1e-6]), max_iter=3, tol=0.0)
+    assert np.isfinite(refit.means).all() and np.isfinite(refit.log_likelihood)
 
 
 def test_fits_are_reproducible_and_need_enough_data():

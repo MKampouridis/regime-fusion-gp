@@ -18,15 +18,15 @@ A training set with a single class gives a constant prediction.
 
 from __future__ import annotations
 
-import hashlib
 import itertools
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import yaml
+
+from regime_fusion import provenance
 
 DEFAULT_SETTINGS = Path(__file__).resolve().parents[3] / "configs" / "benchmarks.yaml"
 KINDS = ("logistic", "lightgbm", "regime_lightgbm", "gated", "tft")
@@ -70,7 +70,7 @@ class Settings:
         return {**self.rules, **self.models}
 
     def digest(self) -> str:
-        return hashlib.sha256(json.dumps(self.raw, sort_keys=True).encode()).hexdigest()[:12]
+        return provenance.digest(self.raw)
 
     def method_digest(self, name: str) -> str:
         """Digest of one benchmark's settings: its own entry and those every benchmark shares, so
@@ -79,8 +79,7 @@ class Settings:
         own = {**self.raw.get("rules", {}), **self.raw["models"]}.get(name)
         if own is None:
             raise ValueError(f"no benchmark {name!r}")
-        return hashlib.sha256(json.dumps({"name": name, "own": own, "shared": shared}, sort_keys=True,
-                                         default=str).encode()).hexdigest()[:12]
+        return provenance.digest({"name": name, "own": own, "shared": shared})
 
 
 def load_settings(path: str | Path = DEFAULT_SETTINGS) -> Settings:

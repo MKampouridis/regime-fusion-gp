@@ -204,6 +204,44 @@ def test_a_campaign_can_hold_several_plans_of_runs(fake_engine, tmp_path):
     assert cli.main(["status", "--campaign", "p"]) == 0
 
 
+def test_finished_tasks_hold_results_made_with_the_current_settings(fake_engine, config):
+    rungs = load_rungs()
+    assert cli.main(["tasks", "--campaign", "c", "--kind", "exits", "--stocks", "AAPL", "--years", "2019"]) == 0
+    assert cli.main(["tasks", "--campaign", "c", "--kind", "runs", "--rungs", "A0", "--stocks", "AAPL",
+                     "--years", "2019", "--stages", "2", "--runs", "2"]) == 0
+    assert cli.main(["run-all", "--campaign", "c", "--kind", "exits"]) == 0
+    assert cli.main(["run-all", "--campaign", "c", "--kind", "runs"]) == 0
+    _, [task] = tasks.load_plan("c", "runs")
+    assert tasks.finished(task, "c", config, rungs)
+    spec = tasks.RunSpec("AAPL", 2019, 1, 2, 10, 0.02)
+    provenance.write(result_path("c", "A0", spec), fake_result(spec, "A0", config, "other"))   # made otherwise
+    assert tasks.finished(task, "c")                                  # the file is there,
+    assert not tasks.finished(task, "c", config, rungs)               # but not as the campaign's settings make it
+    with pytest.raises(ValueError, match="other settings of A0"):    # so run-all runs the task, which says why
+        cli.main(["run-all", "--campaign", "c", "--kind", "runs"])
+    _, [choose] = tasks.load_plan("c", "exits")
+    provenance.write(exits_path("c", "AAPL", 2019), {"days": 10, "rate": 0.02,
+                                                     "provenance": {"config_digest": "other"}})
+    assert not tasks.finished(choose, "c", config, rungs)
+    with pytest.raises(ValueError, match="another study configuration"):
+        tasks.execute(choose, "c", config, rungs, development_only=False)
+
+
+def test_a_pooled_run_checks_every_stocks_result_before_it_runs(fake_engine, config, monkeypatch):
+    calls = []
+    monkeypatch.setattr("regime_fusion.ml.tft.run_tft", lambda *args, **kwargs: calls.append(args))
+    assert cli.main(["tasks", "--campaign", "c", "--kind", "runs", "--rungs", "ML-TFT", "--stocks", "AAPL", "F",
+                     "--years", "2019", "--stages", "1", "--development"]) == 0
+    for stock in ("AAPL", "F"):
+        provenance.write(exits_path("c", stock, 2019), {"days": 10, "rate": 0.02})
+    spec = tasks.RunSpec("F", 2019, 0, 1, 10, 0.02)                  # AAPL's run 0 is missing, F's made otherwise
+    provenance.write(result_path("c", "ML-TFT", spec), fake_result(spec, "ML-TFT", config, "other"))
+    _, [task] = tasks.load_plan("c", "runs")
+    with pytest.raises(ValueError, match="other settings of ML-TFT"):
+        tasks.execute(task, "c", config, {}, development_only=True)
+    assert calls == []                                                # nothing run, so nothing overwritten
+
+
 def test_run_all_does_every_unfinished_task(fake_engine):
     assert cli.main(["tasks", "--campaign", "all", "--kind", "exits", "--stocks", "AAPL", "F", "--years", "2019",
                      "--development"]) == 0
@@ -311,3 +349,48 @@ def test_direct_commands_keep_to_a_development_only_campaign(fake_engine, monkey
     with pytest.raises(SystemExit, match="not development-only"):
         cli.main(["tasks", "--campaign", "later", "--kind", "exits", "--stocks", "AAPL", "--years", "2019",
                   "--development"])
+
+
+def test_a_campaign_recorded_before_campaigns_kept_their_status_takes_it_from_its_plans(fake_engine, monkeypatch):
+    from regime_fusion.data import store
+
+    record = {"fitness": 0.0, "evaluation": {"10bps": {"sharpe": 0.0, "trades": 0}}, "seconds": 0.0, "model": ""}
+    monkeypatch.setattr(cli, "run", lambda spec, *args, **kwargs: record)
+    for campaign, flags in (("main", []), ("pilot", ["--development"])):
+        assert cli.main(["tasks", "--campaign", campaign, "--kind", "runs", "--rungs", "A0", "--stocks", "AAPL",
+                         "--years", "2019", "--stages", "1", *flags]) == 0
+        path = store.data_dir() / "results" / campaign / "campaign.json"
+        old = {k: v for k, v in json.loads(path.read_text()).items() if k != "development_only"}
+        path.write_text(json.dumps(old))                              # as recorded before statuses were kept
+    run = ["run", "--rung", "A0", "--stock", "AAPL", "--test-year", "2019", "--exit", "10", "0.02", "--stage", "2"]
+    assert cli.main([*run, "--campaign", "main"]) == 0                # without --after-development
+    assert tasks.campaign_record("main")["development_only"] is False # it is still the main campaign
+    with pytest.raises(SystemExit, match="after the development period"):
+        cli.main([*run, "--campaign", "pilot"])
+    assert tasks.campaign_record("pilot")["development_only"] is True
+
+
+def test_a_direct_run_keeps_to_the_campaigns_exits_and_never_overwrites_a_result(fake_engine, config, monkeypatch):
+    calls = []
+
+    def fake_run(spec, rung, config, *, campaign, **_):
+        calls.append(spec)
+        record = fake_result(spec, rung.name, config, rung.digest())
+        provenance.write(result_path(campaign, rung.name, spec), record)
+        return record
+
+    monkeypatch.setattr(cli, "run", fake_run)
+    assert cli.main(["tasks", "--campaign", "dev", "--kind", "exits", "--stocks", "AAPL", "F", "--years", "2019",
+                     "--development"]) == 0
+    assert cli.main(["run-all", "--campaign", "dev", "--kind", "exits"]) == 0         # 10 days or +2%
+    run = ["run", "--campaign", "dev", "--rung", "A0", "--stock", "AAPL", "--test-year", "2019"]
+    with pytest.raises(SystemExit, match="other exit settings need a campaign of their own"):
+        cli.main([*run, "--exit", "5", "0.05"])
+    assert cli.main([*run, "--exit", "10", "0.02"]) == 0 and len(calls) == 1       # the campaign's own exits
+    assert cli.main(run) == 0 and len(calls) == 1                                   # already there: kept
+    with pytest.raises(SystemExit, match="other settings of A0"):                   # an override never replaces it
+        cli.main([*run, "--population", "20"])
+    provenance.write(exits_path("dev", "F", 2019), {"days": 10, "rate": 0.02, "provenance": {"config_digest": "x"}})
+    with pytest.raises(SystemExit, match="another study configuration"):
+        cli.main(["run", "--campaign", "dev", "--rung", "A0", "--stock", "F", "--test-year", "2019"])
+    assert len(calls) == 1

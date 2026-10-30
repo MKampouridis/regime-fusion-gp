@@ -92,7 +92,7 @@ def tests(returns: pd.DataFrame, benchmark: str, candidates: list[str], n_trials
     """
     complete = returns.dropna()
     differences = complete[candidates].sub(complete[benchmark], axis=0)
-    sharpes = pd.Series(stats._sharpes(complete.to_numpy()), index=complete.columns)  # zero for a flat portfolio
+    sharpes = pd.Series(stats.sharpe_ratios(complete.to_numpy()), index=complete.columns)  # zero for a flat portfolio
     trial_variance = float(sharpes.var(ddof=1)) if len(sharpes) > 1 else 0.0
     out: dict[str, object] = {
         "days": len(complete),

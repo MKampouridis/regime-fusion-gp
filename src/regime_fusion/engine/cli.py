@@ -17,13 +17,13 @@ The direct ``run`` and ``exits`` commands keep to their campaign's status: one
 first used by them is development-only (no evaluation after the development
 period, no hold-out stock) unless --after-development says otherwise, and the
 overrides (--sources, --population, --generations) are for development-only
-campaigns.
+campaigns. A direct run uses the campaign's exit settings where it has them
+(--exit only where it has none), and never overwrites a result.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 
 from regime_fusion.config import load_config, with_scheme
@@ -31,7 +31,7 @@ from regime_fusion.data import store
 from regime_fusion.data.universe import DEFAULT_UNIVERSE, load_universe
 from regime_fusion.engine import tasks
 from regime_fusion.engine.rungs import exit_grid, load_rungs
-from regime_fusion.engine.run import RunSpec, choose_exits, exits_path, run
+from regime_fusion.engine.run import RunSpec, choose_exits, exits_path, result_path, run
 from regime_fusion.ml.models import load_settings as load_benchmarks
 
 log = logging.getLogger("regime_fusion.engine")
@@ -123,7 +123,8 @@ def add_common(sub: argparse.ArgumentParser) -> None:
 def direct_campaign(args: argparse.Namespace, config, task: tasks.Task) -> None:
     """Keep a direct command to its campaign's status (see the module notes)."""
     known = tasks.campaign_record(args.campaign)
-    wanted = None if known and "development_only" in known else not args.after_development
+    settled = known and ("development_only" in known or tasks.plan_names(args.campaign))
+    wanted = None if settled else not args.after_development
     try:
         development_only = tasks.claim_campaign(args.campaign, config.windows.scheme, wanted)
         if development_only:
@@ -152,19 +153,25 @@ def run_command(args: argparse.Namespace) -> int:
         config = with_scheme(config, args.scheme)
     if args.rung not in rungs and args.rung not in benchmarks.methods():
         raise SystemExit(f"unknown rung or benchmark {args.rung!r}")
-    if args.exit:
-        days, rate = int(args.exit[0]), float(args.exit[1])
-    else:
-        path = exits_path(args.campaign, args.stock, args.test_year)
-        if not path.exists():
-            raise SystemExit(f"no exit settings at {path}; run the exits command or pass --exit")
-        chosen = json.loads(path.read_text())
-        days, rate = chosen["days"], chosen["rate"]
+    try:
+        days, rate = run_exits(args, config)
+    except (FileNotFoundError, ValueError) as error:
+        raise SystemExit(str(error)) from None
     spec = RunSpec(args.stock, args.test_year, args.run, args.stage, days, rate)
     direct_campaign(args, config, tasks.Task("runs", args.stock, args.test_year, args.rung, args.stage))
+    sources = tuple(args.sources) if args.sources else None
+    method = rungs[args.rung].digest(sources, overrides(args)) if args.rung in rungs else \
+        benchmarks.method_digest(args.rung)
+    path = result_path(args.campaign, args.rung, spec)
+    try:  # a result already there must be this run's, made with these settings; it is never overwritten
+        if tasks.finished_result(path, args.rung, spec, config, method):
+            log.info("%s is already there (the same run, made with the same settings)", path)
+            return 0
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
     if args.rung in rungs:
-        record = run(spec, rungs[args.rung], config, campaign=args.campaign,
-                     sources=tuple(args.sources) if args.sources else None, overrides=overrides(args))
+        record = run(spec, rungs[args.rung], config, campaign=args.campaign, sources=sources,
+                     overrides=overrides(args))
     else:
         record = tasks.run_method(args.rung, spec, rungs, config, args.campaign)
     primary = f"{config.primary_cost_bps_per_side:g}bps"
@@ -174,6 +181,21 @@ def run_command(args: argparse.Namespace) -> int:
              record["seconds"])
     log.info("model:\n%s", record["model"])
     return 0
+
+
+def run_exits(args: argparse.Namespace, config) -> tuple[int, float]:
+    """The exit settings of a direct run: the campaign's for the stock-year, set under the current
+    configuration. --exit gives them where the campaign has none, or repeats the campaign's."""
+    path = exits_path(args.campaign, args.stock, args.test_year)
+    if not path.exists():
+        if not args.exit:
+            raise FileNotFoundError(f"no exit settings at {path}; run the exits command or pass --exit")
+        return int(args.exit[0]), float(args.exit[1])
+    days, rate = tasks.exit_settings(args.campaign, args.stock, args.test_year, config)
+    if args.exit and (int(args.exit[0]), float(args.exit[1])) != (days, rate):
+        raise ValueError(f"campaign {args.campaign!r} exits {args.stock} {args.test_year} after {days} days or "
+                         f"at +{100 * rate:g}%; runs with other exit settings need a campaign of their own")
+    return days, rate
 
 
 def exits_command(args: argparse.Namespace) -> int:
@@ -260,7 +282,8 @@ def run_all_command(args: argparse.Namespace) -> int:
 
     name = args.plan or args.kind
     _, planned = tasks.load_plan(args.campaign, name)
-    todo = [i for i, task in enumerate(planned) if not tasks.finished(task, args.campaign)]
+    config, rungs = with_scheme(load_config(), tasks.plan_scheme(args.campaign, name)), load_rungs()
+    todo = [i for i, task in enumerate(planned) if not tasks.finished(task, args.campaign, config, rungs)]
     log.info("%s %s: %d of %d tasks to do, %d at a time", args.campaign, name, len(todo), len(planned), args.workers)
     if args.workers <= 1:
         for index in todo:
@@ -296,7 +319,8 @@ def status_command(args: argparse.Namespace) -> int:
         raise SystemExit(f"no plans for campaign {args.campaign!r}")
     for name in names:
         _, planned = tasks.load_plan(args.campaign, name)
-        left = [i for i, task in enumerate(planned) if not tasks.finished(task, args.campaign)]
+        config, rungs = with_scheme(load_config(), tasks.plan_scheme(args.campaign, name)), load_rungs()
+        left = [i for i, task in enumerate(planned) if not tasks.finished(task, args.campaign, config, rungs)]
         log.info("%s %s: %d of %d tasks finished%s", args.campaign, name, len(planned) - len(left), len(planned),
                  f"; first unfinished: {left[:10]}" if left else "")
     return 0

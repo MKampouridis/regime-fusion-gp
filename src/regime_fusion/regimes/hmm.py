@@ -24,6 +24,7 @@ import numpy as np
 from numba import njit
 
 VARIANCE_FLOOR = 1e-6  # relative to each feature's overall variance
+LOST_DAY_LIKELIHOOD = 1e-300  # a day no reachable state explains (see _forward_pass)
 
 
 @dataclass(frozen=True)
@@ -64,7 +65,7 @@ def fit(x: np.ndarray, n_states: int, rng: np.random.Generator, *, restarts: int
 def filter(model: GaussianHMM, x: np.ndarray) -> np.ndarray:  # noqa: A001 (the standard name)
     """Filtered state probabilities P(state on day t | days up to t), one row per day."""
     x = _as_2d(x)
-    alpha, _ = _forward_pass(model.start, model.transition, _emission(model, x))
+    alpha, _, _ = _forward_pass(model.start, model.transition, _emission(model, x))
     return alpha
 
 
@@ -94,12 +95,13 @@ def _emission(model: GaussianHMM, x: np.ndarray) -> np.ndarray:
 
 
 def _forward(model: GaussianHMM, x: np.ndarray):
-    """Scaled forward pass: normalised alphas, scales, emissions and the log-likelihood."""
+    """Scaled forward pass: normalised alphas, scales, emissions and the log-likelihood. A day that no
+    reachable state can explain counts at the floor ``LOST_DAY_LIKELIHOOD`` times its best emission."""
     log_b = _log_emission(model, x)
     shift = log_b.max(axis=1, keepdims=True)
     b = np.exp(log_b - shift)
-    alpha, scale = _forward_pass(model.start, model.transition, b)
-    return alpha, scale, b, float(np.log(scale).sum() + shift.sum())
+    alpha, scale, lost = _forward_pass(model.start, model.transition, b)
+    return alpha, scale, b, float(np.log(scale).sum() + shift.sum() + lost.sum() * np.log(LOST_DAY_LIKELIHOOD))
 
 
 def _em(x, model, floor, max_iter, tol) -> GaussianHMM:
@@ -126,10 +128,14 @@ def _em(x, model, floor, max_iter, tol) -> GaussianHMM:
 
 @njit(cache=True)
 def _forward_pass(start, transition, b):
-    """Normalised forward probabilities (the filter) and the scale of each step."""
+    """Normalised forward probabilities (the filter), the scale of each step, and the days whose
+    likelihood underflowed under every reachable state. Such a day carries no information: its
+    emissions become 1, in ``b`` itself so that the backward pass agrees, and the filter moves on
+    through the transition matrix."""
     n, k = b.shape
     alpha = np.empty((n, k))
     scale = np.empty(n)
+    lost = np.zeros(n, dtype=np.bool_)
     prior = np.empty(k)
     for t in range(n):
         for j in range(k):
@@ -141,13 +147,14 @@ def _forward_pass(start, transition, b):
                     prior[j] += alpha[t - 1, i] * transition[i, j]
             alpha[t, j] = prior[j] * b[t, j]
         total = alpha[t].sum()
-        if total > 0.0:
-            scale[t] = total
-            alpha[t] /= total
-        else:  # the day's likelihood underflowed under every reachable state: it carries no information
-            scale[t] = 1e-300
-            alpha[t] = prior / prior.sum()
-    return alpha, scale
+        if total <= 0.0:
+            lost[t] = True
+            b[t, :] = 1.0
+            alpha[t] = prior
+            total = prior.sum()
+        scale[t] = total
+        alpha[t] /= total
+    return alpha, scale, lost
 
 
 @njit(cache=True)

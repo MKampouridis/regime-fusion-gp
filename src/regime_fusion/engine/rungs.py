@@ -8,8 +8,6 @@ evaluations (population x generations).
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -38,7 +36,7 @@ class Rung:
 
     def digest(self, sources: tuple[str, ...] | None = None, overrides: dict[str, Any] | None = None) -> str:
         """Digest of the rung's settings; other ``sources`` or GP ``overrides`` (development runs) change it."""
-        plain = hashlib.sha256(json.dumps(self.spec, sort_keys=True).encode()).hexdigest()[:12]
+        plain = provenance.digest(self.spec)
         if not overrides and (sources is None or tuple(sources) == self.sources):
             return plain
         return provenance.digest({"rung": plain, "sources": list(sources or self.sources),

@@ -7,7 +7,7 @@ import pytest
 from regime_fusion.data import cli, finbert, gdelt, store
 from regime_fusion.data.calendar import TradingCalendar, study_calendar
 from regime_fusion.data.store import DATA_DIR_ENV
-from regime_fusion.testing import check_point_in_time
+from regime_fusion.testing import check_no_lookahead, check_point_in_time
 
 
 def fnspid_rows(rows):
@@ -132,6 +132,20 @@ def test_indicators_use_only_headlines_public_by_the_close(calendar):
     check_point_in_time(build, items, "session", calendar.sessions[20::25])
 
 
+def test_indicators_never_use_later_sessions(calendar):
+    rng = np.random.default_rng(1)
+    sessions = calendar.sessions
+    days = sessions[rng.integers(0, len(sessions) - 1, 300)]
+    titles = rng.choice(["Apple beats", "Apple misses", "Apple holds"], 300)
+    items = finbert.fnspid_headlines([fnspid_rows([(f"{d:%Y-%m-%d} 00:00:00 UTC", t, "AAPL")
+                                                   for d, t in zip(days, titles)])], calendar)
+    scores = finbert.score_texts(items, pd.DataFrame(columns=["key", "positive", "negative", "neutral"]),
+                                 fake_scorer)
+    unread = sessions[[10, 11, 12, 40, 41, 100, 101, 102, 103]]       # GDELT files mostly not read
+    check_no_lookahead(lambda s: finbert.indicators(items, scores, pd.DatetimeIndex(s), [2019], unread),
+                       sessions, range(0, len(sessions), 3))
+
+
 def test_finbert_command_writes_each_sources_indicators(monkeypatch, tmp_path):
     monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
     folder = store.layer("raw", "fnspid")
@@ -183,12 +197,12 @@ def test_finbert_command_scores_fnspid_without_gdelt_and_rescores_for_a_new_revi
         return lambda: (score, revision)
 
     monkeypatch.setattr(finbert, "finbert_scorer", scorer_at("abc123"))
-    assert cli.main(["finbert", "--stocks", "F"]) == 0           # no GDELT titles yet: FNSPID all the same
-    assert store.layer("processed", "finbert", "fnspid", "F.parquet").exists() and calls == [12]
-    assert cli.main(["finbert", "--stocks", "F"]) == 0
+    assert cli.main(["finbert", "--stocks", "F"]) == 1           # no GDELT titles yet: a failure, but
+    assert store.layer("processed", "finbert", "fnspid", "F.parquet").exists() and calls == [12]   # FNSPID is done
+    assert cli.main(["finbert", "--stocks", "F", "--sources", "fnspid"]) == 0
     assert calls == [12]                                          # same revision: the kept scores are reused
     monkeypatch.setattr(finbert, "finbert_scorer", scorer_at("def456"))
-    assert cli.main(["finbert", "--stocks", "F"]) == 0
+    assert cli.main(["finbert", "--stocks", "F", "--sources", "fnspid"]) == 0
     assert calls == [12, 12]                                      # another revision: every headline again
     sidecar = json.loads(store.sidecar(store.layer("interim", "finbert", "scores.parquet")).read_text())
     assert sidecar["revision"] == "def456"

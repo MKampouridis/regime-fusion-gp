@@ -870,6 +870,7 @@ def run_finbert(args: argparse.Namespace) -> int:
     calendar = study_calendar()
     stocks = [stock.id for stock in selected_stocks(args)]
     sources: dict[str, tuple[pd.DataFrame, pd.DatetimeIndex | None]] = {}
+    left_out = []
     if "fnspid" in args.sources:
         files = sorted(store.layer("raw", "fnspid").glob("*.parquet"))
         if not files:
@@ -882,6 +883,7 @@ def run_finbert(args: argparse.Namespace) -> int:
             sources["gdelt"] = gdelt_headlines(stocks, calendar)
         except (FileNotFoundError, ValueError) as error:  # FNSPID's scores need no GDELT, so go on without it
             log.error("finbert: GDELT headlines left out: %s", error)
+            left_out.append("gdelt")
     if not sources:
         return 1
     try:
@@ -921,7 +923,7 @@ def run_finbert(args: argparse.Namespace) -> int:
         log.info("finbert: %s headlines cover the whole window of %s stocks per test year", source,
                  entries["_stocks_per_test_year"])
     write_report("finbert_coverage.json", report)
-    return 0
+    return 1 if left_out else 0  # a source asked for and not built is a failure, even with the others done
 
 
 def gdelt_headlines(stocks: list[str], calendar) -> tuple[pd.DataFrame, pd.DatetimeIndex]:

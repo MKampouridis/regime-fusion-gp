@@ -176,11 +176,13 @@ def claim_campaign(campaign: str, scheme: str, development_only: bool | None = N
     if record["scheme"] != scheme:
         raise ValueError(f"campaign {campaign!r} uses {record['scheme']} windows; "
                          f"{scheme} windows need a campaign of their own")
-    if "development_only" not in record:  # recorded before campaigns kept their status
-        if development_only is None:
+    if "development_only" not in record:  # recorded before campaigns kept their status: its plans tell
+        names = plan_names(campaign)
+        status = any(load_plan(campaign, name)[0] for name in names) if names else development_only
+        if status is None:
             return False
-        provenance.write(path, {**record, "development_only": bool(development_only)})
-        return bool(development_only)
+        record = {**record, "development_only": bool(status)}
+        provenance.write(path, record)
     if development_only is not None and bool(development_only) != bool(record["development_only"]):
         status = "development-only" if record["development_only"] else "not development-only"
         raise ValueError(f"campaign {campaign!r} is {status}; the other kind of work needs a campaign of its own")
@@ -369,6 +371,7 @@ def execute(task: Task, campaign: str, config: StudyConfig, rungs: dict[str, Run
         return execute_pooled(task, campaign, config)
     if task.kind == "exits":
         if exits_path(campaign, task.stock, task.test_year).exists():
+            exit_settings(campaign, task.stock, task.test_year, config)  # refuses another configuration's
             return {"done": 0, "skipped": 1}
         choose_exits(task.stock, task.test_year, rungs["A0"], config, exit_grid(), campaign=campaign)
         return {"done": 1, "skipped": 0}
@@ -409,8 +412,9 @@ def execute_pooled(task: Task, campaign: str, config: StudyConfig) -> dict[str, 
     done = skipped = 0
     for number in task.runs:
         specs = [RunSpec(s, task.test_year, number, task.stage, *exits[s]) for s in stocks]
-        if all(finished_result(result_path(campaign, task.rung, spec), task.rung, spec, config, method)
-               for spec in specs):
+        there = [finished_result(result_path(campaign, task.rung, spec), task.rung, spec, config, method)
+                 for spec in specs]  # every stock's, so that a result made otherwise stops the task
+        if all(there):
             skipped += 1
             continue
         run_tft(task.test_year, task.stage, number, stocks, exits, settings.models[task.rung], settings, config,
@@ -438,13 +442,38 @@ def run_method(name: str, spec: RunSpec, rungs: dict[str, Rung], config: StudyCo
     raise ValueError(f"unknown rung or benchmark {name!r}")
 
 
-def finished(task: Task, campaign: str) -> bool:
+def finished(task: Task, campaign: str, config: StudyConfig | None = None,
+             rungs: dict[str, Rung] | None = None) -> bool:
+    """Whether a task's results are all there. Given the configuration and the rungs, each must also be
+    whole and made with the current settings, as ``execute`` requires; one that is not leaves the task
+    unfinished, so that running it stops on that result and says why."""
     if task.kind == "exits":
-        return exits_path(campaign, task.stock, task.test_year).exists()
+        if not exits_path(campaign, task.stock, task.test_year).exists():
+            return False
+        if config is not None:
+            try:
+                exit_settings(campaign, task.stock, task.test_year, config)
+            except ValueError:
+                return False
+        return True
     stocks = plan_stocks(campaign, task.plan or task.kind) if task.stock == "*" else [task.stock]
-    root = store.data_dir() / "results" / campaign / task.rung
-    return all((root / stock / f"{task.test_year}.stage{task.stage}.run{n:02d}.json").exists()
-               for stock in stocks for n in task.runs)
+    if config is None or rungs is None:
+        root = store.data_dir() / "results" / campaign / task.rung
+        return all((root / stock / f"{task.test_year}.stage{task.stage}.run{n:02d}.json").exists()
+                   for stock in stocks for n in task.runs)
+    try:
+        check_manifest(task, campaign, config, rungs)
+        method = method_digest(task.rung, rungs)
+        for stock in stocks:
+            days, rate = exit_settings(campaign, stock, task.test_year, config)
+            for n in task.runs:
+                spec = RunSpec(stock, task.test_year, n, task.stage, days, rate)
+                path = result_path(campaign, task.rung, spec)
+                if not path.exists() or result_problem(path, task.rung, spec, config, method):
+                    return False
+    except (FileNotFoundError, ValueError):
+        return False
+    return True
 
 
 def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
