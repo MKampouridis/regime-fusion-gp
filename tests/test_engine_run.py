@@ -175,7 +175,7 @@ def test_gp_pilot_candidates_share_one_budget():
         assert (gp.population, gp.generations, gp.tournament) == (population, generations, tournament)
     assert rungs["A3-p500-t2"].regimes == "dc" and rungs["A1-p500-t2"].fusion == rungs["A1"].fusion
     assert rungs["A1-p500-t2"].spec["gp"]["population"] == 500  # recorded in the provenance too
-    assert rungs["A1"].gp.population == 1000 and rungs["A1-p500-t2"].digest() != rungs["A1-p500-t4"].digest()
+    assert rungs["A1"].gp.population == 2000 and rungs["A1-p500-t2"].digest() != rungs["A1-p500-t4"].digest()
 
 
 def test_validation_checkpoints_are_kept_in_stage_one_only(data_dir):

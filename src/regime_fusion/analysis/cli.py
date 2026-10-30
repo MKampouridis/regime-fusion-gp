@@ -423,6 +423,7 @@ def figures_command(args: argparse.Namespace) -> int:
         from regime_fusion.analysis import figures
     except ImportError:  # matplotlib is optional
         raise SystemExit('the figures need matplotlib: pip install -e ".[figures]"') from None
+    logging.getLogger("fontTools").setLevel(logging.WARNING)  # it reports its font subsetting at INFO
     config = load_config()
     folder = store.data_dir() / "reports" / "figures" / args.campaign
     drawn = []

@@ -1,11 +1,13 @@
 # The ablation ladder and the GP baselines (docs/RESEARCH_PLAN.md, docs/ENGINE.md).
 #
-# Each rung changes one thing from the rung it extends. GP parameters are ActTrade's
-# (Table 5 of the paper) until the pilot, on 2015-2018 data only, settles the recipe.
+# Each rung changes one thing from the rung it extends. The population, generations and
+# tournament size come from the GP-parameter pilot (docs/PROTOCOL.md, section 9.1, on 2015-2018
+# data only; 30 October 2026); ActTrade's were 1,000, 50 and 4. The other GP parameters are
+# ActTrade's (Table 5 of the paper).
 
 gp:
-  population: 1000
-  generations: 50
+  population: 2000
+  generations: 40
   crossover: 0.95
   tournament: 4
   initial_depth: 2          # branch depth; ActTrade's initial depth 3 counts its 3-AND root

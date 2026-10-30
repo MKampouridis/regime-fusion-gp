@@ -19,7 +19,7 @@ An individual has one **branch** per analysis type and a **fusion tree** that co
 
 | Item | Setting |
 | --- | --- |
-| Population, generations | 1000, 50 (ActTrade's), until the GP-parameter pilot sets them with the tournament size (`PROTOCOL.md`, §9.1). A rung may override them (`gp:` in `configs/rungs.yaml`) |
+| Population, generations | 2,000 and 40, with tournaments of 4, set by the GP-parameter pilot (`PROTOCOL.md`, §9.1; ActTrade's were 1,000 and 50). A rung may override them (`gp:` in `configs/rungs.yaml`) |
 | Initialisation | Ramped half-and-half, branch depth up to 2 (ActTrade's depth 3 counts its root) |
 | Maximum branch depth | 5 (ActTrade: 6 with the root) |
 | Maximum fusion depth | 3 for the fusion nodes, and 2 for each IF condition, checked apart after crossover (choice 11) |

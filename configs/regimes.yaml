@@ -14,7 +14,7 @@ inputs:
     threshold: 0.01     # at 1% one state is merely "no event in 20 sessions"; the pilot should try 0.5%
     window: 20
   dc_news:              # rung A4: the dc inputs plus directional changes of news attention
-    threshold: 0.01
+    threshold: 0.005    # A3's choice (docs/PROTOCOL.md, section 9): at 1% a state held under 15% of the days
     window: 20
     attention:
       scope: market     # market: the 50 main stocks' news together, regimes shared by all stocks (the plan);
@@ -30,7 +30,7 @@ inputs:
     window: 20
   dc_news_wide:         # rung A4-wide: a news-attention threshold of 0.5 (a rise of about 65%)
     kind: dc_news
-    threshold: 0.01     # set to A3's chosen threshold before comparing
+    threshold: 0.005    # A3's choice, as for dc_news
     window: 20
     attention:
       scope: market
