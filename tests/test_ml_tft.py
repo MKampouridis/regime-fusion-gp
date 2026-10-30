@@ -91,10 +91,11 @@ def test_campaigns_give_the_pooled_model_one_task_for_all_stocks(data_dir, monke
         for stock in stocks:
             spec = RunSpec(stock, year, run, stage, *exits[stock])
             mark = {"format": FINGERPRINT_FORMAT, "config": config.digest(),
-                    "method": settings.method_digest(model.name), "inputs": {}, "evaluation_prices": ""}
+                    "method": settings.method_digest(model.name), "inputs": {}, "evaluation_prices": "p"}
             measures = dict.fromkeys(tasks.MEASURES, 0.0)
             provenance.write(result_path(campaign, model.name, spec), {
                 **spec.__dict__, "rung": model.name, "fingerprint": mark, "signal": "AA==",
+                "evaluate": [f"{year}-01-01", f"{year}-12-31"],
                 "evaluation": {f"{c:g}bps": measures for c in config.costs_bps_per_side}})
 
     monkeypatch.setattr("regime_fusion.ml.tft.run_tft", fake_tft)

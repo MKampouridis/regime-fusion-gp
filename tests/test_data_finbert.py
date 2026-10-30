@@ -180,6 +180,10 @@ def test_finbert_command_writes_each_sources_indicators(monkeypatch, tmp_path):
     report = json.loads(store.layer("reports", "finbert_coverage.json").read_text())
     assert report["gdelt"]["AAPL"]["covered_years"] == [2024] and report["fnspid"]["F"]["covered_test_years"] == []
     assert len(pd.read_parquet(store.layer("interim", "finbert", "scores.parquet"))) == 14
+    (folder / "a.parquet").unlink()                                   # FNSPID gone: GDELT's titles still built
+    store.layer("processed", "finbert", "gdelt", "AAPL.parquet").unlink()
+    assert cli.main(["finbert", "--stocks", "AAPL", "F"]) == 1
+    assert store.layer("processed", "finbert", "gdelt", "AAPL.parquet").exists()
 
 
 def test_finbert_command_scores_fnspid_without_gdelt_and_rescores_for_a_new_revision(monkeypatch, tmp_path):

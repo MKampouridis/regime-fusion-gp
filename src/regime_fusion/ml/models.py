@@ -73,12 +73,18 @@ class Settings:
         return provenance.digest(self.raw)
 
     def method_digest(self, name: str) -> str:
-        """Digest of one benchmark's settings: its own entry and those every benchmark shares, so
-        that changing another benchmark leaves it alone."""
-        shared = {k: v for k, v in self.raw.items() if k not in ("models", "rules")}
-        own = {**self.raw.get("rules", {}), **self.raw["models"]}.get(name)
+        """Digest of one benchmark's settings: its own entry and the shared settings it uses, so that
+        changing another benchmark, or a setting it does not use, leaves it alone. The models use
+        every shared setting (features, quantiles, the fewest trades); a rule uses only the fewest
+        trades, and only when it chooses parameters."""
+        rules = self.raw.get("rules", {})
+        own = {**rules, **self.raw["models"]}.get(name)
         if own is None:
             raise ValueError(f"no benchmark {name!r}")
+        if name in rules:
+            shared = {"min_trades": self.raw.get("min_trades")} if own.get("grid") else {}
+        else:
+            shared = {k: v for k, v in self.raw.items() if k not in ("models", "rules")}
         return provenance.digest({"name": name, "own": own, "shared": shared})
 
 

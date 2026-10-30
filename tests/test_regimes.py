@@ -89,6 +89,15 @@ def test_the_filter_uses_what_a_day_has_and_survives_an_impossible_day():
     assert np.isfinite(refit.means).all() and np.isfinite(refit.log_likelihood)
 
 
+def test_constant_inputs_and_tiny_likelihoods_still_fit():
+    x = np.column_stack([np.linspace(-1, 1, 40), np.zeros(40)])                  # one input never moves
+    assert np.isfinite(hmm.fit(x, 2, np.random.default_rng(0), restarts=3, max_iter=10).log_likelihood)
+    for means, days in (([0.0, 38.0], [0.0, 38.0]), ([0.0, 27.0], [0.0, 27.0, 27.0, 27.0])):
+        start = hmm.GaussianHMM(np.array([1.0, 0.0]), np.eye(2), np.array(means)[:, None], np.ones((2, 1)), 0.0)
+        refit = hmm._em(np.array(days)[:, None], start, np.array([1e-6]), max_iter=3, tol=0.0)
+        assert np.isfinite(refit.means).all() and np.isfinite(refit.log_likelihood)   # no overflow to NaN
+
+
 def test_a_broken_em_start_never_wins(monkeypatch):
     model = hmm.GaussianHMM(np.array([0.5, 0.5]), np.eye(2), np.array([[np.nan], [0.0]]), np.ones((2, 1)), 0.0)
     log_b = hmm._log_emission(model, np.array([[1.0], [np.nan]]))

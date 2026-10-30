@@ -16,8 +16,8 @@ compare, portfolio and random check the runs against the campaign's plans:
 every planned run of the methods analysed must have a result (--incomplete
 instead leaves out the stock-years with runs missing, and says which), runs
 outside the plans are left out, and --plan keeps one plan's runs only (the
-pilot's 10 runs, say, without the 100-run check's extra ones). The portfolios
-use the stock-years that every method analysed covers.
+pilot's 10 runs, say, without the 100-run check's extra ones). compare and the
+portfolios use the stock-years that every method analysed covers.
 """
 
 from __future__ import annotations
@@ -52,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--confirmatory", action="store_true",
                      help="test exactly the six comparisons of docs/PROTOCOL.md (their per-stock view; "
                           "their confirmatory tests are portfolio's)")
+    sub.add_argument("--pairs", nargs="+", metavar="FIRST:SECOND",
+                     help="test these comparisons instead (as for the FinBERT check: A0-FB:A0 A1-FB:A1)")
     sub.add_argument("--stage", type=int, choices=(1, 2), default=2, help="1 for the pilot (validation year)")
     add_selection(sub)
     sub.set_defaults(handler=compare_command)
@@ -187,8 +189,23 @@ def paired_comparisons(given: list[str] | None, methods: list[str]) -> list[tupl
         pairs.append((first, second))
     absent = sorted({method for pair in pairs for method in pair} - set(methods))
     if absent:
-        raise SystemExit(f"--pairs: no portfolio for {absent}")
+        raise SystemExit(f"--pairs: {absent} not among the methods analysed")
     return pairs
+
+
+def shared_stock_years(runs: pd.DataFrame, methods: list[str]) -> pd.DataFrame:
+    """The runs on the stock-years that every method analysed covers (the FinBERT rungs cover fewer),
+    saying so when that leaves some out; stops when they share none."""
+    shared = results.common_stock_years(runs)
+    if shared.empty:
+        raise SystemExit(f"the methods analysed share no stock-year: {methods}")
+    every = runs[results.KEYS].drop_duplicates()
+    if len(shared) == len(every):
+        return runs
+    fewest = runs.groupby("rung")[results.KEYS].apply(lambda g: len(g.drop_duplicates())).idxmin()
+    log.warning("the methods cover different stock-years: the analysis uses the %d that all of them "
+                "cover, of %d (%s covers the fewest)", len(shared), len(every), fewest)
+    return results.keep_stock_years(runs, shared)
 
 
 def default_methods(args: argparse.Namespace, runs: pd.DataFrame, planned: pd.DataFrame, option: str) -> list[str]:
@@ -228,10 +245,12 @@ def compare_command(args: argparse.Namespace) -> int:
     missing = sorted(set(rungs) - set(runs["rung"]))
     if missing:
         raise SystemExit(f"no stage-{args.stage} runs for {missing}")
-    runs = runs[runs["rung"].isin(rungs)]
+    runs = shared_stock_years(runs[runs["rung"].isin(rungs)], rungs)
     folder, name = output(args.campaign), f"{args.measure}.stage{args.stage}"
     medians = results.stock_year_medians(runs, args.measure)[rungs]
-    if args.confirmatory:
+    if args.pairs:
+        pairs = paired_comparisons(args.pairs, rungs)
+    elif args.confirmatory:
         pairs = results.CONFIRMATORY
         absent = sorted({m for pair in pairs for m in pair} - set(rungs))
         if absent:
@@ -274,15 +293,9 @@ def portfolio_command(args: argparse.Namespace) -> int:
     if absent:
         raise SystemExit(f"no stage-{args.stage} runs for {absent}")
     pairs = paired_comparisons(args.pairs, methods)
-    shared = results.common_stock_years(runs)
-    if shared.empty:
-        raise SystemExit(f"the methods analysed share no stock-year: {methods}")
     every = runs[results.KEYS].drop_duplicates()
-    if len(shared) < len(every):
-        fewest = runs.groupby("rung")[results.KEYS].apply(lambda g: len(g.drop_duplicates())).idxmin()
-        log.warning("the methods cover different stock-years: the portfolios use the %d that all of them "
-                    "cover, of %d (%s covers the fewest)", len(shared), len(every), fewest)
-        runs = results.keep_stock_years(runs, shared)
+    runs = shared_stock_years(runs, methods)
+    shared = runs[results.KEYS].drop_duplicates()
     if args.benchmark and args.benchmark not in methods:
         raise SystemExit(f"--benchmark {args.benchmark} is not among the methods analysed")
     returns = portfolio.method_returns(runs, cost)

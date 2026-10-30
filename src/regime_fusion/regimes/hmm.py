@@ -25,6 +25,7 @@ from numba import njit
 
 VARIANCE_FLOOR = 1e-6  # relative to each feature's overall variance
 LOST_DAY_LIKELIHOOD = 1e-300  # a day no reachable state explains (see _forward_pass)
+BETA_CAP = 1e300              # bound of the backward probabilities (see _backward_pass)
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,7 @@ def fit(x: np.ndarray, n_states: int, rng: np.random.Generator, *, restarts: int
     floor = VARIANCE_FLOOR * x.var(axis=0) + 1e-12
     best = None
     for _ in range(restarts):
-        model = _em(x, _initial(x, n_states, rng), floor, max_iter, tol)
+        model = _em(x, _initial(x, n_states, rng, floor), floor, max_iter, tol)
         if _finite(model) and (best is None or model.log_likelihood > best.log_likelihood):
             best = model
     if best is None:
@@ -80,9 +81,9 @@ def _as_2d(x) -> np.ndarray:
     return x[:, None] if x.ndim == 1 else x
 
 
-def _initial(x: np.ndarray, k: int, rng: np.random.Generator) -> GaussianHMM:
+def _initial(x: np.ndarray, k: int, rng: np.random.Generator, floor: float | np.ndarray = 0.0) -> GaussianHMM:
     means = x[rng.choice(len(x), size=k, replace=False)]
-    variances = np.tile(x.var(axis=0), (k, 1))
+    variances = np.tile(np.maximum(x.var(axis=0), floor), (k, 1))  # a constant input starts at the floor
     transition = np.full((k, k), 0.1 / max(k - 1, 1)) + np.eye(k) * (0.9 - 0.1 / max(k - 1, 1))
     transition /= transition.sum(axis=1, keepdims=True)
     return GaussianHMM(np.full(k, 1.0 / k), transition, means, variances, -np.inf)
@@ -115,8 +116,8 @@ def _em(x, model, floor, max_iter, tol) -> GaussianHMM:
     previous = -np.inf
     for _ in range(max_iter):
         alpha, scale, b, log_likelihood = _forward(model, x)
-        if log_likelihood - previous < tol * abs(log_likelihood):
-            break
+        if not np.isfinite(log_likelihood) or log_likelihood - previous < tol * abs(log_likelihood):
+            break  # converged, or broken (fit then sets this start aside)
         previous = log_likelihood
         beta = _backward_pass(model.transition, b, scale)
         gamma = alpha * beta
@@ -136,9 +137,10 @@ def _em(x, model, floor, max_iter, tol) -> GaussianHMM:
 @njit(cache=True)
 def _forward_pass(start, transition, b):
     """Normalised forward probabilities (the filter), the scale of each step, and the days whose
-    likelihood underflowed under every reachable state. Such a day carries no information: its
-    emissions become 1, in ``b`` itself so that the backward pass agrees, and the filter moves on
-    through the transition matrix."""
+    likelihood fell below ``LOST_DAY_LIKELIHOOD`` (relative to its best state's) under every reachable
+    state. Such a day carries no information: its emissions become 1, in ``b`` itself so that the
+    backward pass agrees, and the filter moves on through the transition matrix. So no scale is below
+    the floor, and the likelihood is continuous at it."""
     n, k = b.shape
     alpha = np.empty((n, k))
     scale = np.empty(n)
@@ -154,7 +156,7 @@ def _forward_pass(start, transition, b):
                     prior[j] += alpha[t - 1, i] * transition[i, j]
             alpha[t, j] = prior[j] * b[t, j]
         total = alpha[t].sum()
-        if total <= 0.0:
+        if total < LOST_DAY_LIKELIHOOD:
             lost[t] = True
             b[t, :] = 1.0
             alpha[t] = prior
@@ -173,7 +175,9 @@ def _backward_pass(transition, b, scale):
             total = 0.0
             for j in range(k):
                 total += transition[i, j] * b[t + 1, j] * beta[t + 1, j]
-            beta[t, i] = total / scale[t + 1]
+            # A state the filter has ruled out (forward probability 0) can grow without bound over
+            # days of small scales; capped, it stays finite, and its posterior is 0 all the same.
+            beta[t, i] = min(total / scale[t + 1], BETA_CAP)
     return beta
 
 

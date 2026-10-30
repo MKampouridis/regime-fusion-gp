@@ -54,6 +54,7 @@ import dataclasses
 import datetime as dt
 import functools
 import json
+import math
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
@@ -74,6 +75,8 @@ from regime_fusion.windows import DateRange, walk_forward
 KINDS = ("exits", "runs")
 FINGERPRINT = {"format", "config", "method", "inputs", "evaluation_prices"}  # what every result's fingerprint holds
 MEASURES = {"sharpe", "annual_return", "max_drawdown", "cvar_95", "trades", "trades_per_year"}  # read by the analysis
+IDENTITY = {"rung": str, "stock": str, "test_year": int, "stage": int, "run": int, "exit_days": int,
+            "exit_rate": (int, float)}  # what names a run, and its exit settings
 log = logging.getLogger("regime_fusion.engine")
 
 
@@ -167,24 +170,32 @@ def development_campaign(campaign: str) -> bool:
     return any(load_plan(campaign, name)[0] for name in plan_names(campaign))
 
 
+def campaign_status(campaign: str) -> bool | None:
+    """Whether a campaign is development-only, as recorded or, for one recorded before campaigns kept
+    their status (or with no record), as its plans say; None for a campaign with neither."""
+    record = campaign_record(campaign) or {}
+    if "development_only" in record:
+        return bool(record["development_only"])
+    names = plan_names(campaign)
+    return any(load_plan(campaign, name)[0] for name in names) if names else None
+
+
 def claim_campaign(campaign: str, scheme: str, development_only: bool | None = None) -> bool:
     """Record a new campaign's scheme and whether it is development-only, or refuse work that does not
     keep to them; returns whether the campaign is development-only (``None`` takes its own status)."""
     path = store.data_dir() / "results" / campaign / "campaign.json"
     record = campaign_record(campaign)
-    if record is None:
-        provenance.write(path, {"campaign": campaign, "scheme": scheme, "development_only": bool(development_only),
-                                "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")})
-        return bool(development_only)
-    if record["scheme"] != scheme:
+    if record is not None and record["scheme"] != scheme:
         raise ValueError(f"campaign {campaign!r} uses {record['scheme']} windows; "
                          f"{scheme} windows need a campaign of their own")
-    if "development_only" not in record:  # recorded before campaigns kept their status: its plans tell
-        names = plan_names(campaign)
-        status = any(load_plan(campaign, name)[0] for name in names) if names else development_only
-        if status is None:
+    if record is None or "development_only" not in record:
+        known = campaign_status(campaign)
+        status = known if known is not None else development_only
+        if status is None and record is not None:
             return False
-        record = {**record, "development_only": bool(status)}
+        record = {"campaign": campaign, "scheme": scheme,
+                  "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+                  **(record or {}), "development_only": bool(status)}
         provenance.write(path, record)
     if development_only is not None and bool(development_only) != bool(record["development_only"]):
         status = "development-only" if record["development_only"] else "not development-only"
@@ -262,17 +273,26 @@ def record_problem(record: Any, costs) -> str | None:
     reads at every cost, and the buy signal that rebuilds its daily returns (buy-and-hold has none)."""
     if not isinstance(record, dict):
         return "not a result"
+    if not all(isinstance(record.get(key), kind) for key, kind in IDENTITY.items()):
+        return "it does not say which run it is"
     mark = record.get("fingerprint")
     if not isinstance(mark, dict) or not FINGERPRINT - {"format"} <= set(mark):
         return "not a whole result, or written before results carried fingerprints"
     if mark.get("format", 1) != FINGERPRINT_FORMAT:  # format 1 had no number
         return (f"it was written by an older version of the code (fingerprint format {mark.get('format', 1)}, now "
                 f"{FINGERPRINT_FORMAT}), whose results cannot be compared with today's: run the campaign again")
+    if not (isinstance(mark["inputs"], dict) and all(isinstance(mark[k], str) and mark[k]
+                                                     for k in ("config", "method", "evaluation_prices"))):
+        return "its fingerprint is not whole"
+    evaluate = record.get("evaluate")
+    if not (isinstance(evaluate, list) and len(evaluate) == 2 and all(isinstance(d, str) for d in evaluate)):
+        return "it does not say which days it was evaluated on"
     evaluation = record.get("evaluation")
     for cost in costs:
         measures = evaluation.get(f"{cost:g}bps") if isinstance(evaluation, dict) else None
-        if not isinstance(measures, dict) or not all(isinstance(measures.get(m), (int, float)) for m in MEASURES):
-            return f"it lacks the evaluation at {cost:g} bps"
+        if not isinstance(measures, dict) or not all(isinstance(measures.get(m), (int, float))
+                                                     and math.isfinite(measures[m]) for m in MEASURES):
+            return f"it lacks the evaluation at {cost:g} bps, or has a measure that is not a number"
     if not isinstance(record.get("signal"), str) and record.get("rung") not in buy_and_hold_methods():
         return "it has no stored signal"
     return None
@@ -313,6 +333,10 @@ def fix_exits(campaign: str, stock_years: list[tuple[str, int]], days: int, rate
                 kind = "a fixed" if current.get("fixed") else "a chosen"
                 raise ValueError(f"{stock} {year} already has {kind} exit after {current['days']} days or at "
                                  f"{current['rate']:+.1%}; a fixed exit needs a campaign of its own")
+            made_under = (current.get("provenance") or {}).get("config_digest")
+            if config is not None and made_under is not None and made_under != config.digest():
+                raise ValueError(f"{stock} {year}: its fixed exit was set under another study configuration; "
+                                 "new settings need a campaign of their own")
             continue
         todo.append((path, stock, year))
     if write:
@@ -370,6 +394,19 @@ def plan_scheme(campaign: str, name: str) -> str:
 def plan_stocks(campaign: str, name: str) -> list[str]:
     """The stocks of a plan (those a pooled task covers)."""
     return list(json.loads(plan_path(campaign, name).read_text())["stocks"])
+
+
+def frozen_settings(campaign: str) -> tuple[set[str], dict[str, set[str]]]:
+    """The study configurations, and the settings of each method, that a campaign's plans of runs froze."""
+    configs, methods = set(), defaultdict(set)
+    for plan in plan_names(campaign):
+        record = json.loads(plan_path(campaign, plan).read_text())
+        frozen = record.get("manifest")
+        if record["kind"] == "runs" and frozen:
+            configs.add(frozen["config"])
+            for name, digest in frozen["methods"].items():
+                methods[name].add(digest)
+    return configs, dict(methods)
 
 
 def planned_methods(campaign: str) -> set[tuple[str, str | None]]:
@@ -438,14 +475,17 @@ def task_specs(task: Task, exits: dict[str, tuple[int, float]]) -> list[list[Run
             for number in task.runs]
 
 
-def exit_settings(campaign: str, stock: str, test_year: int, config: StudyConfig) -> tuple[int, float]:
-    """A stock-year's exit settings (d, r), which must have been set under the current configuration."""
+def exit_settings(campaign: str, stock: str, test_year: int, config: StudyConfig | None) -> tuple[int, float]:
+    """A stock-year's exit settings (d, r), which must have been set under the current configuration
+    (``config``; None reads them without that check)."""
     path = exits_path(campaign, stock, test_year)
     if not path.exists():
         raise FileNotFoundError(f"{stock} {test_year}: no exit settings at {path}; run the exits tasks first")
     chosen = json.loads(path.read_text())
+    if not isinstance(chosen, dict) or not {"days", "rate"} <= set(chosen):
+        raise ValueError(f"{stock} {test_year}: {path} is not a whole exit setting; delete it to set it again")
     made_under = (chosen.get("provenance") or {}).get("config_digest")
-    if made_under is not None and made_under != config.digest():
+    if config is not None and made_under is not None and made_under != config.digest():
         raise ValueError(f"{stock} {test_year}: the exit settings at {path} were set under another study "
                          "configuration; new settings need a campaign of their own")
     return int(chosen["days"]), float(chosen["rate"])
@@ -548,7 +588,8 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
     """
     root = store.data_dir() / "results" / campaign
     rows, problems, commits = [], [], set()
-    configs, methods, inputs = defaultdict(set), defaultdict(set), defaultdict(set)
+    configs, methods, inputs, exits_used = defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set)
+    plan_configs, plan_methods = frozen_settings(campaign)
     for path in sorted(root.glob("*/*/*.stage*.run*.json")):
         try:
             record = json.loads(path.read_text())
@@ -560,6 +601,16 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
             problems.append(f"{path}: {problem}")
             continue
         mark = record["fingerprint"]
+        named = RunSpec(record["stock"], record["test_year"], record["run"], record["stage"], 0, 0.0)
+        if result_path(campaign, record["rung"], named) != path:
+            problems.append(f"{path}: it holds the result of another run ({record['rung']} {record['stock']} "
+                            f"{record['test_year']} stage {record['stage']} run {record['run']})")
+            continue
+        if plan_configs and mark["config"] not in plan_configs:
+            problems.append(f"{path}: made under another study configuration than its campaign's plans froze")
+        if plan_methods.get(record["rung"]) and mark["method"] not in plan_methods[record["rung"]]:
+            problems.append(f"{path}: made with other settings of {record['rung']} than its plan froze")
+        exits_used[record["stock"], record["test_year"]].add((int(record["exit_days"]), float(record["exit_rate"])))
         configs[mark["config"]].add(str(record.get("rung")))
         methods[record.get("rung")].add(mark["method"])
         for key, digest in mark["inputs"].items():
@@ -591,6 +642,15 @@ def collect(campaign: str, costs: list[float], primary: float) -> pd.DataFrame:
                         + "; ".join(f"{digest} ({', '.join(sorted(m))})" for digest, m in configs.items()))
     problems += [f"{m}: runs with different settings ({', '.join(sorted(d))})" for m, d in methods.items() if len(d) > 1]
     problems += [f"{key}: runs read {len(d)} versions of these data" for key, d in inputs.items() if len(d) > 1]
+    for (stock, year), used in sorted(exits_used.items()):
+        try:
+            own = {exit_settings(campaign, stock, year, None)} if exits_path(campaign, stock, year).exists() else used
+        except ValueError as error:
+            problems.append(str(error))
+            continue
+        if len(used) > 1 or used != own:
+            problems.append(f"{stock} {year}: runs with different exit settings {sorted(used)}"
+                            + (f", where the campaign's are {own.pop()}" if used != own else ""))
     if problems:
         shown = "\n  ".join(problems[:20]) + (f"\n  ... and {len(problems) - 20} more" if len(problems) > 20 else "")
         raise ValueError(f"campaign {campaign!r}: its results do not all come from the same settings and data; "

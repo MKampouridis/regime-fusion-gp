@@ -24,6 +24,7 @@ def fake_result(spec, name, config, method, data="v1"):
                   for c in config.costs_bps_per_side}
     inputs = {f"interim/prices/{spec.stock}.parquet@{spec.test_year}": data}
     return {**spec.__dict__, "rung": name, "fitness": 1.0, "seconds": 0.1, "model": "GT(x, 0.1)",
+            "evaluate": [f"{spec.test_year}-01-01", f"{spec.test_year}-12-31"],
             "evaluation": evaluation, "signal": "AA==", "branches": {"TA": {"sharpe": 0.2, "trades": 3.0}},
             "selection_weights": {"FA": 0.2, "SA": 0.3, "TA": 0.5},     # as ML-TFT keeps them
             "fingerprint": {"format": FINGERPRINT_FORMAT, "config": config.digest(), "method": method,
@@ -87,7 +88,7 @@ def test_tasks_are_saved_once_and_resume_where_they_stopped(fake_engine, config)
     assert tasks.execute(exit_task, "c", config, rungs, development_only=False) == {"done": 0, "skipped": 1}
     one = tasks.RunSpec("AAPL", 2019, 1, 2, 10, 0.02)
     provenance.write(result_path("c", "A0", one), {"done": True})               # not a result: refused
-    with pytest.raises(ValueError, match="not a whole result"):
+    with pytest.raises(ValueError, match="does not say which run it is"):
         tasks.execute(loaded[0], "c", config, rungs, development_only=False)
     other = fake_result(tasks.RunSpec("AAPL", 2019, 2, 2, 10, 0.02), "A0", config, rungs["A0"].digest())
     provenance.write(result_path("c", "A0", one), other)                        # another run's result: refused
@@ -124,7 +125,7 @@ def test_a_campaign_refuses_results_made_under_other_settings_or_data(fake_engin
         cli.main(["collect", "--campaign", "c"])
     for broken in ({}, [], {**fake_result(spec, "A1", config, rungs["A1"].digest()), "fingerprint": {"config": "x"}}):
         provenance.write(result_path("c", "A1", spec), broken)
-        with pytest.raises(SystemExit, match="not a (whole )?result"):
+        with pytest.raises(SystemExit, match="not a (whole )?result|does not say which run"):
             cli.main(["collect", "--campaign", "c"])
 
 
@@ -300,6 +301,49 @@ def test_a_whole_result_is_the_same_for_resuming_and_collecting(config):
     assert "not a whole result" in tasks.record_problem({**whole, "fingerprint": {"config": "x"}}, costs)
 
 
+def test_collect_refuses_results_that_do_not_match_their_file_plan_or_exits(fake_engine, config):
+    rungs = load_rungs()
+    assert cli.main(["tasks", "--campaign", "c", "--kind", "exits", "--stocks", "AAPL", "--years", "2019"]) == 0
+    assert cli.main(["tasks", "--campaign", "c", "--kind", "runs", "--rungs", "A0", "A1", "--stocks", "AAPL",
+                     "--years", "2019", "--stages", "2", "--runs", "2"]) == 0
+    assert cli.main(["run-all", "--campaign", "c", "--kind", "exits"]) == 0       # 10 days or +2%
+    assert cli.main(["run-all", "--campaign", "c", "--kind", "runs"]) == 0
+    assert cli.main(["collect", "--campaign", "c"]) == 0
+    run1 = tasks.RunSpec("AAPL", 2019, 1, 2, 10, 0.02)
+    cases = (
+        (tasks.RunSpec("AAPL", 2019, 1, 2, 5, 0.05), rungs["A1"].digest(), "different exit settings"),
+        (run1, rungs["A1"].digest(None, {"population": 20}), "other settings of A1 than its plan froze"),
+    )
+    for spec, method, message in cases:
+        provenance.write(result_path("c", "A1", run1), fake_result(spec, "A1", config, method))
+        with pytest.raises(SystemExit, match=message):
+            cli.main(["collect", "--campaign", "c"])
+    misplaced = fake_result(tasks.RunSpec("AAPL", 2019, 0, 2, 10, 0.02), "A1", config, rungs["A1"].digest())
+    provenance.write(result_path("c", "A1", run1), misplaced)                     # run 0's result in run 1's file
+    with pytest.raises(SystemExit, match="holds the result of another run"):
+        cli.main(["collect", "--campaign", "c"])
+    whole = fake_result(run1, "A1", config, rungs["A1"].digest())
+    for broken, message in (({**whole, "evaluate": None}, "which days"),
+                            ({**whole, "fingerprint": {**whole["fingerprint"], "evaluation_prices": None}},
+                             "fingerprint is not whole")):
+        assert message in tasks.record_problem(broken, config.costs_bps_per_side)
+    nan = {**whole, "evaluation": {**whole["evaluation"], "10bps": {**whole["evaluation"]["10bps"], "sharpe": float("nan")}}}
+    assert "not a number" in tasks.record_problem(nan, config.costs_bps_per_side)
+
+
+def test_a_broken_or_stale_exit_setting_is_reported_not_a_crash(fake_engine, config):
+    rungs = load_rungs()
+    assert cli.main(["tasks", "--campaign", "c", "--kind", "exits", "--stocks", "AAPL", "--years", "2019"]) == 0
+    provenance.write(exits_path("c", "AAPL", 2019), {})
+    assert tasks.unfinished("c", "exits", config, rungs) == [0]
+    with pytest.raises(ValueError, match="not a whole exit setting"):
+        tasks.exit_settings("c", "AAPL", 2019, config)
+    other = dataclasses.replace(config, base_seed=config.base_seed + 1)
+    tasks.fix_exits("gp", [("AAPL", 2019)], 20, 0.03, "rolling", config)
+    with pytest.raises(ValueError, match="fixed exit was set under another study configuration"):
+        tasks.fix_exits("gp", [("AAPL", 2019)], 20, 0.03, "rolling", other)   # re-planned after a change
+
+
 def test_run_all_does_every_unfinished_task(fake_engine):
     assert cli.main(["tasks", "--campaign", "all", "--kind", "exits", "--stocks", "AAPL", "F", "--years", "2019",
                      "--development"]) == 0
@@ -400,6 +444,8 @@ def test_direct_commands_keep_to_a_development_only_campaign(fake_engine, monkey
     assert cli.main([*run, "--campaign", "pilot"]) == 0 and seen[0].stage == 1   # stage 1 by default: 2018
     with pytest.raises(SystemExit, match="after the development period"):       # a new campaign: development-only
         cli.main([*run, "--campaign", "scratch", "--stage", "2"])
+    assert tasks.campaign_record("scratch") is None                              # refused: nothing recorded
+    assert cli.main([*run, "--campaign", "scratch"]) == 0
     assert tasks.campaign_record("scratch")["development_only"] is True
     assert cli.main([*run, "--campaign", "later", "--stage", "2", "--after-development"]) == 0
     with pytest.raises(SystemExit, match="for development-only campaigns"):
@@ -425,7 +471,36 @@ def test_a_campaign_recorded_before_campaigns_kept_their_status_takes_it_from_it
     assert tasks.campaign_record("main")["development_only"] is False # it is still the main campaign
     with pytest.raises(SystemExit, match="after the development period"):
         cli.main([*run, "--campaign", "pilot"])
-    assert tasks.campaign_record("pilot")["development_only"] is True
+    assert tasks.campaign_status("pilot") is True                                # its plans tell
+
+
+def test_a_refused_direct_command_leaves_no_campaign_behind(fake_engine, monkeypatch):
+    from regime_fusion.data import store
+
+    monkeypatch.setattr(cli, "choose_exits", lambda *args, **kwargs: {"days": 10, "rate": 0.02})
+    with pytest.raises(SystemExit, match="after the development period"):          # --after-development forgotten
+        cli.main(["exits", "--campaign", "new", "--stock", "AAPL", "--test-year", "2020"])
+    assert tasks.campaign_record("new") is None                                     # nothing recorded
+    assert cli.main(["exits", "--campaign", "new", "--stock", "AAPL", "--test-year", "2020",
+                     "--after-development"]) == 0
+    assert tasks.campaign_record("new")["development_only"] is False
+    tasks.save_plan("old", "runs", [tasks.Task("runs", "AAPL", 2019, "A0", 1, (0,))], development_only=True,
+                    stocks=["AAPL"])
+    (store.data_dir() / "results" / "old" / "campaign.json").unlink()               # planned before records
+    with pytest.raises(SystemExit, match="development-only"):
+        cli.main(["exits", "--campaign", "old", "--stock", "AAPL", "--test-year", "2019", "--after-development"])
+    assert tasks.claim_campaign("old", "rolling") is True                         # its plans tell, not a default
+
+
+def test_direct_commands_take_their_campaigns_scheme(fake_engine, monkeypatch):
+    seen = []
+    record = {"fitness": 0.0, "evaluation": {"10bps": {"sharpe": 0.0, "trades": 0}}, "seconds": 0.0, "model": ""}
+    monkeypatch.setattr(cli, "run", lambda spec, rung, config, **kwargs: seen.append(config.windows.scheme) or record)
+    assert cli.main(["tasks", "--campaign", "exp", "--kind", "exits", "--stocks", "AAPL", "--years", "2019",
+                     "--scheme", "expanding", "--development"]) == 0
+    assert cli.main(["run", "--campaign", "exp", "--rung", "A0", "--stock", "AAPL", "--test-year", "2019",
+                     "--exit", "10", "0.02"]) == 0
+    assert seen == ["expanding"]
 
 
 def test_a_direct_run_keeps_to_the_campaigns_exits_and_never_overwrites_a_result(fake_engine, config, monkeypatch):

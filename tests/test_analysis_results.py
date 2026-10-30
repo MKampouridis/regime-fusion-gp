@@ -171,7 +171,7 @@ def test_portfolio_returns_are_rebuilt_from_the_stored_signals(monkeypatch, tmp_
     assert cli.main(["portfolio", "--campaign", "main", "--pairs", "A0:RB-BH", "A1:RB-BH"]) == 0
     saved = json.loads((folder / "analysis" / "portfolio_tests.10bps.stage2.json").read_text())
     assert [(row["first"], row["second"]) for row in saved["sharpe_difference"]] == [("A0", "RB-BH"), ("A1", "RB-BH")]
-    for pairs, message in ((["A1-A0"], "not FIRST:SECOND"), (["A5:A0"], "no portfolio for")):
+    for pairs, message in ((["A1-A0"], "not FIRST:SECOND"), (["A5:A0"], "not among the methods analysed")):
         with pytest.raises(SystemExit, match=message):
             cli.main(["portfolio", "--campaign", "main", "--pairs", *pairs])
     gp_only = ["portfolio", "--campaign", "main", "--methods", "A0", "A1"]         # as for a FinBERT check
@@ -285,6 +285,39 @@ def test_the_default_analysis_takes_its_methods_from_the_plans(monkeypatch, tmp_
     with pytest.raises(SystemExit, match="no stage-2 runs for"):                 # not even with --incomplete
         cli.main(["compare", "--campaign", "main", "--incomplete"])
     assert cli.main(["compare", "--campaign", "main", "--rungs", "A", "B", "C"]) == 0   # named: fine
+
+
+def test_compare_tests_the_pairs_given_on_the_stock_years_all_methods_cover(monkeypatch, tmp_path):
+    from regime_fusion.engine import tasks
+
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    stocks, years = ["S1", "S2", "S3", "S4"], [2019, 2020, 2021]
+    plan = [tasks.Task("runs", s, y, r, 2, tuple(range(5))) for r in ("A", "B", "C") for y in years for s in stocks
+            if r != "C" or s in ("S1", "S2")]                                    # C covers fewer, as FinBERT rungs
+    tasks.save_plan("main", "runs", plan, development_only=False, stocks=stocks)
+    runs = fake_runs()
+    runs = runs[(runs.rung != "C") | runs.stock.isin(["S1", "S2"])]
+    folder = tmp_path / "results" / "main"
+    runs.to_parquet(folder / "runs.parquet")
+    assert cli.main(["compare", "--campaign", "main", "--rungs", "A", "B", "C", "--pairs", "C:A"]) == 0
+    tested = pd.read_csv(folder / "analysis" / "wilcoxon.sharpe_10bps.stage2.csv")
+    assert list(zip(tested["first"], tested["second"])) == [("C", "A")] and tested.loc[0, "n"] == 6
+    summary = pd.read_csv(folder / "analysis" / "summary.stage2.10bps.csv", index_col=0)
+    assert summary["stock_years"].eq(6).all()                                   # the same units for every method
+
+
+def test_rule_benchmarks_keep_their_digest_when_model_settings_change():
+    import copy
+
+    from regime_fusion.ml import models
+
+    settings = models.load_settings()
+    raw = copy.deepcopy(settings.raw)
+    raw["features"]["scaling"] = "rank"                                         # say the pilot picks rank scaling
+    changed = models.Settings(settings.sources, settings.regimes, "rank", settings.quantiles, settings.min_trades,
+                              settings.models, settings.rules, raw)
+    assert all(changed.method_digest(m) == settings.method_digest(m) for m in ("RB-BH", "RB-TS", "RB-MA", "RB-TSMOM"))
+    assert changed.method_digest("ML-LGBM") != settings.method_digest("ML-LGBM")
 
 
 def test_trials_count_configurations_by_their_settings(monkeypatch, tmp_path):

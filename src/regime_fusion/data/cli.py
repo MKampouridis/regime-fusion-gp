@@ -873,11 +873,12 @@ def run_finbert(args: argparse.Namespace) -> int:
     left_out = []
     if "fnspid" in args.sources:
         files = sorted(store.layer("raw", "fnspid").glob("*.parquet"))
-        if not files:
+        if files:
+            items = finbert.fnspid_headlines((pd.read_parquet(path) for path in files), calendar)
+            sources["fnspid"] = (items[items["stock"].isin(stocks)], None)
+        else:  # GDELT's titles need no FNSPID, so go on without it
             log.error("finbert: no FNSPID headlines in %s; run the fnspid command first", store.layer("raw", "fnspid"))
-            return 1
-        items = finbert.fnspid_headlines((pd.read_parquet(path) for path in files), calendar)
-        sources["fnspid"] = (items[items["stock"].isin(stocks)], None)
+            left_out.append("fnspid")
     if "gdelt" in args.sources:
         try:
             sources["gdelt"] = gdelt_headlines(stocks, calendar)

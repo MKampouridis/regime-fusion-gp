@@ -122,12 +122,15 @@ def add_common(sub: argparse.ArgumentParser) -> None:
 
 
 def direct_campaign(args: argparse.Namespace, config, task: tasks.Task) -> None:
-    """Keep a direct command to its campaign's status (see the module notes)."""
-    known = tasks.campaign_record(args.campaign)
-    settled = known and ("development_only" in known or tasks.plan_names(args.campaign))
-    wanted = None if settled else not args.after_development
+    """Keep a direct command to its campaign's status (see the module notes). Everything is checked
+    before a new campaign's status is recorded, so a refused command leaves nothing behind."""
+    known = tasks.campaign_status(args.campaign)
+    development_only = (not args.after_development) if known is None else known
     try:
-        development_only = tasks.claim_campaign(args.campaign, config.windows.scheme, wanted)
+        scheme = tasks.campaign_scheme(args.campaign)
+        if scheme is not None and scheme != config.windows.scheme:
+            raise ValueError(f"campaign {args.campaign!r} uses {scheme} windows; "
+                             f"{config.windows.scheme} windows need a campaign of their own")
         if development_only:
             if args.after_development:
                 raise ValueError(f"campaign {args.campaign!r} is development-only")
@@ -135,8 +138,16 @@ def direct_campaign(args: argparse.Namespace, config, task: tasks.Task) -> None:
             tasks.check_roles([task.stock])
         elif args.sources or overrides(args):
             raise ValueError("--sources, --population and --generations are for development-only campaigns")
+        tasks.claim_campaign(args.campaign, config.windows.scheme, None if known is not None else development_only)
     except ValueError as error:
         raise SystemExit(str(error)) from None
+
+
+def direct_config(args: argparse.Namespace):
+    """The study configuration of a direct command, with its campaign's walk-forward scheme unless
+    --scheme gives one."""
+    scheme = args.scheme or tasks.campaign_scheme(args.campaign)
+    return with_scheme(load_config(), scheme) if scheme else load_config()
 
 
 def overrides(args: argparse.Namespace) -> dict:
@@ -149,17 +160,15 @@ def overrides(args: argparse.Namespace) -> dict:
 
 
 def run_command(args: argparse.Namespace) -> int:
-    config, rungs, benchmarks = load_config(), load_rungs(), load_benchmarks()
-    if args.scheme:
-        config = with_scheme(config, args.scheme)
+    config, rungs, benchmarks = direct_config(args), load_rungs(), load_benchmarks()
     if args.rung not in rungs and args.rung not in benchmarks.methods():
         raise SystemExit(f"unknown rung or benchmark {args.rung!r}")
+    direct_campaign(args, config, tasks.Task("runs", args.stock, args.test_year, args.rung, args.stage))
     try:
         days, rate = run_exits(args, config)
     except (FileNotFoundError, ValueError) as error:
         raise SystemExit(str(error)) from None
     spec = RunSpec(args.stock, args.test_year, args.run, args.stage, days, rate)
-    direct_campaign(args, config, tasks.Task("runs", args.stock, args.test_year, args.rung, args.stage))
     sources = tuple(args.sources) if args.sources else None
     method = rungs[args.rung].digest(sources, overrides(args)) if args.rung in rungs else \
         benchmarks.method_digest(args.rung)
@@ -200,9 +209,7 @@ def run_exits(args: argparse.Namespace, config) -> tuple[int, float]:
 
 
 def exits_command(args: argparse.Namespace) -> int:
-    config, rungs = load_config(), load_rungs()
-    if args.scheme:
-        config = with_scheme(config, args.scheme)
+    config, rungs = direct_config(args), load_rungs()
     direct_campaign(args, config, tasks.Task("exits", args.stock, args.test_year, "A0", 1))
     path = exits_path(args.campaign, args.stock, args.test_year)
     if path.exists():  # results may have been made with them: never replaced
