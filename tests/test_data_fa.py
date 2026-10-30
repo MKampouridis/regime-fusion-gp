@@ -100,6 +100,11 @@ def test_values_a_firm_stopped_filing_are_dropped():
     panel["equity_end"] = DAYS[0] - pd.Timedelta(days=90)                  # renewed every quarter: kept
     first = fa.indicators(panel, pd.Series(30.0, index=DAYS), pd.Series(dtype=float)).iloc[0]
     assert first["debt_equity"] == 0.3 and first["revenue"] == 200.0 and first["return_on_equity"] == 0.5
+    panel["diluted_shares_end"] = old                                      # filed per share class since
+    panel["shares_outstanding"], panel["shares_outstanding_end"] = 9.0, DAYS[0] - pd.Timedelta(days=30)
+    panel["shares_outstanding_filed"] = DAYS[0] - pd.Timedelta(days=5)
+    first = fa.indicators(panel, pd.Series(30.0, index=DAYS), pd.Series(dtype=float)).iloc[0]
+    assert first["market_value"] == 270.0                                  # the shares outstanding instead
 
 
 def test_fallbacks_for_banks_and_firms_without_operating_income():

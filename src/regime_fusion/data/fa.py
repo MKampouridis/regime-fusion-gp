@@ -37,7 +37,10 @@ cut it in a day; like the technical price levels, it uses the splits up to t onl
 Stale values are dropped: a value whose period ended more than ``MAX_AGE_DAYS``
 before the session (a year and a quarter) has not been renewed by any annual
 report, so the firm no longer files it (a tag it stopped using, a debt it paid
-off), and the fallbacks above then apply.
+off), and the fallbacks above then apply. A firm whose diluted share count is
+stale (Alphabet and Hershey file it per share class, which the SEC's API leaves
+out) uses its shares outstanding instead, 92% to 100% of the diluted count
+where both are known.
 
 Values are raw: normalisation is fitted on training windows later. Ratios with a
 zero denominator are missing.
@@ -116,6 +119,8 @@ def indicators(panel: pd.DataFrame, traded_close: pd.Series, splits: pd.Series) 
     """The twelve indicators, plus market value and the share count used, per session."""
     panel = fresh(panel)
     shares = split_adjusted(panel["diluted_shares"], panel["diluted_shares_filed"], splits)
+    if "shares_outstanding" in panel:
+        shares = shares.fillna(split_adjusted(panel["shares_outstanding"], panel["shares_outstanding_filed"], splits))
     value = traded_close.reindex(panel.index) * shares
     income, equity = panel["net_income_ttm"], panel["equity"]
     revenue = panel["revenue_ttm"].fillna(panel["net_interest_income_ttm"] + panel["noninterest_income_ttm"])
