@@ -20,7 +20,7 @@ windows:
   refit_on_train_and_validation: true   # stage 2: re-evolve on the 4 years before the test year
 
 runs:
-  per_configuration: 30                 # the pilot may raise this to 50
+  per_configuration: 50                 # raised from 30 by the pilot's 100-run check (docs/PROTOCOL.md, section 9)
 
 costs:
   bps_per_side: [0, 5, 10, 25]

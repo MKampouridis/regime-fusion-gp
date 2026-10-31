@@ -130,7 +130,7 @@ def test_benchmarks_run_through_the_engine_commands(data_dir):
     assert cli.main(["tasks", "--campaign", "t", "--kind", "runs", "--rungs", "A0", "ML-LR", "--stocks", "AAPL",
                      "--years", "2019", "--stages", "1", "--development"]) == 0
     plan = json.loads((data_dir / "results/t/tasks.runs.json").read_text())
-    assert [len(t["runs"]) for t in plan["tasks"]] == [30, 1]  # the GP's 30 runs; one for a deterministic model
+    assert [len(t["runs"]) for t in plan["tasks"]] == [50, 1]  # the GP's 50 runs; one for a deterministic model
 
 
 def test_gated_network_learns_which_source_to_trust_in_each_regime():

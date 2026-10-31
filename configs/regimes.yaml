@@ -11,7 +11,7 @@ inputs:
   volatility:           # rung A2: log annualised realised volatility over the last `window` sessions
     window: 20
   dc:                   # rung A3: directional changes of the index at `threshold`
-    threshold: 0.01     # at 1% one state is merely "no event in 20 sessions"; the pilot should try 0.5%
+    threshold: 0.005    # A3's choice (docs/PROTOCOL.md, section 9): at 1% a state held under 15% of the days; the pilot's A3 ran at 1%
     window: 20
   dc_news:              # rung A4: the dc inputs plus directional changes of news attention
     threshold: 0.005    # A3's choice (docs/PROTOCOL.md, section 9): at 1% a state held under 15% of the days
@@ -24,7 +24,7 @@ inputs:
       window: 20
   # Alternatives the pilot compares (docs/PROTOCOL.md, section 9), on 2015-2018 data only.
   # `kind` says which inputs an alternative computes.
-  dc_fine:              # rung A3-fine: directional changes of the index at 0.5%
+  dc_fine:              # rung A3-fine: directional changes of the index at 0.5%, the setting A3 took after the pilot
     kind: dc
     threshold: 0.005
     window: 20

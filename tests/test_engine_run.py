@@ -161,8 +161,10 @@ def test_pilot_alternatives_are_rungs_of_their_own():
     settings = market.load_settings()
     close = pd.Series(100 * np.exp(np.cumsum(np.random.default_rng(1).normal(0, 0.01, 600))),
                       index=pd.bdate_range("2016-01-01", periods=600))
+    assert settings["inputs"]["dc"]["threshold"] == settings["inputs"]["dc_fine"]["threshold"]  # A3 took 0.5%
     fine = market.inputs(close, "dc_fine", settings)
-    coarse = market.inputs(close, "dc", settings)
+    pilot_a3 = {**settings["inputs"]["dc"], "threshold": 0.01}  # the pilot's A3
+    coarse = market.inputs(close, "dc", {**settings, "inputs": {**settings["inputs"], "dc": pilot_a3}})
     assert list(fine.columns) == list(coarse.columns)
     assert fine["log_events"].mean() > coarse["log_events"].mean()  # more events at a smaller threshold
 

@@ -23,14 +23,14 @@ def test_repository_config_loads():
     assert config.period.development_end == dt.date(2018, 12, 31)
     assert config.period.test_years == (2019, 2020, 2021, 2022, 2023, 2024, 2025)
     assert config.windows.scheme == "rolling"
-    assert config.runs_per_configuration == 30
+    assert config.runs_per_configuration == 50
     assert config.primary_cost_bps_per_side == 10
 
 
 def test_digest_is_stable_and_sensitive(tmp_path):
     base = load_config()
     assert base.digest() == load_config().digest()
-    changed = load_config(write_variant(tmp_path, runs__per_configuration=50))
+    changed = load_config(write_variant(tmp_path, runs__per_configuration=base.runs_per_configuration + 1))
     assert changed.digest() != base.digest()
 
 
