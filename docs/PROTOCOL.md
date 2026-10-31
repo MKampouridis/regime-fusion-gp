@@ -1,6 +1,6 @@
 # Analysis protocol
 
-**Status: DRAFT.** Written on 29 October 2026, before any pilot result, from the [research plan](RESEARCH_PLAN.md) and the [decisions](DECISIONS.md). Michael reviews it and freezes it at the end of the pilot (Phase 5). After that, any change is logged in `DECISIONS.md` with its reason and reported in the paper. The tools named here are described in [`ENGINE.md`](ENGINE.md).
+**Status: FROZEN on 31 October 2026**, at the end of the pilot (Phase 5), before any test-year or hold-out result was computed. Written on 29 October 2026, before any pilot result, from the [research plan](RESEARCH_PLAN.md) and the [decisions](DECISIONS.md); §3 and §9 now give the pilot's outcomes. Any change from now on is logged in `DECISIONS.md` with its reason and reported in the paper. The tools named here are described in [`ENGINE.md`](ENGINE.md).
 
 ## 1. Data used for what
 
@@ -14,7 +14,7 @@ No test-year or hold-out result is computed before the protocol is frozen. Devel
 
 ## 2. Methods compared
 
-- **GP rungs:** A0 (ActTrade on the corrected backtest), A1 (evolvable fusion), A2 (+ volatility regimes), A3 (DC regimes instead), A4 (+ news-attention DC), A5 (+ ε-lexicase), and A6 if it is built.
+- **GP rungs:** A0 (ActTrade on the corrected backtest), A1 (evolvable fusion), A2 (+ volatility regimes), A3 (DC regimes instead), A4 (+ news-attention DC), A5 (+ ε-lexicase). The plan's optional A6 was not built.
 - **GP baselines:** A5-dalex, GP-FA, GP-SA, GP-TA.
 - **Rule-based benchmarks:** buy-and-hold (RB-BH), ActTrade's TS(*d*, *r*) (RB-TS), moving-average crossover (RB-MA), time-series momentum (RB-TSMOM), and random entry at each method's trade frequency.
 - **Machine-learning benchmarks:** logistic regression (ML-LR), LightGBM (ML-LGBM), regime-switching LightGBM (ML-RS-LGBM), neural gated fusion and the Temporal Fusion Transformer.
@@ -22,7 +22,7 @@ No test-year or hold-out result is computed before the protocol is frozen. Devel
 ## 3. Per stock and test year
 
 - Exit settings (*d*, *r*) are chosen on the validation year with A0 (16 candidates, 5 runs each) and shared by every method.
-- Each GP configuration gets 30 runs (50 if the pilot says so, §9), with seeds from stock, test year, run and stage only. Deterministic benchmarks get one run; neural benchmarks get 10.
+- Each GP configuration gets 50 runs (the pilot's outcome, §9), with seeds from stock, test year, run and stage only. Deterministic benchmarks get one run; neural benchmarks get 10.
 - Stage 2 models (evolved or trained on the four years before the test year) are evaluated on the test year at 0, 5, 10 and 25 basis points per side.
 
 ## 4. Primary analysis
@@ -87,6 +87,14 @@ Each is settled on 2015–2018 data only (stage 1 of the 2019 window), by the ru
 | Fitness weights | Equal (0.25 each) | Kept: ActTrade's values are published nowhere, and its texts describe the fitness as the plain sum of the four Sharpe ratios, which equal weights reproduce (`ENGINE.md`, choice 3) |
 | Sentiment indicators | The twelve GDELT indicators | Decided by Michael (29 October 2026) |
 | GDELT name rules | `configs/news_names.yaml` | Revised on the 2015–2018 names report and the cross-check with FNSPID, before any pilot run (the main firms' rules were first reviewed on the 2015–16 news, 29 October 2026) |
+
+**Outcomes** (logged in `DECISIONS.md`, 30–31 October 2026):
+
+- **Runs per configuration: 50.** For the typical stock, a 30-run median lies up to 0.37 from the 100-run median (95th percentile), far above 0.05; with 50 runs, 0.26.
+- **GP parameters:** a population of 2,000, 40 generations and tournaments of 4 (§9.1).
+- **A3: 0.5%.** At 1% the smaller state held 14.97% of the 2015–2017 days.
+- **A4: 0.25**, with A3's price threshold of 0.5%. At 0.5 (A4-wide) the smaller state held 9.8% of the days. A4's states are ordered by its news events, which tell them apart (`configs/regimes.yaml`).
+- **Scaling: min-max.** The rule tied: A1 and A1-rank both have a median of exactly 0 (rank ahead by a median paired difference of 0.01, Wilcoxon p = 0.12), and Michael chose min-max.
 
 ### 9.1 The GP-parameter pilot
 

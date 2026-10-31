@@ -1,7 +1,8 @@
 # Market regimes (src/regime_fusion/regimes/market.py).
 #
-# DRAFT: the pilot, on 2015-2018 data only, settles these before the recipe is frozen.
-# The regimes are fitted on the S&P 500 index so that all stocks share them.
+# Settled by the pilot on 2015-2018 data only and frozen with the protocol on 31 October 2026.
+# The regimes are fitted on the S&P 500 index so that all stocks share them. States are ordered
+# by the mean of a set's `order_by` input (state 0 has the lowest), or of its first input.
 
 series: GSPC            # interim/market/<series>.parquet
 n_states: 2
@@ -16,9 +17,10 @@ inputs:
   dc_news:              # rung A4: the dc inputs plus directional changes of news attention
     threshold: 0.005    # A3's choice (docs/PROTOCOL.md, section 9): at 1% a state held under 15% of the days
     window: 20
+    order_by: news_log_events  # news events tell A4's states apart (state 0: few lately); its price events hardly do
     attention:
       scope: market     # market: the 50 main stocks' news together, regimes shared by all stocks (the plan);
-                        # stock: each stock's own news, regimes per stock (an option for the pilot)
+                        # stock: each stock's own news, regimes per stock (an option, not used)
       sessions: 5       # attention level: 1 + articles over the last `sessions` sessions
       threshold: 0.25   # absolute, on the log level: a rise or fall of about 28%
       window: 20
@@ -32,6 +34,7 @@ inputs:
     kind: dc_news
     threshold: 0.005    # A3's choice, as for dc_news
     window: 20
+    order_by: news_log_events
     attention:
       scope: market
       sessions: 5

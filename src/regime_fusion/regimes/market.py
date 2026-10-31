@@ -1,6 +1,6 @@
 """Market regimes: inputs from the S&P 500 index, fitted per walk-forward window.
 
-Inputs (``configs/regimes.yaml``, a draft until the pilot):
+Inputs (``configs/regimes.yaml``, settled by the pilot):
 
 volatility  rung A2: log annualised realised volatility of the index's daily log
             returns over the last ``window`` sessions
@@ -12,6 +12,11 @@ dc_news     rung A4: the dc inputs plus the same two of news attention
             (``regime_fusion.regimes.news``). With ``scope: stock`` each stock
             gets its own regimes from its own news; with ``scope: market`` the
             news of all main-universe stocks together gives shared regimes
+
+States are ordered by the mean of a set's ``order_by`` input (state 0 has the
+lowest), or of its first input. A4 orders them by its news events, which tell
+its states apart (its price events hardly do), so that a label means the same
+in every fit.
 
 For each test year, an HMM is fitted on each training range of the year's
 window (``regime_fusion.windows``) and then run forward with fixed parameters:
@@ -82,6 +87,11 @@ def uses_news(name: str, settings: dict[str, Any]) -> bool:
     return "attention" in settings["inputs"][name]
 
 
+def ordering(name: str, settings: dict[str, Any]) -> str | None:
+    """The input whose mean orders a set's states; None for the first input."""
+    return settings["inputs"][name].get("order_by")
+
+
 def per_stock(name: str, settings: dict[str, Any]) -> bool:
     """Whether an input set gives each stock its own regimes (news attention of the stock)."""
     return uses_news(name, settings) and settings["inputs"][name]["attention"].get("scope") == "stock"
@@ -105,10 +115,12 @@ class Fit:
 
 
 def fit_window(features: pd.DataFrame, fitted_on: DateRange, through: pd.Timestamp,
-               n_states: int, rng: np.random.Generator, restarts: int) -> tuple[hmm.GaussianHMM, pd.DataFrame]:
+               n_states: int, rng: np.random.Generator, restarts: int,
+               order_by: str | None = None) -> tuple[hmm.GaussianHMM, pd.DataFrame]:
     """Fit on one range, then filter from its start to ``through`` with fixed parameters."""
     start, end = pd.Timestamp(fitted_on.start), pd.Timestamp(fitted_on.end)
-    model = hmm.fit(features.loc[start:end].to_numpy(), n_states, rng, restarts=restarts)
+    feature = features.columns.get_loc(order_by) if order_by else 0
+    model = hmm.fit(features.loc[start:end].to_numpy(), n_states, rng, restarts=restarts, order_by=feature)
     span = features.loc[start:through]
     probabilities = pd.DataFrame(hmm.filter(model, span.to_numpy()), index=span.index,
                                  columns=[f"p_state{k}" for k in range(n_states)])
@@ -116,7 +128,7 @@ def fit_window(features: pd.DataFrame, fitted_on: DateRange, through: pd.Timesta
 
 
 def walk_forward(features: pd.DataFrame, windows: list[Window], settings: dict[str, Any],
-                 base_seed: int, stock: str | None = None) -> list[Fit]:
+                 base_seed: int, stock: str | None = None, order_by: str | None = None) -> list[Fit]:
     """Both stages of every window. Seeds depend on the test year and stage (and the stock for
     per-stock regimes) only."""
     fits = []
@@ -126,6 +138,6 @@ def walk_forward(features: pd.DataFrame, windows: list[Window], settings: dict[s
             keys = (stock,) if stock else ()
             rng = make_rng(base_seed, "regimes", *keys, window.test_year, stage)
             model, probabilities = fit_window(features, fitted_on, pd.Timestamp(through),
-                                              int(settings["n_states"]), rng, int(settings["restarts"]))
+                                              int(settings["n_states"]), rng, int(settings["restarts"]), order_by)
             fits.append(Fit(window.test_year, stage, fitted_on, model, probabilities))
     return fits

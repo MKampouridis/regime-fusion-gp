@@ -5,8 +5,8 @@ state on day t given the observations up to day t (``filter``), never smoothed
 probabilities, which use later days. ``fit`` estimates the parameters with the
 Baum-Welch algorithm (scaled forward-backward), from several random starts
 drawn from a generator of ``regime_fusion.seeds``, keeping the best likelihood.
-States are then ordered by the mean of the first feature, so that state 0 is,
-for example, the calmest when the first feature is a volatility.
+States are then ordered by the mean of one feature, the first unless another is
+named, so that state 0 is, for example, the calmest when that feature is a volatility.
 
 A row's missing values count for nothing: with diagonal covariances the density
 of the values observed is exact, so a day without news still counts through its
@@ -46,8 +46,9 @@ class GaussianHMM:
 
 
 def fit(x: np.ndarray, n_states: int, rng: np.random.Generator, *, restarts: int = 10,
-        max_iter: int = 500, tol: float = 1e-6) -> GaussianHMM:
-    """Maximum-likelihood fit on complete rows of ``x`` (days by features)."""
+        max_iter: int = 500, tol: float = 1e-6, order_by: int = 0) -> GaussianHMM:
+    """Maximum-likelihood fit on complete rows of ``x`` (days by features), its states ordered
+    by the mean of feature ``order_by``."""
     x = _as_2d(x)
     x = x[~np.isnan(x).any(axis=1)]
     if len(x) < 10 * n_states:
@@ -60,7 +61,7 @@ def fit(x: np.ndarray, n_states: int, rng: np.random.Generator, *, restarts: int
             best = model
     if best is None:
         raise ValueError("no EM start reached a finite likelihood with finite parameters")
-    return _ordered(best)
+    return _ordered(best, order_by)
 
 
 def _finite(model: GaussianHMM) -> bool:
@@ -181,8 +182,8 @@ def _backward_pass(transition, b, scale):
     return beta
 
 
-def _ordered(model: GaussianHMM) -> GaussianHMM:
-    order = np.argsort(model.means[:, 0], kind="stable")
+def _ordered(model: GaussianHMM, feature: int) -> GaussianHMM:
+    order = np.argsort(model.means[:, feature], kind="stable")
     return GaussianHMM(
         start=model.start[order],
         transition=model.transition[np.ix_(order, order)],

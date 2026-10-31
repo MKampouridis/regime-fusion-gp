@@ -35,6 +35,15 @@ def test_fit_recovers_a_known_model_with_states_ordered():
     assert accuracy > 0.9
 
 
+def test_states_can_be_ordered_by_another_feature():
+    x, _ = simulate()
+    both = np.column_stack([x, -x])
+    by_first = hmm.fit(both, 2, np.random.default_rng(1), restarts=3)
+    by_second = hmm.fit(both, 2, np.random.default_rng(1), restarts=3, order_by=1)
+    assert by_second.means == pytest.approx(by_first.means[::-1])  # the same fit, its states swapped
+    assert by_second.transition == pytest.approx(by_first.transition[::-1, ::-1])
+
+
 def test_em_never_lowers_the_likelihood():
     x, _ = simulate(600, seed=2)
     x2 = x[:, None]
@@ -204,6 +213,18 @@ def test_dc_news_inputs_add_news_attention_to_the_dc_inputs():
     with pytest.raises(ValueError, match="articles"):
         market.inputs(close, "dc_news", settings)
     assert market.per_stock("dc_news", settings) and not market.per_stock("dc", settings)
+
+
+def test_a4_states_are_ordered_by_news_events():
+    config = load_config()
+    settings = {**market.load_settings(), "restarts": 1}
+    assert market.ordering("dc_news", settings) == "news_log_events"
+    assert market.ordering("dc", settings) is None
+    features = market.inputs(market_close(), "dc_news", settings, news_articles())
+    fits = market.walk_forward(features, walk_forward(config)[:1], settings, config.base_seed,
+                               order_by="news_log_events")
+    column = features.columns.get_loc("news_log_events")
+    assert all(fit.model.means[0, column] <= fit.model.means[1, column] for fit in fits)
 
 
 def test_per_stock_regimes_have_their_own_seeds_and_files(monkeypatch, tmp_path):

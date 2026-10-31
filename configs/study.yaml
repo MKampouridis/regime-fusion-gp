@@ -1,5 +1,5 @@
 # Settled study design. Only decided values live here; see docs/DECISIONS.md.
-# Values may still change until the recipe is frozen at the end of the pilot.
+# Frozen with the protocol at the end of the pilot (31 October 2026); a later change is logged there.
 
 study:
   name: regime-fusion-gp

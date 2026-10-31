@@ -847,19 +847,22 @@ def run_regimes(args: argparse.Namespace) -> int:
         raise SystemExit(f"no walk-forward window has a test year in {args.years}")
     report, per_stock_report = {}, {}
     for name in args.inputs or list(settings["inputs"]):
+        order_by = regimes.ordering(name, settings)
         if not regimes.uses_news(name, settings):
-            fits = regimes.walk_forward(regimes.inputs(close, name, settings), windows, settings, config.base_seed)
+            fits = regimes.walk_forward(regimes.inputs(close, name, settings), windows, settings, config.base_seed,
+                                        order_by=order_by)
             report.update(save_regimes(name, fits, settings, scheme=scheme))
         elif regimes.per_stock(name, settings):
             for stock in selected_stocks(args):
                 features = regimes.inputs(close, name, settings, news_articles(stock.id))
-                fits = regimes.walk_forward(features, windows, settings, config.base_seed, stock=stock.id)
+                fits = regimes.walk_forward(features, windows, settings, config.base_seed, stock=stock.id,
+                                            order_by=order_by)
                 per_stock_report.update(save_regimes(name, fits, settings, stock=stock.id, scheme=scheme))
         else:  # one set of regimes from the news of all main-universe stocks
             main = load_universe(UNIVERSE_FILE).select("main")
             articles = news_regimes.market_articles({s.id: news_articles(s.id) for s in main})
             features = regimes.inputs(close, name, settings, articles)
-            fits = regimes.walk_forward(features, windows, settings, config.base_seed)
+            fits = regimes.walk_forward(features, windows, settings, config.base_seed, order_by=order_by)
             report.update(save_regimes(name, fits, settings, scheme=scheme))
         log.info("regimes: %s fitted for test years %s", name, sorted({w.test_year for w in windows}))
     suffix = "" if scheme == "rolling" else f"_{scheme}"

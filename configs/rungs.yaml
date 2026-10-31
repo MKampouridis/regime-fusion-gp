@@ -25,7 +25,7 @@ fitness:
   min_trades: 3             # ActTrade: six buys and sells
   blocks: 8                 # lexicase time blocks (half-years of a four-year window)
 
-scaling: minmax             # or rank; see src/regime_fusion/engine/panel.py
+scaling: minmax             # Michael's choice where the pilot's rule tied (A1-rank: rank); engine/panel.py
 
 # The GP-parameter pilot (docs/PROTOCOL.md, section 9), on 2015-2018 data only: each population
 # size, with tournaments of 2 and 4, at the same budget of evaluations, for the rungs below. The

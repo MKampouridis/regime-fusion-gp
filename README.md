@@ -6,7 +6,7 @@ The project evolves strongly-typed genetic programming (GP) trading strategies w
 
 ## Status
 
-Set-up and the directional-change module are done. Data pipeline (Phase 2): built and run for the trading calendar and point-in-time rules, the universe (ActTrade's US stocks plus a sector-balanced draw, and 50 hold-out stocks), prices with spin-off corrections, market series, SEC fundamentals, and ActTrade's twelve fundamental and twelve technical indicators; the twelve sentiment indicators are built and wait for the GDELT extraction, which is running (about three days). Market regimes (Phase 3), including news attention, are built. The engine (Phase 4) is built: the typed GP with the ablation ladder, the backtester, campaigns as job-array tasks, rule-based and machine-learning benchmarks, and the analysis (paired tests, portfolio tests, pilot checks). Next: the pilot on 2015–2018 (Phase 5) under the draft analysis protocol, [`docs/PROTOCOL.md`](docs/PROTOCOL.md). The plan is in [`docs/RESEARCH_PLAN.md`](docs/RESEARCH_PLAN.md) and decisions to date in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+Set-up and the directional-change module are done. Data pipeline (Phase 2): built and run for the trading calendar and point-in-time rules, the universe (ActTrade's US stocks plus a sector-balanced draw, and 50 hold-out stocks), prices with spin-off corrections, market series, SEC fundamentals, and ActTrade's twelve fundamental and twelve technical indicators; the twelve sentiment indicators are built, for 2015–2018 so far, while the GDELT extraction of the later years finishes. Market regimes (Phase 3), including news attention, are built. The engine (Phase 4) is built: the typed GP with the ablation ladder, the backtester, campaigns as job-array tasks, rule-based and machine-learning benchmarks, and the analysis (paired tests, portfolio tests, pilot checks). The pilot on 2015–2018 (Phase 5) is done, and the analysis protocol, [`docs/PROTOCOL.md`](docs/PROTOCOL.md), was frozen on 31 October 2026. Next: the main campaign on CERES (Phase 6). The plan is in [`docs/RESEARCH_PLAN.md`](docs/RESEARCH_PLAN.md) and decisions to date in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Layout
 
@@ -23,7 +23,7 @@ Set-up and the directional-change module are done. Data pipeline (Phase 2): buil
 | `configs/data_sources.yaml` | Settings for the data pipeline (download range, rate limits, contacts) |
 | `configs/rungs.yaml` | GP parameters, the ablation ladder and the exit-setting grid |
 | `configs/benchmarks.yaml` | Rule-based and machine-learning benchmarks |
-| `docs/` | Research plan, decision log, data pipeline (`DATA.md`), engine (`ENGINE.md`), the analysis protocol (`PROTOCOL.md`, a draft until the pilot ends) and running on CERES (`CERES.md`) |
+| `docs/` | Research plan, decision log, data pipeline (`DATA.md`), engine (`ENGINE.md`), the analysis protocol (`PROTOCOL.md`, frozen on 31 October 2026) and running on CERES (`CERES.md`) |
 | `scripts/ceres/` | Environment set-up and the Sun Grid Engine job-array script for CERES |
 | `tests/` | Automated tests, including look-ahead checks and a cross-check against the group's earlier Java DC code |
 

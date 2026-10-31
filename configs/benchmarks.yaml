@@ -4,7 +4,7 @@
 # Fairness rules (docs/RESEARCH_PLAN.md): the GP's features, windows, exit rule,
 # t+1 execution and costs; tuning on validation data only; labels that match
 # the exit rule; decision thresholds that maximise validation Sharpe.
-# DRAFT until the pilot, on 2015-2018 data only.
+# Frozen with the protocol on 31 October 2026 (designed on 2015-2018 data only).
 
 features:
   sources: [FA, SA, TA]
