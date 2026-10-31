@@ -8,7 +8,8 @@
 * DALex (Ni, Ding and Spector, 2024): a lexicase-like selection by weighted sums;
   each selection draws case weights as the softmax of normal draws with standard
   deviation ``particularity`` and takes the individual with the best weighted
-  sum of normalised case scores. Large values approach lexicase.
+  sum of normalised case scores (normalised once per generation, ``dalex_scores``).
+  Large values approach lexicase.
 
 Case matrices hold one row per individual and one column per case, higher being
 better.
@@ -39,10 +40,14 @@ def epsilon_lexicase(cases: np.ndarray, epsilon: np.ndarray, rng: np.random.Gene
     return int(candidates[rng.integers(len(candidates))])
 
 
-def dalex(cases: np.ndarray, particularity: float, rng: np.random.Generator) -> int:
+def dalex_scores(cases: np.ndarray) -> np.ndarray:
+    """Each case's scores scaled to [0, 1] over the population."""
     spread = cases.max(axis=0) - cases.min(axis=0)
-    scores = (cases - cases.min(axis=0)) / np.where(spread > 0, spread, 1.0)
-    raw = rng.normal(0.0, particularity, size=cases.shape[1])
+    return (cases - cases.min(axis=0)) / np.where(spread > 0, spread, 1.0)
+
+
+def dalex(scores: np.ndarray, particularity: float, rng: np.random.Generator) -> int:
+    raw = rng.normal(0.0, particularity, size=scores.shape[1])
     weights = np.exp(raw - raw.max())
     weights /= weights.sum()
     return int(np.argmax(scores @ weights))

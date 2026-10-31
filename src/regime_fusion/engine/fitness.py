@@ -12,7 +12,8 @@ a Sharpe ratio (annualised, from daily returns, as the study's primary metric).
 * Lexicase-type selection uses *cases*: the annualised mean daily return of each
   signal in each of ``blocks`` consecutive time blocks of the training period. A
   signal with fewer than ``min_trades`` trades scores zero in every block, as it
-  does in the weighted sum, so a lucky trade or two cannot win a block.
+  does in the weighted sum, so a lucky trade or two cannot win a block. Only
+  rungs that select this way compute them.
 
 Results are cached by tree, so identical branches are backtested once.
 """
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 from numba import njit
@@ -66,9 +68,18 @@ def sharpe(daily: np.ndarray) -> float:
     return 0.0 if spread == 0.0 else mean / spread * np.sqrt(252.0)
 
 
+@lru_cache(maxsize=None)
+def block_bounds(n: int, blocks: int) -> tuple[tuple[int, int], ...]:
+    """Start and end of ``blocks`` consecutive blocks of ``n`` days, as ``np.array_split`` splits them."""
+    size, extra = divmod(n, blocks)
+    ends = np.cumsum([size + 1] * extra + [size] * (blocks - extra)).tolist()
+    return tuple(zip([0, *ends[:-1]], ends))
+
+
 def block_means(daily: np.ndarray, blocks: int) -> np.ndarray:
-    """Annualised mean daily return in each of ``blocks`` consecutive blocks."""
-    return np.array([part.mean() * DAYS_PER_YEAR for part in np.array_split(daily, blocks)])
+    """Annualised mean daily return in each of ``blocks`` consecutive blocks (a block's sum over
+    its length is exactly its ``mean``, without the overhead)."""
+    return np.array([daily[a:b].sum() / (b - a) * DAYS_PER_YEAR for a, b in block_bounds(len(daily), blocks)])
 
 
 class Evaluator:
@@ -76,11 +87,13 @@ class Evaluator:
 
     The cache keeps, per tree, the signal, the number of trades, the Sharpe ratio
     and the block means (not the daily returns), and ``retain`` prunes it to the
-    trees of the current population, so memory stays bounded.
+    trees of the current population, so memory stays bounded. With ``cases`` false
+    the block means, which only lexicase-type selection reads, are skipped.
     """
 
-    def __init__(self, data: Mapping[str, np.ndarray], market: Market, settings: Settings):
-        self.data, self.market, self.settings = data, market, settings
+    def __init__(self, data: Mapping[str, np.ndarray], market: Market, settings: Settings, *,
+                 cases: bool = True):
+        self.data, self.market, self.settings, self.cases = data, market, settings, cases
         self._cache: dict[tuple, tuple] = {}
 
     def component(self, key: tuple, signal_of) -> tuple:
@@ -89,7 +102,8 @@ class Evaluator:
         if found is None:
             signal = signal_of()
             daily, trades = self.market.daily(signal)
-            found = (signal, trades, sharpe(daily), block_means(daily, self.settings.blocks))
+            means = block_means(daily, self.settings.blocks) if self.cases else None
+            found = (signal, trades, sharpe(daily), means)
             self._cache[key] = found
         return found
 
@@ -107,8 +121,9 @@ class Evaluator:
             weights.get(c, 0.0) * (stats[c][2] if stats[c][1] >= floor else 0.0) for c in components
         ))
         individual.stats = {c: {"sharpe": float(stats[c][2]), "trades": int(stats[c][1])} for c in components}
-        individual.stats["cases"] = np.concatenate([stats[c][3] if stats[c][1] >= floor else np.zeros_like(stats[c][3])
-                                                    for c in components])
+        if self.cases:
+            individual.stats["cases"] = np.concatenate([stats[c][3] if stats[c][1] >= floor
+                                                        else np.zeros_like(stats[c][3]) for c in components])
 
     def retain(self, population) -> None:
         keep = set()

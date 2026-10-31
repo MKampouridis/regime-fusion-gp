@@ -79,7 +79,8 @@ def run(spec: RunSpec, rung: Rung, config: StudyConfig, *, campaign: str = "dev"
         gp_config = type(gp_config)(**{**gp_config.__dict__, "active_trading": False})
     primary = config.primary_cost_bps_per_side
     evaluator = Evaluator(panel.arrays(panel.train),
-                          panel.market(panel.train, spec.exit_days, spec.exit_rate, primary), rung.fitness)
+                          panel.market(panel.train, spec.exit_days, spec.exit_rate, primary), rung.fitness,
+                          cases=gp_config.selection != "tournament")
     rng = make_rng(config.base_seed, "run", spec.stock, spec.test_year, spec.run, spec.stage)
     primary_market = panel.prices.loc[panel.evaluate]
     evaluation_data = panel.arrays(panel.evaluate)

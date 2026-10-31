@@ -110,17 +110,20 @@ def _next_generation(population, grammar, evaluator, config, rng):
                                              evaluator.settings.min_trades)
         following += offspring
 
-    cases = epsilon = None
+    cases = epsilon = scores = None
     if config.selection != "tournament":
         cases = np.array([individual.stats["cases"] for individual in population])
+    if config.selection == "lexicase":
         epsilon = selection.mad_epsilon(cases)
+    elif config.selection == "dalex":
+        scores = selection.dalex_scores(cases)  # once per generation rather than once per pick
 
     def pick() -> Individual:
         if config.selection == "tournament":
             return population[selection.tournament(fitness, config.tournament, rng)]
         if config.selection == "lexicase":
             return population[selection.epsilon_lexicase(cases, epsilon, rng)]
-        return population[selection.dalex(cases, config.particularity, rng)]
+        return population[selection.dalex(scores, config.particularity, rng)]
 
     def first_parent() -> Individual:
         if not offspring:

@@ -152,11 +152,22 @@ def test_fitness_is_the_weighted_sum_and_trees_are_cached():
     again = individual.copy()
     few.evaluate(again)
     assert again.fitness == 0.0 and not again.stats["cases"].any()
+    lean = individual.copy()                                      # tournament rungs skip the cases
+    Evaluator(data, market, settings, cases=False).evaluate(lean)
+    assert lean.fitness == individual.fitness and "cases" not in lean.stats
     calls = []
     original = market.daily
     object.__setattr__(market, "daily", lambda s: calls.append(1) or original(s))
     evaluator.evaluate(individual.copy())
     assert calls == []  # every tree came from the cache
+
+
+def test_block_means_are_exactly_the_means_of_array_split_blocks():
+    rng = np.random.default_rng(3)
+    for n in (8, 9, 15, 751, 1006):
+        daily = rng.normal(0.0, 0.01, n)
+        expected = np.array([part.mean() * 252 for part in np.array_split(daily, 8)])
+        np.testing.assert_array_equal(block_means(daily, 8), expected)  # bit for bit
 
 
 def test_selection_methods():
@@ -168,7 +179,7 @@ def test_selection_methods():
     specialists = np.array([[1.0, 0.0], [0.0, 1.0]])
     picks = {selection.epsilon_lexicase(specialists, np.zeros(2), rng) for _ in range(50)}
     assert picks == {0, 1}
-    assert selection.dalex(np.array([[0.2], [0.8], [0.5]]), 20.0, rng) == 1
+    assert selection.dalex(selection.dalex_scores(np.array([[0.2], [0.8], [0.5]])), 20.0, rng) == 1
 
 
 def test_active_trading_offspring_follow_algorithm_1():
