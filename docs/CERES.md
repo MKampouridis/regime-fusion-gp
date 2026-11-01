@@ -52,17 +52,32 @@ Raw licensed data (FNSPID) are not needed on CERES: FinBERT scores headlines on 
 
 ## 5. A campaign
 
+The main campaign (the 50 main stocks, test years 2019–2025, every method of `PROTOCOL.md` §2) has three plans: the exit settings (350 tasks, one per stock-year), the runs of every method but ML-TFT (6,300 tasks: 18 methods × 350 stock-years, each task all 50 runs of one method on one stock-year), and ML-TFT, which is pooled across stocks (70 tasks: 7 test years × 10 runs, one run per task). Planned on a copy of the data on 1 November 2026 to check the counts.
+
 ```bash
 source ~/miniforge3/etc/profile.d/conda.sh && conda activate rfgp
-export RFGP_DATA_DIR=~/rfgp-data
+unset PYTHONPATH && export RFGP_DATA_DIR=~/rfgp-data
 cd ~/regime-fusion-gp && mkdir -p logs
-python -m regime_fusion.engine tasks --campaign main --kind exits     # prints the qsub line to use
-qsub -t 1-2 -tc 2 -v CAMPAIGN=main,PLAN=exits scripts/ceres/tasks.sge   # first, two elements as a test
-cat logs/rfgp.o*                                                       # once they finish: no errors?
+E="python -m regime_fusion.engine"
+$E tasks --campaign main --kind exits
+$E tasks --campaign main --kind runs --rungs A0 A1 A2 A3 A4 A5 A5-dalex GP-FA GP-SA GP-TA \
+    RB-BH RB-TS RB-MA RB-TSMOM ML-LR ML-LGBM ML-RS-LGBM ML-GATED
+$E tasks --campaign main --kind runs --plan tft --rungs ML-TFT --block 1
+
+# First, two elements as a test (each task prints the qsub line of its plan):
+qsub -t 1-2 -tc 2 -v CAMPAIGN=main,PLAN=exits scripts/ceres/tasks.sge
+qstat -u $USER                     # what is queued (qw) or running (r)
+cat logs/rfgp.o*                   # once they finish: no errors? how long did they take?
+
+# Then the rest. The runs need their stock-year's exit settings, so they wait for the exits job
+# (its number is printed by qsub, as "Your job-array 12345.3-350:1 ..."):
 qsub -t 3-350 -tc 60 -v CAMPAIGN=main,PLAN=exits scripts/ceres/tasks.sge
-qstat -u $USER                                                         # what is queued (qw) or running (r)
-python -m regime_fusion.engine status --campaign main                  # what is finished
+qsub -hold_jid <exits job> -t 1-6300 -tc 60 -v CAMPAIGN=main,PLAN=runs scripts/ceres/tasks.sge
+qsub -hold_jid <exits job> -t 1-70 -tc 60 -v CAMPAIGN=main,PLAN=tft scripts/ceres/tasks.sge
+$E status --campaign main          # what is finished
 ```
+
+`-hold_jid` must name the job of elements 3–350; the two test elements have finished by then. Two arrays of 60 run at once, within CERES's limit of about 250 across a user's arrays.
 
 - An element in state `Eqw` failed to start: `qstat -j <job id>` says why (usually a path), and `qmod -c <job id>` clears it once fixed. `qdel <job id>` stops a whole array, `qdel <job id> -t 5-9` some of its elements.
 - Runs of a stock-year need its exit settings, so a plan of runs is submitted once the exits plan has finished (or with `qsub -hold_jid <exits job id>`).
