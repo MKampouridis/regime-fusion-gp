@@ -24,7 +24,7 @@
 #
 # First version, drafted from the most frequent names in the first months of
 # GDELT; the main firms' rules were reviewed on 29 October 2026 on the news of
-# 2015 to May 2016, and on 30 October 2026 on that of 2017-18 (docs/DATA.md). The `sa` command reports each firm's most
+# 2015 to May 2016, and on 30 October 2026 on that of 2017-18; the hold-out firms' rules on 1 November 2026 on the news of 2015-2018 (docs/DATA.md). The `sa` command reports each firm's most
 # frequent names counted and left out, in the development period (to 2018) only;
 # names adopted later come from the firms' public renamings, listed with their
 # dates.
@@ -169,24 +169,32 @@ stocks:
     reject: ["(.* )?xerox rochester (international )?jazz( .*)?"]
   # Hold-out stocks
   AMG: all
-  AMT: all
+  AMT:
+    accept: [".*"]
+    reject: ["(.* )?great american tower( .*)?"]   # an office tower in Cincinnati
   ANTM:
     # Anthem renamed itself Elevance Health on 28 June 2022; it was WellPoint until December 2014.
     accept: ["(.* )?anthem (inc|insurance|blue cross|health|healthcare|corp|corporation|foundation)( .*)?",
              "(.* )?elevance health( .*)?", "(.* )?wellpoint( .*)?"]
-  AZO: all
+  AZO:
+    accept: [".*"]
+    reject: ["(.* )?autozone (park|liberty bowl|liberty|sunset symphony)( .*)?", "(.* )?dubai auto zone( .*)?"]
   BLK:
     accept: [".*"]
     reject: ["(.* )?blackrock (college|clinic|castle|shopping centre)( .*)?"]
-  BWA: all
+  BWA:
+    accept: [".*"]
+    reject: ["(.* )?borg ?-?warner (trophy|community|community room|championship)( .*)?"]   # the Indianapolis 500 trophy; a library room
   CF: all
   CHRW: all
   CNP:
     accept: ["(.* )?centerpoint energy( .*)?"]
-  CRM: all
+  CRM:
+    accept: [".*"]
+    reject: ["(.* )?salesforce (tower|transit|transit center|transbay terminal|park|east)( .*)?"]   # San Francisco buildings named after the firm
   CTAS:
     accept: [".*"]
-    reject: ["(.* )?cintas center( .*)?"]
+    reject: ["(.* )?cintas center( .*)?", "(.* )?raphael cintas( .*)?"]
   D:
     accept: ["(.* )?dominion (resources|energy)( .*)?", "(.* )?dominion virginia power( .*)?"]
   DOV:
@@ -194,32 +202,52 @@ stocks:
   DRI:
     accept: ["(.* )?darden restaurants( .*)?", "darden (inc|corp)( .*)?"]
   ED: all
-  EIX: all
+  EIX:
+    accept: [".*"]
+    # Edison S.p.A., the Italian energy firm, is another firm
+    reject: ["(.* )?edison international spa?( .*)?"]
+    veto: ["(.* )?edison international spa?( .*)?"]
   ESS: all
   ETN:
     accept: ["(.* )?eaton (corp|corporation)( .*)?"]
   ETR: all
   FITB:
     accept: [".*"]
-    reject: ["(.* )?fifth third (arena|field|ballpark|stadium|river bank run)( .*)?"]
-  FSLR: all
-  GIS: all
+    reject: ["(.* )?fifth third (bank )?(arena|field|ballpark|stadium|river bank run)( .*)?"]
+  FSLR:
+    accept: [".*"]
+    reject: ["(.* )?first solar (panel )?road(way)?( .*)?"]   # "France's first solar road"
+  GIS:
+    accept: [".*"]
+    # Janet Mills, Attorney General of Maine
+    reject: ["(.* )?attorney general mills( .*)?"]
+    veto: ["(.* )?attorney general mills( .*)?"]
   GWW:
     accept: ["(.* )?w ?w grainger( .*)?", "grainger (inc|industrial supply)( .*)?"]
-  HAS: all
+  HAS:
+    accept: [".*"]
+    # Hasbro Children's Hospital in Providence, often named with a bare "hasbro"
+    reject: ["(.* )?hasbro (children|hospital)( .*)?"]
+    veto: ["(.* )?hasbro (children|hospital)( .*)?"]
   HSY:
     accept: ["(.* )?hershey (co|company|foods|corp|corporation)( .*)?"]
   ISRG: all
   KMI: all
   L:
-    accept: ["(.* )?loews (corp|corporation)( .*)?", "loews hotels?( .*)?"]
+    # Loews Hotels, the chain, counts; a single hotel named as a venue ("at the Loews Hotel
+    # in Atlanta") does not, like the stadiums named after other firms
+    accept: ["(.* )?loews (corp|corporation)( .*)?", "loews hotels{S}", "loews hotels (holding|&|and)( .*)?"]
   MHK:
     accept: ["(.* )?mohawk industries( .*)?"]
   MMC:
     accept: ["(.* )?marsh (& |and )?mc ?lennan( .*)?"]
   NDAQ: all
-  PGR: all
-  PH: all
+  PGR:
+    accept: [".*"]
+    reject: ["(.* )?boat show( .*)?"]   # boat shows it sponsors
+  PH:
+    accept: [".*"]
+    reject: ["(.* )?(kiri|alyson|pat) hannifin( .*)?"]
   PNW: all
   PPL:
     accept: ["ppl (corp|corporation|electric utilities|energy|montana|resources|global|wpd)( .*)?"]
@@ -227,7 +255,9 @@ stocks:
     # Prudential plc (British) is another firm.
     accept: ["(.* )?prudential financial( .*)?", "prudential insurance company of america( .*)?"]
   RL: all
-  ROK: all
+  ROK:
+    accept: [".*"]
+    reject: ["(.* )?rockwell automation park( .*)?"]
   SYK:
     accept: ["(.* )?stryker (corp|corporation|medical|orthopaedics|orthopedics|instruments|endoscopy|neurovascular|spine)( .*)?"]
   SYMC:
@@ -239,12 +269,25 @@ stocks:
       - "(.* )?gen digital( .*)?"
   TEL: all
   TMO: all
-  UA: all
+  UA:
+    accept: [".*"]
+    reject: ["(.* )?under armour (all-?americans?|all-?america|all american|performance center)( .*)?"]   # a high-school game and the Ravens' training ground
   UHS: all
   UNM:
-    accept: ["unum{S}", "(.* )?unum (group|corp|insurance|us|uk|limited)( .*)?"]
-  VLO: all
+    accept: ["unum{S}", "(.* )?unum (group|grp|corp|corporation|insurance|life|dental|vision|america|us|uk|united kingdom|limited)( .*)?"]
+  VLO:
+    accept: [".*"]
+    # People and places called Valero, and the events it sponsors; the people are often
+    # also named with a bare "valero"
+    reject: ["(.* )?valero (texas open|alamo bowl|alamo|street|rivera|jimenez)( .*)?",
+             "(.* )?(san antonio )?de valero( .*)?", "(.* )?(borja|jorge|bodil|jhorman) valero( .*)?",
+             "(.* )?rosemary valero-o.*"]
+    veto: ["(.* )?valero (rivera|jimenez)( .*)?", "(.* )?(borja|jorge|bodil|jhorman) valero( .*)?",
+           "(.* )?de valero( .*)?", "(.* )?rosemary valero-o.*"]
   VMC: all
   VRSN: all
-  WY: all
+  WY:
+    accept: [".*"]
+    reject: ["(.* )?weyerhaeuser (king county aquatic|high|high school|museum|road)( .*)?",
+             "(.* )?weyerhaeuser library( .*)?", "(.* )?carl a weyerhaeuser( .*)?", "(.* )?frederick weyerhaeuser( .*)?"]
   ZTS: all
