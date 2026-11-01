@@ -52,6 +52,8 @@ Raw licensed data (FNSPID) are not needed on CERES: FinBERT scores headlines on 
 
 ## 5. A campaign
 
+These commands run on the login node: `qsub` refuses to run in an interactive session (`qrsh`), so leave it with `exit` first (`hostname` shows `compute-…` inside one). The plans can be made on either, since the home folder is shared.
+
 The main campaign (the 50 main stocks, test years 2019–2025, every method of `PROTOCOL.md` §2) has three plans: the exit settings (350 tasks, one per stock-year), the runs of every method but ML-TFT (6,300 tasks: 18 methods × 350 stock-years, each task all 50 runs of one method on one stock-year), and ML-TFT, which is pooled across stocks (70 tasks: 7 test years × 10 runs, one run per task). Planned on a copy of the data on 1 November 2026 to check the counts.
 
 ```bash
