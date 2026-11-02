@@ -443,3 +443,19 @@ def test_compare_defaults_to_the_protocols_six_comparisons(monkeypatch, tmp_path
     assert cli.main(["compare", "--campaign", "main"]) == 0
     wilcoxon = pd.read_csv(folder / "analysis" / "wilcoxon.sharpe_10bps.stage2.csv")
     assert list(zip(wilcoxon["first"], wilcoxon["second"])) == list(results.CONFIRMATORY)
+
+
+def test_label_keeps_a_checks_tables_apart(monkeypatch, tmp_path):
+    """A check analysed in its campaign's folder (FinBERT in main) must not overwrite the primary tables."""
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    folder = tmp_path / "results" / "main"
+    folder.mkdir(parents=True)
+    base = fake_runs()
+    names = {"A0": "A", "A1": "B", "A2": "C", "A3": "A", "A4": "B", "A5": "C", "RB-BH": "A"}
+    pd.concat([base[base.rung == old].assign(rung=new) for new, old in names.items()]).to_parquet(
+        folder / "runs.parquet")
+    assert cli.main(["compare", "--campaign", "main"]) == 0
+    primary = (folder / "analysis" / "wilcoxon.sharpe_10bps.stage2.csv").read_text()
+    assert cli.main(["compare", "--campaign", "main", "--rungs", "A0", "A1", "--label", "check"]) == 0
+    assert (folder / "analysis" / "wilcoxon.sharpe_10bps.stage2.check.csv").exists()
+    assert (folder / "analysis" / "wilcoxon.sharpe_10bps.stage2.csv").read_text() == primary

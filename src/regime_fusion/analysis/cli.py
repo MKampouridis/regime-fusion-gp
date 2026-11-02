@@ -111,6 +111,8 @@ def add_selection(sub: argparse.ArgumentParser) -> None:
     sub.add_argument("--plan", help="only the runs of this plan (default: those of every plan of runs)")
     sub.add_argument("--incomplete", action="store_true",
                      help="leave out the stock-years with planned runs missing instead of stopping")
+    sub.add_argument("--label", help="added to the names of the tables written, so that a check analysed in its "
+                     "campaign's folder (FinBERT in main) leaves the primary tables as they are")
 
 
 def planned_of(args: argparse.Namespace) -> pd.DataFrame:
@@ -245,6 +247,10 @@ def output(campaign: str) -> Path:
     return folder
 
 
+def labelled(name: str, args: argparse.Namespace) -> str:
+    return f"{name}.{args.label}" if getattr(args, "label", None) else name
+
+
 def compare_command(args: argparse.Namespace) -> int:
     runs, planned = load_runs(args.campaign), planned_of(args)
     rungs = args.rungs or default_methods(args, runs, planned, "--rungs")
@@ -253,7 +259,7 @@ def compare_command(args: argparse.Namespace) -> int:
     if missing:
         raise SystemExit(f"no stage-{args.stage} runs for {missing}")
     runs = shared_stock_years(runs[runs["rung"].isin(rungs)], rungs)
-    folder, name = output(args.campaign), f"{args.measure}.stage{args.stage}"
+    folder, name = output(args.campaign), labelled(f"{args.measure}.stage{args.stage}", args)
     medians = results.stock_year_medians(runs, args.measure)[rungs]
     if args.pairs:
         pairs = paired_comparisons(args.pairs, rungs)
@@ -326,7 +332,7 @@ def portfolio_command(args: argparse.Namespace) -> int:
     trials = trial_count(args, list(returns.columns))
     outcome = portfolio.tests(returns, benchmark, candidates, int(trials["count"]), rng)
     outcome.update(trials=trials, stock_years=len(shared), stock_years_left_out=len(every) - len(shared))
-    folder, name = output(args.campaign), f"{cost:g}bps.stage{args.stage}"
+    folder, name = output(args.campaign), labelled(f"{cost:g}bps.stage{args.stage}", args)
     if pairs:  # the same resampled days for every comparison and cost
         paired = stats.sharpe_differences(returns, pairs, make_rng(config.base_seed, "analysis",
                                                                    "sharpe-difference", args.campaign))
@@ -370,7 +376,8 @@ def random_command(args: argparse.Namespace) -> int:
         table = portfolio.random_entry_check(runs, method, cost, rng_of, draws=args.draws)
         if table.empty:
             raise SystemExit(f"no stage-{args.stage} runs of {method}")
-        table.to_csv(folder / f"random_entry.{method}.{cost:g}bps.stage{args.stage}.csv", index=False)
+        table.to_csv(folder / f"random_entry.{method}.{labelled(f'{cost:g}bps.stage{args.stage}', args)}.csv",
+                     index=False)
         log.info("%s: above the 95th percentile of random entry in %.1f%% of %d stock-years "
                  "(median percentile %.2f)", method, 100 * (table["percentile"] > 0.95).mean(), len(table),
                  table["percentile"].median())

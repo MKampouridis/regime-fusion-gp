@@ -121,3 +121,25 @@ qsub -hold_jid EX -t 1-2100 -tc 60 -v CAMPAIGN=expanding,PLAN=runs scripts/ceres
 ```
 
 About 1,700–1,900 CPU hours in all at the main campaign's speed (the expanding windows' later years train on up to ten years, so their runs are slower); some 16–20 hours of waiting.
+
+## 7. Once they finish: check, collect, analyse
+
+On the login node or in a `qrsh` session, after the set-up lines of §6 (conda, `RFGP_DATA_DIR`, `cd`, `E=...`):
+
+```bash
+grep -l Traceback logs/rfgp.o* | wc -l          # tasks that crashed (0 expected; old logs of main count too)
+$E status --campaign holdout && $E status --campaign expanding && $E status --campaign main
+$E collect --campaign holdout && $E collect --campaign expanding && $E collect --campaign main
+A="python -m regime_fusion.analysis"
+# Hold-out stocks: the analysis of PROTOCOL.md sections 4-6, unchanged
+$A compare --campaign holdout --confirmatory
+$A portfolio --campaign holdout --trials-from gp-pilot pilot main holdout
+# Expanding windows: the six rungs
+$A compare --campaign expanding --confirmatory
+$A portfolio --campaign expanding --pairs A1:A0 A2:A1 A3:A2 A4:A3 A5:A4 A5:A0
+# FinBERT (in main's folder, so --label keeps main's primary tables as they are)
+$A portfolio --campaign main --label finbert --methods A0 A0-FB A1 A1-FB A5 A5-FB --pairs A0-FB:A0 A1-FB:A1 A5-FB:A5
+$A compare --campaign main --label finbert --rungs A0 A0-FB A1 A1-FB A5 A5-FB --pairs A0-FB:A0 A1-FB:A1 A5-FB:A5
+```
+
+Tables go to `~/rfgp-data/results/<campaign>/analysis/`.
