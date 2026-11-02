@@ -87,3 +87,37 @@ $E status --campaign main          # what is finished
 - An exits task is about 80 GP runs and a runs task 50, so each element takes minutes. A pooled ML-TFT run takes 30–60 minutes on the Mac, so plan it with `--block 1` (one run per task).
 - The main campaign (the 50 main stocks, 50 runs per GP configuration) needs about 1,100 CPU hours at the Mac's speed in the pilot (several runs at once, after the speed-ups of 31 October), about 400 of them for A5 and A5-dalex; the hold-out stocks need as much again, and the robustness checks some hundreds more. With 60 elements at once the main stocks are roughly a day of waiting if CERES's older cores are as fast, two if they are half as fast. The test elements show the real speed.
 - Results go to `~/rfgp-data/results/<campaign>/`. `collect` and the analysis can run on CERES or, after copying `results/<campaign>` back with `rsync`, on the Mac.
+
+## 6. After the main campaign: FinBERT, hold-out stocks, expanding windows
+
+Planned on a copy of the data on 2 November 2026: the FinBERT check adds a plan to `main` (678 tasks: A0-FB, A1-FB and A5-FB on the 226 stock-years their headlines cover; it uses main's exit settings), the hold-out stocks are a campaign of their own (350 exits, 6,300 runs, 70 ML-TFT), and so are the expanding windows (350 exits, 2,100 runs of A0–A5, each exit chosen again on its own windows). The expanding windows need their regimes, fitted on the Mac (`python -m regime_fusion.data regimes --scheme expanding`) and copied into `~/rfgp-data/processed/regimes/<inputs>/expanding/`.
+
+Plan (login node, in bash; the stock list is the hold-out universe):
+
+```bash
+source ~/miniforge3/etc/profile.d/conda.sh && conda activate rfgp
+unset PYTHONPATH && export RFGP_DATA_DIR=~/rfgp-data
+cd ~/regime-fusion-gp && git pull
+E="python -m regime_fusion.engine"
+H=$(python -c "from regime_fusion.data.universe import load_universe; print(' '.join(s.id for s in load_universe().select('holdout', include_holdout=True)))")
+M="A0 A1 A2 A3 A4 A5 A5-dalex GP-FA GP-SA GP-TA RB-BH RB-TS RB-MA RB-TSMOM ML-LR ML-LGBM ML-RS-LGBM ML-GATED"
+$E tasks --campaign main --kind runs --plan finbert --rungs A0-FB A1-FB A5-FB                 # 678
+$E tasks --campaign holdout --kind exits --include-holdout --stocks $H                        # 350
+$E tasks --campaign holdout --kind runs --include-holdout --stocks $H --rungs $M              # 6300
+$E tasks --campaign holdout --kind runs --plan tft --include-holdout --stocks $H --rungs ML-TFT --block 1   # 70
+$E tasks --campaign expanding --kind exits --scheme expanding                                 # 350
+$E tasks --campaign expanding --kind runs --scheme expanding --rungs A0 A1 A2 A3 A4 A5        # 2100
+```
+
+Submit as two lanes of at most 60 elements (plus 10 for ML-TFT), within CERES's guidance of about 250 across a user's arrays. Each `qsub` prints a job number; `-hold_jid` takes the number alone:
+
+```bash
+qsub -t 1-350 -tc 60 -v CAMPAIGN=holdout,PLAN=exits scripts/ceres/tasks.sge                    # job HX
+qsub -hold_jid HX -t 1-6300 -tc 60 -v CAMPAIGN=holdout,PLAN=runs scripts/ceres/tasks.sge
+qsub -hold_jid HX -t 1-70 -tc 10 -v CAMPAIGN=holdout,PLAN=tft scripts/ceres/tasks.sge
+qsub -t 1-678 -tc 60 -v CAMPAIGN=main,PLAN=finbert scripts/ceres/tasks.sge                     # job FB
+qsub -hold_jid FB -t 1-350 -tc 60 -v CAMPAIGN=expanding,PLAN=exits scripts/ceres/tasks.sge     # job EX
+qsub -hold_jid EX -t 1-2100 -tc 60 -v CAMPAIGN=expanding,PLAN=runs scripts/ceres/tasks.sge
+```
+
+About 1,700–1,900 CPU hours in all at the main campaign's speed (the expanding windows' later years train on up to ten years, so their runs are slower); some 16–20 hours of waiting.

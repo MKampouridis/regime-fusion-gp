@@ -63,9 +63,10 @@ rungs:
   GP-SA: {extends: GP-FA, sources: [SA]}
   GP-TA: {extends: GP-FA, sources: [TA]}
   # Robustness check (option B): FinBERT headline sentiment joins the sentiment branch, from the
-  # source below. The best rung of the main results gets the same treatment once known.
+  # source below. The best rung of the main results, A5, gets the same treatment.
   A0-FB: {extends: A0, finbert: true}
   A1-FB: {extends: A1, finbert: true}
+  A5-FB: {extends: A5, finbert: true}   # the best rung by PROTOCOL.md section 4 (MK, 2 November 2026)
   # Alternatives the pilot compares (docs/PROTOCOL.md, section 9), on 2015-2018 data only.
   A1-rank: {extends: A1, scaling: rank}
   A3-fine: {extends: A3, regimes: dc_fine}
