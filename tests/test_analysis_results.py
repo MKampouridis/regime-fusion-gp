@@ -428,3 +428,18 @@ def test_gp_parameter_pilot_picks_the_cheapest_converged_setting():
         pilot.gp_parameters(pd.DataFrame(rows).assign(rung="A1"), pd.DataFrame(marks))
     unmarked, choice = pilot.gp_parameters(pd.DataFrame(rows), pd.DataFrame())  # no run kept checkpoints
     assert unmarked["validation_sharpe"].isna().all() and choice["population"] == 500 and choice["flag"] is False
+
+
+def test_compare_defaults_to_the_protocols_six_comparisons(monkeypatch, tmp_path):
+    """All of a campaign's methods, sorted, would pair neighbours (RB-BH with ML-TFT); without --rungs
+    compare tests the six comparisons of docs/PROTOCOL.md when their methods are all there."""
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    folder = tmp_path / "results" / "main"
+    folder.mkdir(parents=True)
+    base = fake_runs()
+    names = {"A0": "A", "A1": "B", "A2": "C", "A3": "A", "A4": "B", "A5": "C", "RB-BH": "A"}
+    pd.concat([base[base.rung == old].assign(rung=new) for new, old in names.items()]).to_parquet(
+        folder / "runs.parquet")
+    assert cli.main(["compare", "--campaign", "main"]) == 0
+    wilcoxon = pd.read_csv(folder / "analysis" / "wilcoxon.sharpe_10bps.stage2.csv")
+    assert list(zip(wilcoxon["first"], wilcoxon["second"])) == list(results.CONFIRMATORY)

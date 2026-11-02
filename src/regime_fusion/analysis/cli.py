@@ -48,7 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = commands.add_parser("compare", help="per-stock-year medians and paired tests")
     sub.add_argument("--campaign", required=True)
     sub.add_argument("--measure", default="sharpe_10bps", help="a column of runs.parquet (default sharpe_10bps)")
-    sub.add_argument("--rungs", nargs="+", help="methods in ladder order (default: all, sorted)")
+    sub.add_argument("--rungs", nargs="+", help="methods in ladder order (default: all, sorted, tested on the protocol's six comparisons "
+                          "when they are all present)")
     sub.add_argument("--against", help="also compare every method with this one")
     sub.add_argument("--confirmatory", action="store_true",
                      help="test exactly the six comparisons of docs/PROTOCOL.md (their per-stock view; "
@@ -261,6 +262,12 @@ def compare_command(args: argparse.Namespace) -> int:
         absent = sorted({m for pair in pairs for m in pair} - set(rungs))
         if absent:
             raise SystemExit(f"the confirmatory comparisons need {absent}")
+    elif not args.rungs and {m for pair in results.CONFIRMATORY for m in pair} <= set(rungs):
+        # all of a campaign's methods, sorted, make no ladder (RB-BH against ML-TFT): the protocol's six
+        pairs = results.CONFIRMATORY
+        log.info("compare: the six comparisons of docs/PROTOCOL.md (give --rungs in order for a ladder)")
+        if args.against:
+            pairs = pairs + [(rung, args.against) for rung in rungs if rung != args.against]
     else:
         pairs = results.ladder(rungs)
         if args.against:
