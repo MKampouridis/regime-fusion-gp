@@ -1,0 +1,38 @@
+#!/bin/bash
+# The secondary analyses of docs/PROTOCOL.md section 6 for one campaign (main or holdout), as one
+# batch job, since they need more memory than the login node allows. Submit from the repository
+# folder after `engine collect`, for example:
+#
+#   qsub -v CAMPAIGN=main scripts/ceres/secondary.sge
+#   qsub -v CAMPAIGN=holdout scripts/ceres/secondary.sge
+#
+# The primary analysis (compare --confirmatory, portfolio at 10 bps) is run by hand first; this
+# repeats it at every cost (0, 5, 10 and 25 bps: per-stock view, summary and portfolio tests) and adds random
+# entry for every method at the primary cost. Tables go to results/<campaign>/analysis/.
+#$ -N rfgp-secondary
+#$ -S /bin/bash
+#$ -q all.q
+#$ -cwd
+#$ -j y
+#$ -o logs/
+set -eo pipefail   # not -u: conda's own activation scripts use variables that may be unset
+: "${CAMPAIGN:?give CAMPAIGN with qsub -v}"
+unset PYTHONPATH
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
+conda activate rfgp
+export RFGP_DATA_DIR="${RFGP_DATA_DIR:-$HOME/rfgp-data}"
+export NUMBA_CACHE_DIR="${TMPDIR:-/tmp}/numba-cache-$USER"
+A="python -m regime_fusion.analysis"
+TRIALS="gp-pilot pilot main"
+[ "$CAMPAIGN" = main ] || TRIALS="$TRIALS $CAMPAIGN"
+METHODS="A0 A1 A2 A3 A4 A5 A5-dalex GP-FA GP-SA GP-TA RB-BH RB-TS RB-MA RB-TSMOM ML-LR ML-LGBM ML-RS-LGBM ML-GATED ML-TFT"
+
+for cost in 0 5 10 25; do   # 10 again so that every cost counts the same trials (main now plans FinBERT too)
+    echo "=== $CAMPAIGN at $cost bps"
+    # the 19 methods are named so that main's FinBERT rungs (fewer stock-years) stay out
+    $A compare --campaign "$CAMPAIGN" --confirmatory --measure "sharpe_${cost}bps" --rungs $METHODS
+    $A portfolio --campaign "$CAMPAIGN" --cost "$cost" --methods $METHODS --trials-from $TRIALS
+done
+echo "=== $CAMPAIGN: random entry at the primary cost"
+$A random --campaign "$CAMPAIGN" --methods $METHODS
+echo "=== $CAMPAIGN: done"
