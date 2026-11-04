@@ -139,3 +139,24 @@ def test_forward_returns_start_at_the_next_open():
     # decided at the close of day 0: bought at the open of day 1 (11), sold at the open of day 3 (13)
     assert fwd.iloc[0] == pytest.approx(13.0 / 11.0 - 1)
     assert fwd.iloc[2:].isna().all()
+
+
+def test_long_short_market_holds_from_the_next_open_and_pays_costs_on_changes():
+    from regime_fusion.dev.longshort import MIN_SIDE, LongShortMarket
+    days, n = 12, 2 * MIN_SIDE
+    opens = np.ones((days, n)) * 10.0
+    opens[3:, :MIN_SIDE] = 11.0           # the first half rises by 10% at the open of day 3
+    market = LongShortMarket(opens, horizon=4, cost=0.001)
+    assert list(market.decisions) == [0, 4]
+    signal = np.zeros((days, n), dtype=bool)
+    signal[:, :MIN_SIDE] = True            # long the risers, short the rest
+    net, active, _ = market.simulate(signal)
+    # decision 0 holds from the open of day 1 to the open of day 5: long +10%, short 0%;
+    # entering costs 2 (100% long + 100% short) x 0.1%; decision 4 keeps the same weights
+    assert active == 2
+    assert net[0] == pytest.approx(0.10 - 2 * 0.001)
+    assert net[1] == pytest.approx(0.0)
+    # too few stocks on one side: flat
+    lonely = np.zeros((days, n), dtype=bool)
+    lonely[:, 0] = True
+    assert market.simulate(lonely)[1] == 0
