@@ -7,7 +7,7 @@ import argparse
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from regime_fusion.dev import e8, e23, longshort, report
+from regime_fusion.dev import e8, e23, longshort, replicate, report
 
 log = logging.getLogger("regime_fusion.dev")
 
@@ -33,8 +33,27 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--workers", type=int, default=4)
     commands.add_parser("e8-simple", help="E8's best median-split rule per fold")
     commands.add_parser("e8-report", help="summarise E8")
+    sub = commands.add_parser("acttrade", help="replicate ActTrade's protocol on our data (tuning, then final runs)")
+    sub.add_argument("--workers", type=int, default=4)
+    commands.add_parser("acttrade-report", help="summarise the ActTrade replication")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+    if args.command == "acttrade-report":
+        replicate.report()
+        return 0
+    if args.command == "acttrade":
+        for phase in ("tuning", "final"):
+            todo = replicate.tuning_jobs() if phase == "tuning" else replicate.final_jobs()
+            log.info("%s: %d runs with %d workers", phase, len(todo), args.workers)
+            with ProcessPoolExecutor(args.workers) as pool:
+                for i, future in enumerate(as_completed([pool.submit(replicate.run_job, j) for j in todo]), 1):
+                    message = future.result()
+                    if i % 100 == 0 or i == len(todo):
+                        log.info("%s %d/%d %s", phase, i, len(todo), message)
+            if phase == "tuning":
+                log.info("chosen exits: %s", replicate.chosen_exits())
+        replicate.report()
+        return 0
     if args.command == "e8-simple":
         e8.simple_baseline()
         return 0
