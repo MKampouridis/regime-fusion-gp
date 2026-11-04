@@ -38,8 +38,8 @@ def e23_report() -> pd.DataFrame:
     for (mode, design, fold), cell in table.groupby(["mode", "design", "fold"]):
         runs = sorted(cell["run"].unique())
         # the protocol's portfolio: average the runs within each stock, then the stocks day by day
-        per_stock = cell.groupby("stock")["daily"].apply(lambda s: pd.concat(list(s), axis=1).mean(axis=1))
-        portfolio = pd.concat(list(per_stock), axis=1).mean(axis=1)
+        per_stock = [pd.concat(list(group["daily"]), axis=1).mean(axis=1) for _, group in cell.groupby("stock")]
+        portfolio = pd.concat(per_stock, axis=1).mean(axis=1)
         by_run = [pd.concat(list(cell.loc[cell.run == r, "daily"]), axis=1).mean(axis=1) for r in runs]
         run_sharpes = np.array([sharpe(s) for s in by_run])
         out.append({"mode": mode, "design": design, "fold": fold, "runs": len(runs),
