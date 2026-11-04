@@ -28,8 +28,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = commands.add_parser("e6", help="run the long/short experiment")
     sub.add_argument("--workers", type=int, default=4)
     commands.add_parser("e6-report", help="summarise the long/short experiment")
+    commands.add_parser("e7-simple", help="the best median-split rule on training, scored on validation")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+    if args.command == "e7-simple":
+        longshort.simple_baseline()
+        return 0
     if args.command == "e6-report":
         longshort.report()
         return 0

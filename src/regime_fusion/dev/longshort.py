@@ -9,6 +9,12 @@ rebalance. A rebalance with fewer than ``MIN_SIDE`` stocks on either side is fla
 cost per side on the traded value (the change of weights). The trees act day by day, so a tree is
 evaluated once on day x stock arrays.
 
+E7 (``VARIANTS``) reins the GP in: ``d2`` caps branches at two comparisons (depth 2, against 5);
+``seeded`` puts every median-split rule (one indicator above or below 0, its trailing median, as the
+whole model) into the starting population; ``simple`` is no GP at all: the median-split rule with
+the best training fitness, then scored on the validation year (the fair version of a rule picked
+from the information-coefficient screen, which saw the validation years).
+
 Fitness: the PSR lower bound (``dev.fitness``) of the period returns. Every rule is invested in every
 active period, so the number of periods is the evidence; a rule flat in more than half of the
 periods scores ``FLOOR``. Inputs: trailing ranks (``dev.features``). Rung A1's grammar and operators,
@@ -34,13 +40,46 @@ from regime_fusion.dev.features import load_stationary_panel
 from regime_fusion.dev.fitness import FLOOR, LowerBoundEvaluator
 from regime_fusion.engine.gp import evolve
 from regime_fusion.engine.rungs import load_rungs
-from regime_fusion.engine.tree import Grammar, describe, signals, to_record
+from regime_fusion.engine.tree import COMPARISONS, ERC, LEAF, FUSION, VAR, Grammar, Individual, describe, signals, to_record
 from regime_fusion.seeds import make_rng
 
 CAMPAIGN = "dev-e6"
 HORIZONS = (5, 20)
 MIN_SIDE = 5
 RUNS = 10
+VARIANTS = {            # name: (max branch depth or None for the rung's, seeded)
+    "d5": (None, False),
+    "d2": (2, False),
+    "d2-seeded": (2, True),
+    "d5-seeded": (None, True),
+}
+
+
+def median_rules(groups: dict[str, list[str]], sources: tuple[str, ...]) -> list[Individual]:
+    """Every rule "indicator above (or below) its trailing median" as a whole model: the fusion is
+    that branch alone; the other branches hold a placeholder comparison of their own type."""
+    placeholder = {s: [(COMPARISONS[0], s, None), (VAR, s, groups[s][0]), (ERC, None, 0.0)] for s in sources}
+    rules = []
+    for s in sources:
+        for name in groups[s]:
+            for comparison in COMPARISONS:
+                branches = {t: list(placeholder[t]) for t in sources}
+                branches[s] = [(comparison, s, None), (VAR, s, name), (ERC, None, 0.0)]
+                rules.append(Individual([(LEAF, FUSION, s)], branches))
+    return rules
+
+
+class SeededGrammar(Grammar):
+    """A grammar whose starting population begins with given individuals (the rest as usual)."""
+
+    def __init__(self, *args, seeds: tuple = (), **kwargs):
+        super().__init__(*args, **kwargs)
+        object.__setattr__(self, "seeds", tuple(seeds))
+
+    def ramped_population(self, size, initial_depth, rng):
+        population = super().ramped_population(size, initial_depth, rng)
+        seeds = [ind.copy() for ind in self.seeds][:size]
+        return seeds + population[len(seeds):]
 
 
 class LongShortMarket:
@@ -92,11 +131,12 @@ def _wide(panels: dict, names: list[str], part: str) -> tuple[pd.DatetimeIndex, 
     return days, data, opens
 
 
-def path(fold: str, horizon: int, run: int) -> Path:
-    return store.data_dir() / "results" / CAMPAIGN / f"h{horizon}" / fold / f"run{run:02d}.json"
+def path(fold: str, horizon: int, run: int, variant: str = "d5") -> Path:
+    base = store.data_dir() / "results" / CAMPAIGN / f"h{horizon}"
+    return (base if variant == "d5" else base / variant) / fold / f"run{run:02d}.json"
 
 
-def run(fold: str, horizon: int, run_number: int, write: bool = True) -> dict[str, Any]:
+def run(fold: str, horizon: int, run_number: int, variant: str = "d5", write: bool = True) -> dict[str, Any]:
     config = load_config()
     started = time.perf_counter()
     rung = load_rungs()[RUNG]
@@ -105,7 +145,10 @@ def run(fold: str, horizon: int, run_number: int, write: bool = True) -> dict[st
     panels = {s: load_stationary_panel(s, train, validation, rung.sources) for s in stocks()}
     groups = _all_names(panels)
     names = [n for g in groups.values() for n in g]
-    grammar = Grammar(groups, fusion_functions=rung.fusion, sources=rung.sources, max_branch_depth=rung.max_branch_depth)
+    depth, seeded = VARIANTS[variant]
+    seeds = median_rules(groups, rung.sources) if seeded else ()
+    grammar = SeededGrammar(groups, fusion_functions=rung.fusion, sources=rung.sources,
+                            max_branch_depth=depth or rung.max_branch_depth, seeds=seeds)
     _, train_data, train_opens = _wide(panels, names, "train")
     market = LongShortMarket(train_opens, horizon, cost)
     settings = replace(rung.fitness, min_trades=max(1, len(market.decisions) // 2))
@@ -118,7 +161,7 @@ def run(fold: str, horizon: int, run_number: int, write: bool = True) -> dict[st
     net, active, _ = later.simulate(signals(best, val_data)["C"])
     on_share = float(np.nanmean(signals(best, val_data)["C"][later.decisions]))
     record = {
-        "campaign": CAMPAIGN, "fold": fold, "horizon": horizon, "run": run_number, "rung": RUNG, "budget": BUDGET,
+        "campaign": CAMPAIGN, "variant": variant, "fold": fold, "horizon": horizon, "run": run_number, "rung": RUNG, "budget": BUDGET,
         "train": [str(train.start), str(train.end)], "validation": [str(validation.start), str(validation.end)],
         "cost_bps": config.primary_cost_bps_per_side, "stocks": list(panels),
         "model": describe(best), "tree": to_record(best), "fitness": best.fitness, "train_stats": best.stats,
@@ -129,38 +172,73 @@ def run(fold: str, horizon: int, run_number: int, write: bool = True) -> dict[st
     }
     if write:
         record["provenance"] = provenance.collect(config, rung_digest=rung.digest(overrides=BUDGET), rung_spec=rung.spec,
-                                                  experiment=CAMPAIGN, fold=fold, horizon=horizon, run=run_number)
-        provenance.write(path(fold, horizon, run_number), record)
+                                                  experiment=CAMPAIGN, variant=variant, fold=fold, horizon=horizon,
+                                                  run=run_number)
+        provenance.write(path(fold, horizon, run_number, variant), record)
     return record
 
 
-def run_job(job: tuple[str, int, int]) -> str:
+def run_job(job: tuple) -> str:
     record = run(*job)
     return f"{job}: {record['seconds']:.0f} s"
 
 
-def jobs() -> list[tuple[str, int, int]]:
-    return [(f, h, r) for h in HORIZONS for f in FOLDS for r in range(RUNS) if not path(f, h, r).exists()]
+def jobs(variants=tuple(VARIANTS)) -> list[tuple]:
+    return [(f, h, r, v) for v in variants for h in HORIZONS for f in FOLDS for r in range(RUNS)
+            if not path(f, h, r, v).exists()]
+
+
+def simple_baseline() -> pd.DataFrame:
+    """The median-split rule with the best training fitness, scored on the validation year."""
+    config = load_config()
+    rung = load_rungs()[RUNG]
+    cost = config.primary_cost_bps_per_side / 1e4
+    rows = []
+    for fold, (train, validation) in FOLDS.items():
+        panels = {s: load_stationary_panel(s, train, validation, rung.sources) for s in stocks()}
+        groups = _all_names(panels)
+        names = [n for g in groups.values() for n in g]
+        _, train_data, train_opens = _wide(panels, names, "train")
+        _, val_data, val_opens = _wide(panels, names, "evaluate")
+        for h in HORIZONS:
+            market = LongShortMarket(train_opens, h, cost)
+            settings = replace(rung.fitness, min_trades=max(1, len(market.decisions) // 2))
+            evaluator = LowerBoundEvaluator(train_data, market, settings, cases=False)
+            rules = median_rules(groups, rung.sources)
+            for rule in rules:
+                evaluator.evaluate(rule)
+            best = max(rules, key=lambda r: r.fitness)
+            net, active, _ = LongShortMarket(val_opens, h, cost).simulate(signals(best, val_data)["C"])
+            per_year = 252 / h
+            rows.append({"horizon": h, "fold": fold, "rule": describe(best).split("\n")[1 + rung.sources.index(
+                best.fusion[0][2])].split(": ", 1)[1], "train_fitness": best.fitness,
+                "validation_sharpe": float(net.mean() / net.std(ddof=1) * np.sqrt(per_year)),
+                "validation_return_pct": 100 * (np.prod(1 + net) - 1)})
+    table = pd.DataFrame(rows)
+    print(table.round(3).to_string(index=False))
+    return table
 
 
 def report() -> pd.DataFrame:
     import json
     rows = []
-    for p in sorted((store.data_dir() / "results" / CAMPAIGN).glob("h*/*/run*.json")):
+    found = sorted((store.data_dir() / "results" / CAMPAIGN).glob("h*/*/run*.json")) + \
+        sorted((store.data_dir() / "results" / CAMPAIGN).glob("h*/*/*/run*.json"))
+    for p in found:
         if p.name.endswith(".provenance.json"):
             continue
         r = json.loads(p.read_text())
-        rows.append({"horizon": r["horizon"], "fold": r["fold"], "run": r["run"], "fitness": r["fitness"],
+        rows.append({"variant": r.get("variant", "d5"), "horizon": r["horizon"], "fold": r["fold"], "run": r["run"], "fitness": r["fitness"],
                      "returns": np.array(r["validation_returns"]), "active": r["validation_active"],
                      "long_share": r["validation_long_share"], "fusion": r["model"].split("\n")[0]})
     t = pd.DataFrame(rows)
     out = []
-    for (h, fold), cell in t.groupby(["horizon", "fold"]):
+    for (variant, h, fold), cell in t.groupby(["variant", "horizon", "fold"]):
         per_year = 252 / h
         ensemble = np.mean(np.vstack(cell["returns"]), axis=0)     # the runs' portfolios averaged
         sharpe = lambda x: float(x.mean() / x.std(ddof=1) * np.sqrt(per_year)) if x.std(ddof=1) > 0 else 0.0
         runs = np.array([sharpe(x) for x in cell["returns"]])
-        out.append({"horizon": h, "fold": fold, "runs": len(cell), "ensemble_sharpe": sharpe(ensemble),
+        out.append({"variant": variant, "horizon": h, "fold": fold, "runs": len(cell), "ensemble_sharpe": sharpe(ensemble),
                     "ensemble_return_pct": 100 * (np.prod(1 + ensemble) - 1),
                     "median_run_sharpe": float(np.median(runs)), "runs_positive": float((runs > 0).mean()),
                     "active_periods": float(cell["active"].median()), "long_share": float(cell["long_share"].median()),

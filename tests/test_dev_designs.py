@@ -160,3 +160,17 @@ def test_long_short_market_holds_from_the_next_open_and_pays_costs_on_changes():
     lonely = np.zeros((days, n), dtype=bool)
     lonely[:, 0] = True
     assert market.simulate(lonely)[1] == 0
+
+
+def test_seeded_grammar_starts_with_every_median_rule():
+    from regime_fusion.dev.longshort import SeededGrammar, median_rules
+    groups = {"FA": ["fa:a", "fa:b"], "SA": ["sa:c"], "TA": ["ta:d"], "RG": []}
+    rules = median_rules(groups, ("FA", "SA", "TA"))
+    assert len(rules) == 2 * 4
+    grammar = SeededGrammar(groups, fusion_functions=("AND", "OR"), seeds=rules)
+    population = grammar.ramped_population(20, 2, np.random.default_rng(0))
+    assert len(population) == 20
+    assert [p.key() for p in population[:8]] == [r.key() for r in rules]
+    data = {"fa:a": np.array([-0.5, 0.5]), "fa:b": np.zeros(2), "sa:c": np.zeros(2), "ta:d": np.zeros(2)}
+    from regime_fusion.engine.tree import signals
+    assert list(signals(rules[0], data)["C"]) == [False, True]   # fa:a above its median
