@@ -1,0 +1,181 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm,booktabs,enumitem}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{proposition}{Proposition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\SR}{\mathrm{SR}}
+\title{Why GP trading strategies fail to generalise:\\ the mathematical argument}
+\author{Draft theory section for the methods paper\\ \small Prepared for Michael Kampouridis, 4 November 2026}
+\date{}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The methods paper argues that the strong results often reported for genetic-programming (GP) trading strategies, our own ActTrade among them, can arise without any predictive skill, and that our pre-registered campaigns found none. This note supports each step of that argument mathematically. Eight propositions explain (i) how per-trade Sharpe ratios of overlapping trades are inflated, (ii) why a take-profit exit makes any rule look profitable in a rising market, (iii) how much in-sample Sharpe a search over many rules produces from noise alone, (iv) why ActTrade's branch-sum fitness removes fusion, (v) why inputs scaled to their training range stop working the next year, (vi) why level indicators appear to predict returns in-sample, (vii) how large an information coefficient a profitable strategy needs, and (viii) how precisely Sharpe ratios can be compared. Each result is checked by simulation and set against the numbers we measured.
+\end{abstract}
+
+\section{Setting and notation}
+A stock's log price is $X_t$; returns over $h$ sessions are $X_{t+h}-X_t$. A \emph{trade} bought at the close of day $i$ is sold at the first close in days $i,\dots,i+d-1$ more than a fraction $r$ above the buy price (take-profit), otherwise at the close of day $i+d-1$; its net return is $R_i$ after a cost $c$. ActTrade scores a signal by the \emph{per-trade Sharpe ratio}
+\begin{equation}
+\widehat{\SR}_{\mathrm{trade}} = \frac{\bar R - r_f}{s_R},\qquad \bar R = \frac1n\sum_{i=1}^n R_i,\quad s_R^2=\frac{1}{n-1}\sum_{i=1}^n (R_i-\bar R)^2, \label{eq:srt}
+\end{equation}
+over the $n$ days on which the signal is on; every such day opens its own trade, so trades overlap. Our campaigns instead use the annualised Sharpe ratio of daily portfolio returns, holding one position at a time. $\Phi$ is the standard normal distribution function.
+
+\section{Evaluation artefacts}
+
+\begin{proposition}[Overlapping trades shrink the measured risk]\label{prop:overlap}
+Let $R_1,\dots,R_n$ have common mean $\mu_R$, variance $\sigma_R^2$ and average pairwise correlation $\bar\rho$. Then
+\begin{equation}
+\E[s_R^2] = \sigma_R^2\,(1-\bar\rho).\label{eq:svar}
+\end{equation}
+For two $d$-day windows that start $\Delta$ days apart and hold to the end, $\rho = 1-\Delta/d$ under independent daily returns. Entries on consecutive days ($\Delta=1$) therefore give $\E[s_R^2]\approx \sigma_R^2/d$, and the per-trade Sharpe ratio is inflated by a factor of about $\sqrt{d}$.
+\end{proposition}
+\begin{proof}
+$\sum_i (R_i-\bar R)^2 = \sum_i R_i^2 - n\bar R^2$. Taking expectations, $\E\sum_i R_i^2 = n(\sigma_R^2+\mu_R^2)$ and $\E[n\bar R^2] = n\mu_R^2 + \frac1n\sum_{i,j}\Cov(R_i,R_j) = n\mu_R^2 + \sigma_R^2\,(1+(n-1)\bar\rho)$. Hence $\E\sum_i(R_i-\bar R)^2 = (n-1)\sigma_R^2(1-\bar\rho)$. Two windows offset by $\Delta$ share $d-\Delta$ of their $d$ daily returns, so their covariance is $(d-\Delta)\sigma^2$ against variances $d\sigma^2$.
+\end{proof}
+
+\begin{remark}
+With $d=30$ the inflation factor is $\sqrt{30}\approx 5.5$. A take-profit reduces the overlap correlation somewhat, since trades can end on different days, but not the effect. In simulation, with zero drift (no skill), daily volatility $2\%$, $d=30$, $r=5\%$ and ActTrade's costs, the median $|\widehat{\SR}_{\mathrm{trade}}|$ is $6.0$ for $k=3$ consecutive-day entries, $4.9$ for $k=5$ and $2.8$ for $k=10$, against $0.32$ for five independent trades. More than half of the no-skill signals score above $1$. ActTrade's reported per-company values (Apple $7.25$, Alphabet $14.2$, average $3.9$ over runs that trade, about 18 trades) lie in this range. In our replication, the GP's signals rank at the median (56th percentile) of the same signals shifted to random dates, which keeps $n$ and the overlap fixed.
+\end{remark}
+
+\begin{proposition}[A take-profit makes any rule look profitable in a rising market]\label{prop:drift}
+Let prices follow $dS_t = \mu S_t\,dt+\sigma S_t\,dW_t$, monitored continuously, and let $\tau = \min(\tau_r, d)$ where $\tau_r$ is the first time $S$ reaches $(1+r)S_0$. Then
+\begin{equation}
+\E[R] = \E\!\left[\frac{S_\tau}{S_0}\right]-1-c \;=\; \mu\,\E[\tau]-c + O\big((\mu d)^2\big).
+\end{equation}
+In particular, with no drift ($\mu=0$) every trade has expected return $-c$, whatever the signal; with $\mu>0$ every trade, including one opened by a signal that is always on, has positive expected return.
+\end{proposition}
+\begin{proof}
+$M_t = S_t - \mu\int_0^t S_u\,du$ is a martingale and $\tau\le d$ is a bounded stopping time, so by optional stopping $\E[S_\tau] = S_0 + \mu\,\E\!\int_0^\tau S_u\,du$. Since $S_u = S_0\,(1+O(\mu u + \sigma\sqrt{u}))$ and the $\sigma$ term has mean zero to first order, $\E\!\int_0^\tau S_u\,du = S_0\,\E[\tau]\,(1+O(\mu d))$. With $\mu=0$, $S$ itself is a martingale and $\E[S_\tau]=S_0$ exactly.
+\end{proof}
+
+\begin{remark}
+The exit caps the upside at about $r$ while the drift lifts the mean, so in a strongly rising year trade returns bunch just above $r$ and their spread is small. In ActTrade's test year (28 January 2019 to 31 January 2020) the S\&P~500 rose by $22\%$ ($24\%$ with dividends), and 19 of its 42 stocks by more than $20\%$. In our replication a signal that is on every day earns a positive mean return per trade ($0.58\%$) with no skill. Proposition~\ref{prop:drift} is also why buy-and-hold, not a zero return, is the bar for a long-only rule.
+\end{remark}
+
+\section{Selection from noise}
+
+\begin{proposition}[In-sample Sharpe ratio of the best of $N$ rules]\label{prop:max}
+Suppose $N$ candidate rules have zero true Sharpe ratio, and their annualised Sharpe ratios estimated on $T$ years of daily returns are approximately normal with standard error $\sqrt{(1+\SR^2/2)/T}=1/\sqrt{T}$, independent across rules. Then
+\begin{equation}
+\E\!\left[\max_{k\le N}\widehat{\SR}_k\right] \approx \frac{1}{\sqrt{T}}\left(\sqrt{2\ln N} - \frac{\ln\ln N+\ln 4\pi - 2\gamma}{2\sqrt{2\ln N}}\right),
+\end{equation}
+with $\gamma\approx0.577$ Euler's constant, while each selected rule's out-of-sample Sharpe ratio has mean zero.
+\end{proposition}
+\begin{proof}
+The standard error is that of Lo (2002). The expansion is the classical extreme-value one for the expected maximum of $N$ independent standard normals (for $N=1{,}000$ it gives $3.27$ against an exact $3.25$); out of sample, the estimation errors are independent of the selection.
+\end{proof}
+
+\begin{remark}
+A GP run evaluates $80{,}000$ trees, many nearly identical. With $N=1{,}000$ to $10{,}000$ \emph{effectively independent} rules and $T=3$ training years, the expected best in-sample Sharpe ratio is $1.9$ to $2.2$ (exact simulation of the maximum). Our GP runs reached training values of $2.1$ to $2.8$, and their validation Sharpe ratio was a coin flip: positive in $49$--$56\%$ of runs, the same at generation $0$ as at generation $40$ (experiment E1). This is the noise level the search finds. More search raises it only as $\sqrt{\ln N}$, which is why populations of $250$ to $2{,}000$ and up to $400$ generations gave the same out-of-sample result. The Deflated Sharpe Ratio (Bailey and L\'opez de Prado, 2014) is the formal correction.
+\end{remark}
+
+\section{Design faults}
+
+\begin{proposition}[Branch-sum fitness: fusion must beat the best branch on its own]\label{prop:fusion}
+Let an individual have branches $b\in\{\mathrm{FA},\mathrm{SA},\mathrm{TA}\}$ with in-sample Sharpe ratios $S_b$, and a fusion $F$ of them with Sharpe ratio $S_F$. ActTrade's fitness is $f = S_F + \sum_b S_b$ (equal weights). Compare $F$ with the fusion that is the single branch $b^\star$ (so $S_F=S_{b^\star}$), the branches unchanged:
+\begin{equation}
+f(F) - f(b^\star) = S_F - S_{b^\star}.
+\end{equation}
+Fusion is preferred only when it beats the chosen branch alone in sample, and the fitness contains no term for what the branches add together.
+\end{proposition}
+\begin{proof}
+The branch terms are identical in both individuals and cancel.
+\end{proof}
+
+\begin{remark}
+The branch terms push each branch to be a good trading rule on its own. Combining two rules that were each optimised alone rarely beats the better of them in sample: \textsc{and} keeps only the days both fire (fewer trades, a noisier ratio), \textsc{or} adds the weaker rule's trades. The single-branch individual counts $S_{b^\star}$ twice and so sits at a local optimum that crossover seldom leaves. In the pilot, $86$--$95\%$ of the best fusion-rung models were a single branch, and regime conditions appeared in only $5$--$12\%$. Out of sample the whole model trailed its best branch (median $\Delta\mathrm{SRC}_{\max}$ between $-0.23$ and $-0.31$ for the fusion rungs, 2019--2025). Scoring the whole model alone removes the double count but not the burden of proof: fusion must still earn its place in sample, which is the right test.
+\end{remark}
+
+\begin{proposition}[Inputs scaled to their training range leave it]\label{prop:range}
+Let an indicator follow a Brownian motion with drift, $X_t = \mu t + \sigma W_t$, and let it be scaled to $[-1,1]$ by its minimum and maximum over the training interval $[0,T]$. The probability that its value a time $s$ after training lies outside the training range is
+\begin{equation}
+p(s) = P\!\left(X_{T+s} > \max_{u\le T}X_u\right) + P\!\left(X_{T+s} < \min_{u\le T}X_u\right),
+\end{equation}
+which increases with $s/T$ and with $|\mu|/\sigma$; for $\mu=0$ it depends on $s/T$ only, by Brownian scaling. Rules that compare the scaled value with a threshold near $\pm1$ then fire on almost no days, or on almost every day.
+\end{proposition}
+\begin{proof}
+Write $X_{T+s} - \max_{u\le T}X_u = (X_{T+s}-X_T) - (\max_{u\le T}X_u - X_T)$: an independent $N(\mu s,\sigma^2 s)$ variable minus the distance from the final value to the running maximum, which by time reversal has the law of the maximum of a Brownian motion on $[0,T]$ with drift $-\mu$. Both terms scale as $\sqrt{s}$ and $\sqrt{T}$ when $\mu=0$, so only $s/T$ matters; a positive drift moves the first term up and shrinks the second.
+\end{proof}
+
+\begin{remark}
+For three training years and the following year, simulation gives an average share of days outside the training range of $24\%$ with no drift, $30\%$ for an annual drift of $10\%$ and volatility $25\%$, and $43\%$ for a drift of $20\%$. Accounting levels and moving averages of prices trend more strongly than this: for Apple in 2018, $72$--$91\%$ of such values lay outside their 2015--2017 range. The evolved signals fired on $3\%$ of training days and on $0\%$ of validation days for the median stock. Ranking each indicator within its own trailing year removes the problem by construction: the rank is uniform on $[-1,1]$ whenever the indicator is stationary over a year, whatever its level.
+\end{remark}
+
+\section{What the data can and cannot contain}
+
+\begin{proposition}[Spurious timing correlation of level indicators]\label{prop:spurious}
+Let $X_t$ be a Brownian motion observed over $[0,T]$, and let $\hat\rho_h$ be the sample correlation between $X_t$ and the forward increment $Y_t = X_{t+h}-X_t$ over $t\in[0,L]$, $L=T-h$. Although $\Cov(X_t,Y_t)=0$ for every $t$,
+\begin{equation}
+\E\big[\widehat{\Cov}(X,Y)\big] = -\frac{h}{2} + O\!\left(\frac{h^2}{L}\right),\qquad
+\frac{\E[\widehat{\Cov}(X,Y)]}{\sqrt{\E[\widehat{\Var}(X)]\,\E[\widehat{\Var}(Y)]}} \approx -\sqrt{\frac{3h}{2L}} ,
+\end{equation}
+so a price or accounting level appears to predict lower future returns in any finite sample.
+\end{proposition}
+\begin{proof}
+With $\bar X$, $\bar Y$ the sample means, $\E[\widehat\Cov] = \frac1L\int_0^L\E[X_tY_t]\,dt - \E[\bar X\bar Y] = -\E[\bar X\bar Y]$, by independent increments. Since $\E[X_s(X_{t+h}-X_t)] = \min(s,t+h)-\min(s,t) = \min(\max(s-t,0),h)$,
+\[
+\E[\bar X\bar Y] = \frac{1}{L^2}\int_0^L\!\!\int_0^L \min(\max(s-t,0),h)\,dt\,ds = \frac{h}{2} - \frac{h^2}{2L} + O\!\left(\frac{h^3}{L^2}\right).
+\]
+Finally $\E[\widehat\Var(X)] = L/6$ for a Brownian motion on $[0,L]$ and $\E[\widehat\Var(Y)] \approx h$.
+\end{proof}
+
+\begin{remark}
+The ratio of expectations understates the expected correlation in magnitude (Jensen's inequality: $\widehat\Var(X)$ is very variable), but the scaling $\sqrt{h/L}$ is exact: simulation over $1{,}000$ days gives $-0.11$, $-0.21$ and $-0.36$ for $h=5,20,60$, against the leading-order $-0.09$, $-0.18$, $-0.31$. Our stocks' moving-average levels gave $-0.18$ ($h=20$) and $-0.28$ ($h=60$), the same in $92$--$94\%$ of stocks and in both halves of 2015--2018: exactly what the proposition predicts with no information at all. This is the time-series analogue of the Stambaugh (1999) bias.
+\end{remark}
+
+\begin{proposition}[How much predictive power a strategy needs]\label{prop:law}
+By the fundamental law of active management (Grinold, 1989), a strategy with information coefficient $\mathrm{IC}$ applied to $B$ independent bets per year has an information ratio of about $\mathrm{IR}\approx\mathrm{IC}\sqrt{B}$ before costs. An information ratio of $0.5$ therefore needs
+\begin{equation}
+\mathrm{IC} \approx \frac{0.5}{\sqrt{B}}.
+\end{equation}
+\end{proposition}
+
+\begin{remark}
+Timing one stock with 20-day bets ($B\approx13$) needs $\mathrm{IC}\approx0.14$; with 5-day bets ($B\approx50$), $0.07$. The timing correlations we measured are the artefacts of Proposition~\ref{prop:spurious}, and after allowing for them none remains. Ranking $336$ stocks monthly needs $0.008$ if the bets were independent, and about $0.026$ with a more realistic $30$ effective bets per month. The best classic factors and their equal-weight composite reached $0.014$--$0.015$ in 2010--2018, with year-by-year signs that change; their long/short portfolios earned $+0.3\%$ to $+0.7\%$ a year after costs. Costs reduce the information ratio further, by roughly turnover times cost divided by tracking error.
+\end{remark}
+
+\section{How precisely results can be compared}
+
+\begin{proposition}[Sampling error of Sharpe ratios]\label{prop:se}
+For daily returns over $T$ years with annualised Sharpe ratio $\SR$, the estimated annualised Sharpe ratio has standard error about $\sqrt{(1+\SR^2/2)/T}$ (Lo, 2002), larger with fat tails and serial correlation. Under the null of no skill, a strategy's percentile among random-entry strategies with the same trades is uniform, so the share of $n$ strategies above the 95th percentile is $\mathrm{Binomial}(n,0.05)/n$.
+\end{proposition}
+
+\begin{remark}
+For $\SR=0.5$ the standard error is $1.06$ for one year, $0.53$ for four and $0.40$ for seven. For two independent strategies the standard error of the difference is $\sqrt2$ times larger, so a single test year, as in ActTrade, cannot separate Sharpe ratios that differ by less than about $3$ at the 5\% level; seven years can separate differences of about $1.1$, and paired tests of portfolios on the same days (our confirmatory tests) do better because the common market noise cancels. In the replication, $7\%$ of $179$ runs exceeded the 95th percentile of the random-date control: one-sided binomial $p=0.11$, consistent with no skill.
+\end{remark}
+
+\section{Summary: each claim and its support}
+\begin{center}
+\small
+\begin{tabular}{p{4.6cm}p{3.4cm}p{6.2cm}}
+\toprule
+Claim & Theory & Our evidence \\
+\midrule
+Per-trade Sharpe of overlapping trades is inflated & Prop.~\ref{prop:overlap} & No-skill median $|\SR|$ 6.0 (3 trades); GP at 56th percentile of random dates \\
+A take-profit rewards any rule in a rising year & Prop.~\ref{prop:drift} & Always-on signal profitable per trade; ActTrade's test year $+22\%$ \\
+High training Sharpe is expected from noise & Prop.~\ref{prop:max} & Training 2.1--2.8 vs.\ $\approx$2 from noise; validation a coin flip (E1) \\
+Branch-sum fitness removes fusion & Prop.~\ref{prop:fusion} & 86--95\% single-branch models; $\Delta\mathrm{SRC}<0$ \\
+Min--max inputs drift out of range & Prop.~\ref{prop:range} & 72--91\% outside; signals fire 3\% $\to$ 0\% \\
+Level indicators fake timing skill & Prop.~\ref{prop:spurious} & $-0.28$ real vs.\ $-0.33$ to $-0.36$ simulated ($h=60$) \\
+Timing needs IC far above any observed & Prop.~\ref{prop:law} & Needs 0.07--0.14; observed $\approx0$ after Prop.~\ref{prop:spurious} \\
+One test year cannot rank strategies & Prop.~\ref{prop:se} & SE $\approx1$ per year; replication binomial $p=0.11$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{What the mathematics does not show.} The propositions explain how apparent success arises without skill and why our null results are what the data allow; they do not prove that no predictive information exists in any input. That remains an empirical statement about the inputs we tested (ActTrade's 36 indicators and 17 classic factors, for large US stocks), and it is why the paper should include a positive control: a planted signal of known information coefficient, which the protocol should detect at the rate Proposition~\ref{prop:law} predicts.
+
+\paragraph{References.}
+Bailey, D.~H. and L\'opez de Prado, M. (2014), The deflated Sharpe ratio, \emph{Journal of Portfolio Management} 40(5).
+Grinold, R.~C. (1989), The fundamental law of active management, \emph{Journal of Portfolio Management} 15(3).
+Lo, A.~W. (2002), The statistics of Sharpe ratios, \emph{Financial Analysts Journal} 58(4).
+Stambaugh, R.~F. (1999), Predictive regressions, \emph{Journal of Financial Economics} 54(3).
+Christodoulaki, E. and Kampouridis, M., Strongly-typed genetic programming with an active trading operator for algorithmic trading using fundamental, sentiment, and technical analysis, \emph{Applied Soft Computing} (accepted).
+
+\end{document}
