@@ -82,16 +82,44 @@ class SeededGrammar(Grammar):
         return seeds + population[len(seeds):]
 
 
-class LongShortMarket:
-    """Day x stock open prices over a period; ``simulate`` scores a day x stock Boolean signal."""
+COVERAGE = 0.8   # an indicator is used only if most stocks have it
 
-    def __init__(self, opens: np.ndarray, horizon: int, cost: float):
+
+def common_indicators(data: dict[str, np.ndarray], coverage: float = COVERAGE) -> list[str]:
+    """Indicators known for at least ``coverage`` of the stocks on the median training day (banks
+    have no R&D, say). Days on which a stock has no value at all (before its listing, or during the
+    ranks' warm-up) count for nothing, so the test is about stocks, not about the start of the data."""
+    listed = np.logical_or.reduce([np.isfinite(v) for v in data.values()])
+    keep = []
+    for n, values in data.items():
+        known = np.isfinite(values).sum(axis=1)
+        alive = listed.sum(axis=1)
+        share = np.divide(known, alive, out=np.full(len(known), np.nan), where=alive > 0)
+        if np.nanmedian(share) >= coverage:
+            keep.append(n)
+    return keep
+
+
+def complete(data: dict[str, np.ndarray], names: list[str]) -> np.ndarray:
+    """Day x stock: whether every indicator in ``names`` is known. An incomplete stock-day is left
+    out of both sides, so that a missing value (False in every comparison) cannot put a stock on
+    the short side."""
+    return np.logical_and.reduce([np.isfinite(data[n]) for n in names])
+
+
+class LongShortMarket:
+    """Day x stock open prices over a period; ``simulate`` scores a day x stock Boolean signal.
+    ``usable`` (day x stock) marks the stock-days that may be held; others are left out."""
+
+    def __init__(self, opens: np.ndarray, horizon: int, cost: float, usable: np.ndarray | None = None):
         self.opens, self.h, self.cost = opens, horizon, cost
         n = opens.shape[0]
         # decision days whose holding period (next open to the open h sessions later) ends inside
         self.decisions = np.arange(0, n - horizon - 1, horizon)
         a, b = opens[self.decisions + 1], opens[self.decisions + 1 + horizon]
         self.returns = b / a - 1.0       # per decision and stock; NaN where a stock has no price
+        if usable is not None:
+            self.returns = np.where(usable[self.decisions], self.returns, np.nan)
 
     def weights(self, on: np.ndarray, known: np.ndarray) -> np.ndarray:
         longs, shorts = on & known, ~on & known
@@ -145,19 +173,22 @@ def run(fold: str, horizon: int, run_number: int, variant: str = "d5", write: bo
     panels = {s: load_stationary_panel(s, train, validation, rung.sources) for s in stocks()}
     groups = _all_names(panels)
     names = [n for g in groups.values() for n in g]
+    _, train_data, train_opens = _wide(panels, names, "train")
+    names = common_indicators(train_data)
+    groups = {k: [n for n in v if n in names] for k, v in groups.items()}
+    train_data = {n: train_data[n] for n in names}
     depth, seeded = VARIANTS[variant]
     seeds = median_rules(groups, rung.sources) if seeded else ()
     grammar = SeededGrammar(groups, fusion_functions=rung.fusion, sources=rung.sources,
                             max_branch_depth=depth or rung.max_branch_depth, seeds=seeds)
-    _, train_data, train_opens = _wide(panels, names, "train")
-    market = LongShortMarket(train_opens, horizon, cost)
+    market = LongShortMarket(train_opens, horizon, cost, complete(train_data, names))
     settings = replace(rung.fitness, min_trades=max(1, len(market.decisions) // 2))
     evaluator = LowerBoundEvaluator(train_data, market, settings, cases=False)
     rng = make_rng(config.base_seed, "dev", CAMPAIGN, fold, horizon, run_number)
     evolution = evolve(grammar, evaluator, replace(rung.gp, **BUDGET), rng)
     best = evolution.best
     days, val_data, val_opens = _wide(panels, names, "evaluate")
-    later = LongShortMarket(val_opens, horizon, cost)
+    later = LongShortMarket(val_opens, horizon, cost, complete(val_data, names))
     net, active, _ = later.simulate(signals(best, val_data)["C"])
     on_share = float(np.nanmean(signals(best, val_data)["C"][later.decisions]))
     record = {
@@ -199,16 +230,20 @@ def simple_baseline() -> pd.DataFrame:
         groups = _all_names(panels)
         names = [n for g in groups.values() for n in g]
         _, train_data, train_opens = _wide(panels, names, "train")
+        names = common_indicators(train_data)
+        groups = {k: [n for n in v if n in names] for k, v in groups.items()}
+        train_data = {n: train_data[n] for n in names}
         _, val_data, val_opens = _wide(panels, names, "evaluate")
         for h in HORIZONS:
-            market = LongShortMarket(train_opens, h, cost)
+            market = LongShortMarket(train_opens, h, cost, complete(train_data, names))
             settings = replace(rung.fitness, min_trades=max(1, len(market.decisions) // 2))
             evaluator = LowerBoundEvaluator(train_data, market, settings, cases=False)
             rules = median_rules(groups, rung.sources)
             for rule in rules:
                 evaluator.evaluate(rule)
             best = max(rules, key=lambda r: r.fitness)
-            net, active, _ = LongShortMarket(val_opens, h, cost).simulate(signals(best, val_data)["C"])
+            net, active, _ = LongShortMarket(val_opens, h, cost, complete(val_data, names)).simulate(
+                signals(best, val_data)["C"])
             per_year = 252 / h
             rows.append({"horizon": h, "fold": fold, "rule": describe(best).split("\n")[1 + rung.sources.index(
                 best.fusion[0][2])].split(": ", 1)[1], "train_fitness": best.fitness,

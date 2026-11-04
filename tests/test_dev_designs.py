@@ -120,6 +120,8 @@ def test_trailing_rank_uses_no_later_rows():
     check_no_lookahead(trailing_rank, frame, [130, 200, 400, 599])
     ranked = trailing_rank(frame)
     assert ranked.iloc[:125].isna().all().all()
+    steps = pd.DataFrame({"x": np.repeat([1.0, 2.0, 1.5], 200)})
+    assert trailing_rank(steps)["x"].iloc[150] == pytest.approx(0.0, abs=0.01)   # a constant window sits in the middle
     assert ranked.stack().dropna().between(-1, 1).all()
 
 

@@ -6,9 +6,11 @@ year's values fall outside the training range, and a rule evolved on a threshold
 fires every day, once training ends (in 2018, 72-91% of AAPL's values of such indicators lay outside
 its 2015-2017 range).
 
-Here every indicator enters instead as its trailing percentile rank: the share of the last
-``WINDOW`` sessions (the current one included) on which it was at or below today's value, mapped to
-[-1, 1]. "High compared with the last year" means the same in every year, and the rank of day t uses
+Here every indicator enters instead as its trailing percentile rank among the last ``WINDOW``
+sessions (the current one included), mapped to [-1, 1]. Tied values share the average of their ranks:
+fundamentals change only when a report is filed, so most of a window's values are tied, and giving
+ties the highest rank (as a first version did, until 4 November 2026) put a firm's R&D at the top
+rank on every day and its revenue on two days in three. "High compared with the last year" means the same in every year, and the rank of day t uses
 only data known by the close of t. A rank needs at least ``MIN_PERIODS`` known values in its window;
 the processed indicators start in January 2014, a year before the first training day.
 """
@@ -28,7 +30,7 @@ DROPPED = ("market_value", "diluted_shares")   # left out by the campaigns too (
 
 def trailing_rank(raw: pd.DataFrame) -> pd.DataFrame:
     """Each column's trailing percentile rank over ``WINDOW`` rows, mapped to [-1, 1]."""
-    ranks = raw.rolling(WINDOW, min_periods=MIN_PERIODS).rank(pct=True, method="max")
+    ranks = raw.rolling(WINDOW, min_periods=MIN_PERIODS).rank(pct=True, method="average")
     return (2.0 * ranks - 1.0).where(raw.notna())
 
 

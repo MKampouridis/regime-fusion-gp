@@ -29,7 +29,7 @@ from regime_fusion.dev import broad
 from regime_fusion.dev.e23 import BUDGET, RUNG, _all_names
 from regime_fusion.dev.features import load_stationary_panel
 from regime_fusion.dev.fitness import LowerBoundEvaluator
-from regime_fusion.dev.longshort import LongShortMarket, SeededGrammar, _wide, median_rules
+from regime_fusion.dev.longshort import LongShortMarket, SeededGrammar, _wide, common_indicators, complete, median_rules
 from regime_fusion.engine.gp import evolve
 from regime_fusion.engine.rungs import load_rungs
 from regime_fusion.engine.tree import describe, signals, to_record
@@ -75,10 +75,14 @@ def _setup(fold: str, horizon: int):
     groups = {k: v for k, v in groups.items() if k in SOURCES or k == "RG"}
     names = [n for k in SOURCES for n in groups[k]]
     _, train_data, train_opens = _wide(panels, names, "train")
+    names = common_indicators({n: train_data[n] for n in names})
+    groups = {k: [n for n in v if n in names] for k, v in groups.items()}
+    train_data = {n: train_data[n] for n in names}
     days, val_data, val_opens = _wide(panels, names, "evaluate")
     cost = config.primary_cost_bps_per_side / 1e4
-    return config, rung, panels, groups, train_data, LongShortMarket(train_opens, horizon, cost), \
-        days, val_data, LongShortMarket(val_opens, horizon, cost)
+    return config, rung, panels, groups, train_data, \
+        LongShortMarket(train_opens, horizon, cost, complete(train_data, names)), \
+        days, val_data, LongShortMarket(val_opens, horizon, cost, complete(val_data, names))
 
 
 def run(fold: str, horizon: int, run_number: int, variant: str, write: bool = True) -> dict[str, Any]:
