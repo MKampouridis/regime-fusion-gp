@@ -459,3 +459,16 @@ def test_label_keeps_a_checks_tables_apart(monkeypatch, tmp_path):
     assert cli.main(["compare", "--campaign", "main", "--rungs", "A0", "A1", "--label", "check"]) == 0
     assert (folder / "analysis" / "wilcoxon.sharpe_10bps.stage2.check.csv").exists()
     assert (folder / "analysis" / "wilcoxon.sharpe_10bps.stage2.csv").read_text() == primary
+
+
+def test_risk_return_scales_buy_and_hold_to_the_strategys_risk():
+    from regime_fusion.analysis.portfolio import risk_return
+    rng = np.random.default_rng(5)
+    market = rng.normal(0.0006, 0.012, 1000)
+    returns = pd.DataFrame({"RB-BH": market, "quiet": 0.25 * market, "cash": np.zeros(1000)})
+    table = risk_return(returns, "RB-BH")
+    # a strategy that is a quarter of the market has the benchmark's return at its own risk: no gap
+    assert table.loc["quiet", "gap_to_benchmark_same_risk"] == pytest.approx(0.0, abs=1e-9)
+    assert table.loc["quiet", "volatility"] == pytest.approx(0.25 * table.loc["RB-BH", "volatility"])
+    assert table.loc["RB-BH", "max_drawdown"] < table.loc["quiet", "max_drawdown"] <= 0
+    assert table.loc["cash", "active_days"] == 0 and table.loc["cash", "annual_return"] == 0

@@ -109,6 +109,52 @@ def tests(returns: pd.DataFrame, benchmark: str | None, candidates: list[str], n
     return out
 
 
+RISK_FREE_DAILY = 0.0  # returns are compared with cash at zero, as the Sharpe ratios elsewhere
+
+
+def risk_return(returns: pd.DataFrame, benchmark: str | None = "RB-BH", days_per_year: int = 252) -> pd.DataFrame:
+    """Return and risk of each portfolio (columns of daily returns), and the fair comparison for a
+    strategy that is often out of the market: the buy-and-hold portfolio scaled to the strategy's
+    volatility (part in the index, the rest in cash, rebalanced daily), whose return the strategy
+    must beat to add anything beyond taking less risk.
+
+    Columns: annualised return (compound), volatility, maximum drawdown, CVaR 95% of daily returns,
+    Sharpe, Sortino and Calmar ratios, the share of days with a non-zero return, and
+    ``benchmark_same_risk_return`` with its gap to the strategy's return."""
+    rows = {}
+    for method in returns.columns:
+        r = returns[method].dropna()
+        if r.empty:
+            continue
+        equity = (1 + r).cumprod()
+        years = len(r) / days_per_year
+        growth = float(equity.iloc[-1] ** (1 / years) - 1) if equity.iloc[-1] > 0 else -1.0
+        vol = float(r.std(ddof=1) * np.sqrt(days_per_year))
+        drawdown = float((equity / equity.cummax() - 1).min())
+        cut = r.quantile(0.05)
+        downside = float(r[r < 0].std(ddof=1) * np.sqrt(days_per_year)) if (r < 0).sum() > 1 else np.nan
+        rows[method] = {
+            "annual_return": growth, "volatility": vol, "max_drawdown": drawdown,
+            "cvar_95_daily": float(r[r <= cut].mean()),
+            "sharpe": float(r.mean() / r.std(ddof=1) * np.sqrt(days_per_year)) if r.std(ddof=1) > 0 else 0.0,
+            "sortino": float(r.mean() * days_per_year / downside) if downside and downside > 0 else np.nan,
+            "calmar": growth / abs(drawdown) if drawdown < 0 else np.nan,
+            "active_days": float((r != 0).mean()),
+        }
+    table = pd.DataFrame(rows).T
+    if benchmark and benchmark in returns.columns and benchmark in table.index:
+        b = returns[benchmark].dropna()
+        b_vol = table.loc[benchmark, "volatility"]
+        same = {}
+        for method in table.index:
+            scale = table.loc[method, "volatility"] / b_vol if b_vol > 0 else 0.0
+            scaled = (1 + scale * b).prod() ** (days_per_year / len(b)) - 1
+            same[method] = float(scaled)
+        table["benchmark_same_risk_return"] = pd.Series(same)
+        table["gap_to_benchmark_same_risk"] = table["annual_return"] - table["benchmark_same_risk_return"]
+    return table
+
+
 def regime_states(name: str, years: list[int], root=None, scheme: str = "rolling") -> pd.Series:
     """Most probable regime state of each test-year day (stage-2 probabilities of shared regimes,
     fitted on the campaign's walk-forward scheme). Regimes per stock have no common state."""

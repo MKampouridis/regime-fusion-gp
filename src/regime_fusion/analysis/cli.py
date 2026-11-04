@@ -97,6 +97,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--measure", default="sharpe_10bps")
     sub.set_defaults(handler=pilot_command)
 
+    sub = commands.add_parser("risk-return", help="return and risk of the saved portfolios, with buy-and-hold "
+                                                  "scaled to each one's volatility")
+    sub.add_argument("--campaign", required=True)
+    sub.add_argument("--file", help="a saved portfolio file in results/<campaign>/analysis (default: every "
+                                    "portfolio.*.parquet there)")
+    sub.set_defaults(handler=risk_return_command)
+
     sub = commands.add_parser("figures", help="the campaign's figures, as PDFs in reports/figures/<campaign>/")
     sub.add_argument("--campaign", required=True)
     sub.add_argument("--png", action="store_true", help="a PNG of each figure as well")
@@ -341,6 +348,8 @@ def portfolio_command(args: argparse.Namespace) -> int:
         log.info("difference of annualised Sharpe ratios (stationary bootstrap, Holm):\n%s",
                  paired.round(4).to_string(index=False))
     store.write_parquet(folder / f"portfolio.{name}.parquet", returns, campaign=args.campaign, cost_bps=cost)
+    bh = next((m for m in returns.columns if m == "RB-BH"), None)
+    portfolio.risk_return(returns, bh).to_csv(folder / f"risk_return.{name}.csv")
     (folder / f"portfolio_tests.{name}.json").write_text(json.dumps(outcome, indent=2, default=float) + "\n")
     log.info("%s at %g bps: annualised Sharpe of each portfolio %s", args.campaign, cost,
              outcome["annualised_sharpe"])
@@ -430,6 +439,20 @@ def pilot_command(args: argparse.Namespace) -> int:
 def run_counts(runs: pd.DataFrame, measure: str) -> pd.DataFrame:
     """The 100-run check, with the same draws for its table and its figure."""
     return pilot.run_count_check(runs, measure, make_rng(load_config().base_seed, "pilot", "run-count"))
+
+
+def risk_return_command(args: argparse.Namespace) -> int:
+    folder = output(args.campaign)
+    files = [folder / args.file] if args.file else sorted(folder.glob("portfolio.*.parquet"))
+    if not files:
+        raise SystemExit(f"no saved portfolios in {folder}; run `analysis portfolio` first")
+    for path in files:
+        returns = pd.read_parquet(path)
+        table = portfolio.risk_return(returns, "RB-BH" if "RB-BH" in returns.columns else None)
+        name = path.name[len("portfolio."):-len(".parquet")]
+        table.to_csv(folder / f"risk_return.{name}.csv")
+        log.info("%s, %s:\n%s", args.campaign, name, table.round(4).to_string())
+    return 0
 
 
 def figures_command(args: argparse.Namespace) -> int:
