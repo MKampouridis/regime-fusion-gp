@@ -7,7 +7,7 @@ import argparse
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from regime_fusion.dev import e23, longshort, report
+from regime_fusion.dev import e8, e23, longshort, report
 
 log = logging.getLogger("regime_fusion.dev")
 
@@ -29,8 +29,25 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--workers", type=int, default=4)
     commands.add_parser("e6-report", help="summarise the long/short experiment")
     commands.add_parser("e7-simple", help="the best median-split rule on training, scored on validation")
+    sub = commands.add_parser("e8", help="the long/short GP on the broad universe, six folds")
+    sub.add_argument("--workers", type=int, default=4)
+    commands.add_parser("e8-simple", help="E8's best median-split rule per fold")
+    commands.add_parser("e8-report", help="summarise E8")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+    if args.command == "e8-simple":
+        e8.simple_baseline()
+        return 0
+    if args.command == "e8-report":
+        e8.report()
+        return 0
+    if args.command == "e8":
+        todo = e8.jobs()
+        log.info("%d E8 runs to do with %d workers", len(todo), args.workers)
+        with ProcessPoolExecutor(args.workers) as pool:
+            for i, future in enumerate(as_completed([pool.submit(e8.run_job, j) for j in todo]), 1):
+                log.info("%d/%d %s", i, len(todo), future.result())
+        return 0
     if args.command == "e7-simple":
         longshort.simple_baseline()
         return 0
