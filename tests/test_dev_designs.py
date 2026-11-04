@@ -129,3 +129,13 @@ def test_psr_lower_bound_never_drops_its_margin():
     few = np.array([0.050, 0.051, 0.049, 0.050, 0.001])
     s = few.mean() / few.std(ddof=1)
     assert psr_lower_bound(few) < s - 1.0
+
+
+def test_forward_returns_start_at_the_next_open():
+    import pandas as pd
+    from regime_fusion.dev.ic import forward_returns
+    prices = pd.DataFrame({"adj_open": [10.0, 11.0, 12.0, 13.0, 14.0]})
+    fwd = forward_returns(prices, 2)
+    # decided at the close of day 0: bought at the open of day 1 (11), sold at the open of day 3 (13)
+    assert fwd.iloc[0] == pytest.approx(13.0 / 11.0 - 1)
+    assert fwd.iloc[2:].isna().all()
