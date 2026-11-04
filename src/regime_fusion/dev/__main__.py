@@ -5,18 +5,11 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from regime_fusion.dev import e23, report
 
 log = logging.getLogger("regime_fusion.dev")
-
-
-def _one(job: e23.Job) -> str:
-    os.environ.setdefault("OMP_NUM_THREADS", "1")
-    record = e23.run(job)
-    return f"{job.mode} {job.design} {job.fold} {job.unit} run {job.run}: {record['seconds']:.0f} s"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
         todo = todo[:args.limit]
     log.info("%d runs to do with %d workers", len(todo), args.workers)
     with ProcessPoolExecutor(args.workers) as pool:
-        futures = [pool.submit(_one, j) for j in todo]
+        futures = [pool.submit(e23.run_job, j) for j in todo]
         for i, future in enumerate(as_completed(futures), 1):
             log.info("%d/%d %s", i, len(todo), future.result())
     return 0

@@ -171,6 +171,12 @@ def run(job: Job, config: StudyConfig | None = None, write: bool = True) -> dict
     return record
 
 
+def run_job(job: Job) -> str:
+    """``run`` for a worker process (defined here, not in ``__main__``, so that spawned workers find it)."""
+    record = run(job)
+    return f"{job.mode} {job.design} {job.fold} {job.unit} run {job.run}: {record['seconds']:.0f} s"
+
+
 def buy_and_hold(fold: str, config: StudyConfig | None = None) -> pd.Series:
     """Equal-weight portfolio of holding every stock through the validation year (the ``long``
     design with a signal that never fires), at the primary cost."""
