@@ -472,3 +472,14 @@ def test_risk_return_scales_buy_and_hold_to_the_strategys_risk():
     assert table.loc["quiet", "volatility"] == pytest.approx(0.25 * table.loc["RB-BH", "volatility"])
     assert table.loc["RB-BH", "max_drawdown"] < table.loc["quiet", "max_drawdown"] <= 0
     assert table.loc["cash", "active_days"] == 0 and table.loc["cash", "annual_return"] == 0
+
+
+def test_capm_recovers_alpha_and_beta():
+    from regime_fusion.analysis.portfolio import capm
+    rng = np.random.default_rng(7)
+    market = pd.Series(rng.normal(0.0005, 0.01, 2000))
+    strategy = 0.0002 + 0.3 * market + pd.Series(rng.normal(0, 0.002, 2000))
+    fit = capm(strategy, market)
+    assert fit["beta"] == pytest.approx(0.3, abs=0.02)
+    assert fit["alpha"] == pytest.approx(0.0002 * 252, abs=0.02)
+    assert fit["alpha_t"] > 2

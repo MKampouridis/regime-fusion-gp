@@ -152,7 +152,34 @@ def risk_return(returns: pd.DataFrame, benchmark: str | None = "RB-BH", days_per
             same[method] = float(scaled)
         table["benchmark_same_risk_return"] = pd.Series(same)
         table["gap_to_benchmark_same_risk"] = table["annual_return"] - table["benchmark_same_risk_return"]
+        fits = {m: capm(returns[m], b, days_per_year) for m in table.index}
+        for key in ("alpha", "alpha_t", "beta", "r_squared"):
+            table[key] = pd.Series({m: f[key] for m, f in fits.items()})
     return table
+
+
+def capm(returns: pd.Series, market: pd.Series, days_per_year: int = 252, lags: int = 10) -> dict[str, float]:
+    """CAPM regression of daily returns on the market's: annualised alpha, its t statistic with a
+    Newey-West covariance (``lags`` days), beta and R squared. Excess returns are not taken: cash
+    earns zero here, as in the Sharpe ratios."""
+    d = pd.concat([returns, market], axis=1).dropna()
+    if len(d) < 30 or d.iloc[:, 1].std() == 0:
+        return {"alpha": np.nan, "alpha_t": np.nan, "beta": np.nan, "r_squared": np.nan}
+    y = d.iloc[:, 0].to_numpy()
+    x = np.column_stack([np.ones(len(d)), d.iloc[:, 1].to_numpy()])
+    b = np.linalg.lstsq(x, y, rcond=None)[0]
+    e = y - x @ b
+    inv = np.linalg.inv(x.T @ x)
+    s = (x * e[:, None]).T @ (x * e[:, None])
+    for k in range(1, lags + 1):
+        g = (x[k:] * e[k:, None]).T @ (x[:-k] * e[:-k, None])
+        s += (1 - k / (lags + 1)) * (g + g.T)
+    se = np.sqrt(np.diag(inv @ s @ inv))
+    r2 = 1 - e.var() / y.var() if y.var() > 0 else np.nan
+    if r2 > 1 - 1e-9:   # the benchmark against itself: no residual, no meaningful t statistic
+        return {"alpha": 0.0, "alpha_t": np.nan, "beta": float(b[1]), "r_squared": 1.0}
+    return {"alpha": float(b[0] * days_per_year), "alpha_t": float(b[0] / se[0]) if se[0] > 0 else np.nan,
+            "beta": float(b[1]), "r_squared": float(r2)}
 
 
 def regime_states(name: str, years: list[int], root=None, scheme: str = "rolling") -> pd.Series:
