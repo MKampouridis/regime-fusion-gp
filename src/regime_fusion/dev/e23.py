@@ -12,6 +12,11 @@ results do not change with the amount of search (populations 250-2,000, up to 40
 Either way the result of a run is each stock's daily returns on the validation year, at the primary
 cost. Seeds depend on the unit (stock, or "pooled"), the fold and the run, never on the design.
 Records go to ``results/dev-e23/<mode>/<design>/<fold>/``, each with provenance.
+
+E4 x E5 adds two options to a job: ``inputs`` ("level": the campaigns' indicators scaled to their
+training range; "rank": trailing percentile ranks, ``dev.features``) and ``fitness`` ("sharpe-sum":
+ActTrade's sum of four Sharpe ratios; "psr": the whole model's PSR lower bound, ``dev.fitness``).
+Jobs with other options than the campaigns' go to ``results/dev-e45/<inputs>/<fitness>/...``.
 """
 
 from __future__ import annotations
@@ -30,6 +35,8 @@ from regime_fusion.config import StudyConfig, load_config
 from regime_fusion.data import store
 from regime_fusion.data.universe import load_universe
 from regime_fusion.dev.designs import DESIGNS, Design, PooledMarket, StockMarket
+from regime_fusion.dev.features import load_stationary_panel
+from regime_fusion.dev.fitness import MIN_TRADES as PSR_MIN_TRADES, LowerBoundEvaluator
 from regime_fusion.engine.fitness import Evaluator
 from regime_fusion.engine.gp import evolve
 from regime_fusion.engine.panel import PRICE_COLUMNS, Panel, load_panel
@@ -43,6 +50,8 @@ RUNG = "A1"
 BUDGET = {"population": 500, "generations": 20}
 RUNS = 10
 MODES = ("separate", "pooled")
+INPUTS = ("level", "rank")
+FITNESSES = ("sharpe-sum", "psr")
 FOLDS = {  # validation year: (training, validation)
     "2017": (DateRange(dt.date(2015, 2, 1), dt.date(2016, 12, 31)), DateRange(dt.date(2017, 1, 1), dt.date(2017, 12, 31))),
     "2018": (DateRange(dt.date(2015, 2, 1), dt.date(2017, 12, 31)), DateRange(dt.date(2018, 1, 1), dt.date(2018, 12, 31))),
@@ -56,14 +65,20 @@ class Job:
     fold: str
     run: int
     stock: str | None = None   # separate mode only
+    inputs: str = "level"
+    fitness: str = "sharpe-sum"
 
     @property
     def unit(self) -> str:
         return self.stock or "pooled"
 
     def path(self) -> Path:
-        return store.data_dir() / "results" / CAMPAIGN / self.mode / self.design / self.fold / \
-            f"{self.unit}.run{self.run:02d}.json"
+        base = store.data_dir() / "results"
+        if (self.inputs, self.fitness) == (INPUTS[0], FITNESSES[0]):
+            base = base / CAMPAIGN
+        else:
+            base = base / "dev-e45" / self.inputs / self.fitness
+        return base / self.mode / self.design / self.fold / f"{self.unit}.run{self.run:02d}.json"
 
 
 def check_development(config: StudyConfig) -> None:
@@ -76,7 +91,16 @@ def stocks() -> list[str]:
     return [s.id for s in load_universe().select("main")]
 
 
-def jobs(modes=MODES, designs=DESIGNS, folds=tuple(FOLDS), runs: int = RUNS) -> list[Job]:
+def jobs(modes=MODES, designs=DESIGNS, folds=tuple(FOLDS), runs: int = RUNS,
+         inputs=INPUTS[:1], fitnesses=FITNESSES[:1]) -> list[Job]:
+    out = []
+    for i in inputs:
+        for f in fitnesses:
+            out.extend(replace(j, inputs=i, fitness=f) for j in _jobs(modes, designs, folds, runs))
+    return sorted(out, key=lambda j: j.mode != "pooled")
+
+
+def _jobs(modes, designs, folds, runs) -> list[Job]:
     out = []
     for mode in modes:
         for design in designs:
@@ -86,8 +110,7 @@ def jobs(modes=MODES, designs=DESIGNS, folds=tuple(FOLDS), runs: int = RUNS) -> 
                         out.append(Job(mode, design, fold, run))
                     else:
                         out.extend(Job(mode, design, fold, run, s) for s in stocks())
-    # pooled runs are the long ones: start them first
-    return sorted(out, key=lambda j: j.mode != "pooled")
+    return out
 
 
 def _market(design: Design, panel: Panel, days: pd.DatetimeIndex) -> StockMarket:
@@ -133,21 +156,24 @@ def run(job: Job, config: StudyConfig | None = None, write: bool = True) -> dict
     train, validation = FOLDS[job.fold]
     design = Design(job.design, config.primary_cost_bps_per_side / 1e4)
     units = [job.stock] if job.mode == "separate" else stocks()
-    panels = {s: load_panel(s, train, validation, rung.sources, None, rung.scaling) for s in units}
+    if job.inputs == "rank":
+        panels = {s: load_stationary_panel(s, train, validation, rung.sources) for s in units}
+    else:
+        panels = {s: load_panel(s, train, validation, rung.sources, None, rung.scaling) for s in units}
     names = _all_names(panels)
     grammar = Grammar(names, fusion_functions=rung.fusion, sources=rung.sources,
                       max_branch_depth=rung.max_branch_depth)
     flat = [n for group in names.values() for n in group]
+    per_stock_floor = PSR_MIN_TRADES if job.fitness == "psr" else rung.fitness.min_trades
     if job.mode == "separate":
         panel = panels[job.stock]
         market = _market(design, panel, panel.train)
-        settings = rung.fitness
     else:
         market, _ = _pooled_market(design, panels, "train")
-        settings = replace(rung.fitness, min_trades=rung.fitness.min_trades * len(units))
+    settings = replace(rung.fitness, min_trades=per_stock_floor * len(units))
     data = _stacked(panels, flat, "train")
-    evaluator = Evaluator(data, market, settings, cases=False)
-    rng = make_rng(config.base_seed, "dev", CAMPAIGN, job.unit, job.fold, job.run)
+    evaluator = (LowerBoundEvaluator if job.fitness == "psr" else Evaluator)(data, market, settings, cases=False)
+    rng = make_rng(config.base_seed, "dev", CAMPAIGN, job.unit, job.fold, job.run)  # never the options
     evolution = evolve(grammar, evaluator, gp_config, rng)
     best = evolution.best
     out = {}
@@ -157,7 +183,7 @@ def run(job: Job, config: StudyConfig | None = None, write: bool = True) -> dict
         out[stock] = {"days": [d.strftime("%Y-%m-%d") for d in panel.evaluate],
                       "daily": [round(float(x), 8) for x in daily], "trades": int(trades)}
     record = {
-        **job.__dict__, "campaign": CAMPAIGN, "rung": RUNG, "budget": BUDGET,
+        **job.__dict__, "fitness_option": job.fitness, "campaign": CAMPAIGN, "rung": RUNG, "budget": BUDGET,
         "train": [str(train.start), str(train.end)], "validation": [str(validation.start), str(validation.end)],
         "cost_bps": config.primary_cost_bps_per_side, "stocks": units,
         "model": describe(best), "tree": to_record(best), "fitness": best.fitness,
@@ -174,7 +200,7 @@ def run(job: Job, config: StudyConfig | None = None, write: bool = True) -> dict
 def run_job(job: Job) -> str:
     """``run`` for a worker process (defined here, not in ``__main__``, so that spawned workers find it)."""
     record = run(job)
-    return f"{job.mode} {job.design} {job.fold} {job.unit} run {job.run}: {record['seconds']:.0f} s"
+    return f"{job.inputs} {job.fitness} {job.mode} {job.design} {job.fold} {job.unit} run {job.run}: {record['seconds']:.0f} s"
 
 
 def buy_and_hold(fold: str, config: StudyConfig | None = None) -> pd.Series:

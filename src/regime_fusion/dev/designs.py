@@ -18,7 +18,8 @@ with the costs on the entry and exit days, as in ``engine/backtest.py``; a posit
 the last day is closed at its close.
 
 ``StockMarket`` and ``PooledMarket`` give ``daily(signal) -> (daily returns, trades)``, which is all
-``engine.fitness.Evaluator`` needs. A pooled market holds several stocks' rows one after another
+``engine.fitness.Evaluator`` needs, and ``simulate(signal)``, which adds each trade's net return
+(for the PSR lower bound of ``dev.fitness``, whose evidence is the number of trades). A pooled market holds several stocks' rows one after another
 (the trees act day by day, so one signal over the stacked rows is each stock's signal); it scores
 each stock separately and returns the equal-weight portfolio of the stocks present on each day.
 """
@@ -39,10 +40,12 @@ TRAILING_STOP = 0.10
 
 @njit(cache=True)
 def simulate_hold(signal, open_, close, stop, cost):
-    """Daily returns and number of trades of holding while ``signal`` is on (see the module notes)."""
+    """Daily returns, number of trades and each trade's net return, holding while ``signal`` is on."""
     n = len(signal)
     daily = np.zeros(n)
+    returns = np.zeros(n)
     trades = 0
+    entered = 0.0     # entry price with its cost
     holding = False
     armed = True      # False after a stop, until the signal turns off
     last = 0.0        # value at the last close, per share, net of the entry cost
@@ -54,6 +57,7 @@ def simulate_hold(signal, open_, close, stop, cost):
             stopped = close[day - 1] <= peak * (1.0 - stop)
             if not signal[day - 1] or stopped:
                 daily[day] = open_[day] * (1.0 - cost) / last - 1.0
+                returns[trades] = open_[day] * (1.0 - cost) / entered - 1.0
                 holding = False
                 trades += 1
                 if stopped:
@@ -64,19 +68,22 @@ def simulate_hold(signal, open_, close, stop, cost):
             peak = max(peak, close[day])
             if day == n - 1:
                 daily[day] = (1.0 + daily[day]) * (1.0 - cost) - 1.0
+                returns[trades] = close[day] * (1.0 - cost) / entered - 1.0
                 holding = False
                 trades += 1
         elif signal[day - 1] and armed:
             holding = True
-            last = open_[day] * (1.0 + cost)
+            entered = open_[day] * (1.0 + cost)
+            last = entered
             daily[day] = close[day] / last - 1.0
             last = close[day]
             peak = close[day]
             if day == n - 1:
                 daily[day] = (1.0 + daily[day]) * (1.0 - cost) - 1.0
+                returns[trades] = close[day] * (1.0 - cost) / entered - 1.0
                 holding = False
                 trades += 1
-    return daily, trades
+    return daily, trades, returns[:trades]
 
 
 @dataclass(frozen=True)
@@ -88,16 +95,25 @@ class Design:
         if self.name not in DESIGNS:
             raise ValueError(f"design must be one of {DESIGNS}")
 
-    def daily(self, signal: np.ndarray, open_: np.ndarray, high: np.ndarray, low: np.ndarray,
-              close: np.ndarray) -> tuple[np.ndarray, int]:
+    def simulate(self, signal: np.ndarray, open_: np.ndarray, high: np.ndarray, low: np.ndarray,
+                 close: np.ndarray) -> tuple[np.ndarray, int, np.ndarray]:
+        """Daily returns, number of trades and each trade's net return."""
         signal = np.asarray(signal, dtype=np.bool_)
         if self.name == "acttrade":
             days, rate = ACTTRADE_EXIT
-            out = _simulate(signal, open_, high, low, close, days, rate, self.cost)
-            return out[0], int(out[-1])
+            daily, _, _, _, p_in, p_out, _, n = _simulate(signal, open_, high, low, close, days, rate, self.cost)
+            n = int(n)
+            return daily, n, p_out[:n] * (1.0 - self.cost) / (p_in[:n] * (1.0 + self.cost)) - 1.0
         if self.name == "hold":
-            return simulate_hold(signal, open_, close, TRAILING_STOP, self.cost)
-        return simulate_hold(~signal, open_, close, np.inf, self.cost)
+            daily, n, returns = simulate_hold(signal, open_, close, TRAILING_STOP, self.cost)
+        else:
+            daily, n, returns = simulate_hold(~signal, open_, close, np.inf, self.cost)
+        return daily, int(n), returns
+
+    def daily(self, signal: np.ndarray, open_: np.ndarray, high: np.ndarray, low: np.ndarray,
+              close: np.ndarray) -> tuple[np.ndarray, int]:
+        daily, n, _ = self.simulate(signal, open_, high, low, close)
+        return daily, n
 
 
 @dataclass(frozen=True)
@@ -109,8 +125,12 @@ class StockMarket:
     low: np.ndarray
     close: np.ndarray
 
+    def simulate(self, signal: np.ndarray) -> tuple[np.ndarray, int, np.ndarray]:
+        return self.design.simulate(signal, self.open, self.high, self.low, self.close)
+
     def daily(self, signal: np.ndarray) -> tuple[np.ndarray, int]:
-        return self.design.daily(signal, self.open, self.high, self.low, self.close)
+        daily, n, _ = self.simulate(signal)
+        return daily, n
 
 
 class PooledMarket:
@@ -125,12 +145,17 @@ class PooledMarket:
         for p in positions:
             np.add.at(self.count, p, 1.0)
 
-    def per_stock(self, signal: np.ndarray) -> list[tuple[np.ndarray, int]]:
-        return [m.daily(signal[a:b]) for m, a, b in zip(self.markets, self.bounds[:-1], self.bounds[1:])]
+    def simulate(self, signal: np.ndarray) -> tuple[np.ndarray, int, np.ndarray]:
+        """The equal-weight portfolio's daily returns, all trades, and every trade's net return."""
+        total, trades, returns = np.zeros(self.days), 0, []
+        for m, a, b, p in zip(self.markets, self.bounds[:-1], self.bounds[1:], self.positions):
+            daily, n, r = m.simulate(signal[a:b])
+            np.add.at(total, p, daily)
+            trades += n
+            returns.append(r)
+        portfolio = np.divide(total, self.count, out=np.zeros(self.days), where=self.count > 0)
+        return portfolio, trades, np.concatenate(returns) if returns else np.zeros(0)
 
     def daily(self, signal: np.ndarray) -> tuple[np.ndarray, int]:
-        total, trades = np.zeros(self.days), 0
-        for (returns, n), p in zip(self.per_stock(signal), self.positions):
-            np.add.at(total, p, returns)
-            trades += n
-        return np.divide(total, self.count, out=np.zeros(self.days), where=self.count > 0), trades
+        daily, n, _ = self.simulate(signal)
+        return daily, n

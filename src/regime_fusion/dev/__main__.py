@@ -22,13 +22,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--designs", nargs="+", default=list(e23.DESIGNS))
     sub.add_argument("--folds", nargs="+", default=list(e23.FOLDS))
     sub.add_argument("--runs", type=int, default=e23.RUNS)
+    sub.add_argument("--inputs", nargs="+", default=["level"], choices=e23.INPUTS)
+    sub.add_argument("--fitness", nargs="+", default=["sharpe-sum"], choices=e23.FITNESSES)
     commands.add_parser("e23-report", help="summarise the E2 x E3 grid")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
     if args.command == "e23-report":
         report.e23_report()
         return 0
-    todo = [j for j in e23.jobs(args.modes, args.designs, args.folds, args.runs) if not j.path().exists()]
+    todo = [j for j in e23.jobs(args.modes, args.designs, args.folds, args.runs, args.inputs, args.fitness) if not j.path().exists()]
     if args.limit:
         todo = todo[:args.limit]
     log.info("%d runs to do with %d workers", len(todo), args.workers)

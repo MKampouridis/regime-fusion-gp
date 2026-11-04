@@ -16,12 +16,16 @@ from regime_fusion.engine.metrics import sharpe
 def load_e23() -> pd.DataFrame:
     """One row per (mode, design, fold, run, stock): validation daily returns, trades, training fitness."""
     rows = []
-    for path in sorted((store.data_dir() / "results" / e23.CAMPAIGN).glob("*/*/*/*.json")):
+    base = store.data_dir() / "results"
+    paths = sorted((base / e23.CAMPAIGN).glob("*/*/*/*.json")) + sorted((base / "dev-e45").glob("*/*/*/*/*/*.json"))
+    for path in paths:
         if path.name.endswith(".provenance.json"):
             continue
         record = json.loads(path.read_text())
         for stock, v in record["validation_returns"].items():
-            rows.append({"mode": record["mode"], "design": record["design"], "fold": record["fold"],
+            rows.append({"inputs": record.get("inputs", "level"),
+                         "fitness_kind": record.get("fitness_option", "sharpe-sum"),
+                         "mode": record["mode"], "design": record["design"], "fold": record["fold"],
                          "run": record["run"], "stock": stock, "fitness": record["fitness"],
                          "trades": v["trades"],
                          "daily": pd.Series(v["daily"], index=pd.DatetimeIndex(v["days"]))})
@@ -35,14 +39,15 @@ def e23_report() -> pd.DataFrame:
         return table
     out = []
     bh = {fold: e23.buy_and_hold(fold) for fold in sorted(table["fold"].unique())}
-    for (mode, design, fold), cell in table.groupby(["mode", "design", "fold"]):
+    for (inputs, kind, mode, design, fold), cell in table.groupby(["inputs", "fitness_kind", "mode", "design", "fold"]):
         runs = sorted(cell["run"].unique())
         # the protocol's portfolio: average the runs within each stock, then the stocks day by day
+        cell = cell.copy()
         per_stock = [pd.concat(list(group["daily"]), axis=1).mean(axis=1) for _, group in cell.groupby("stock")]
         portfolio = pd.concat(per_stock, axis=1).mean(axis=1)
         by_run = [pd.concat(list(cell.loc[cell.run == r, "daily"]), axis=1).mean(axis=1) for r in runs]
         run_sharpes = np.array([sharpe(s) for s in by_run])
-        out.append({"mode": mode, "design": design, "fold": fold, "runs": len(runs),
+        out.append({"inputs": inputs, "fitness": kind, "mode": mode, "design": design, "fold": fold, "runs": len(runs),
                     "stocks": cell["stock"].nunique(),
                     "sharpe": sharpe(portfolio), "buy_and_hold": sharpe(bh[fold]),
                     "return_pct": 100 * ((1 + portfolio).prod() - 1),

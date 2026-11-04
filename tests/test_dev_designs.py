@@ -9,7 +9,7 @@ CLOSE = np.array([10.0, 10.5, 11.5, 11.8, 10.5, 10.2])
 
 def test_hold_enters_at_the_next_open_and_leaves_at_the_open_after_the_signal_turns_off():
     signal = np.array([True, True, False, False, False, False])
-    daily, trades = simulate_hold(signal, OPEN, CLOSE, np.inf, 0.0)
+    daily, trades, _ = simulate_hold(signal, OPEN, CLOSE, np.inf, 0.0)
     # bought at the open of day 1 (10.0), marked at its close (10.5), sold at the open of day 3 (12.0)
     assert trades == 1
     assert daily[0] == 0.0
@@ -22,12 +22,12 @@ def test_hold_enters_at_the_next_open_and_leaves_at_the_open_after_the_signal_tu
 
 def test_costs_are_paid_on_entry_and_exit():
     signal = np.array([True, True, False, False, False, False])
-    daily, _ = simulate_hold(signal, OPEN, CLOSE, np.inf, 0.001)
+    daily, _, _ = simulate_hold(signal, OPEN, CLOSE, np.inf, 0.001)
     assert np.prod(1 + daily) == pytest.approx(12.0 * 0.999 / (10.0 * 1.001))
 
 
 def test_a_position_open_at_the_end_is_closed_at_the_last_close():
-    daily, trades = simulate_hold(np.ones(6, dtype=bool), OPEN, CLOSE, np.inf, 0.001)
+    daily, trades, _ = simulate_hold(np.ones(6, dtype=bool), OPEN, CLOSE, np.inf, 0.001)
     assert trades == 1
     assert np.prod(1 + daily) == pytest.approx(10.2 * 0.999 / (10.0 * 1.001))
 
@@ -36,7 +36,7 @@ def test_the_trailing_stop_closes_and_waits_for_the_signal_to_reset():
     open_ = np.array([10.0, 10.0, 12.0, 10.0, 9.0, 9.0, 9.0])
     close = np.array([10.0, 12.0, 12.0, 10.0, 9.0, 9.0, 9.5])
     signal = np.array([True, True, True, True, False, True, True])
-    daily, trades = simulate_hold(signal, open_, close, 0.10, 0.0)
+    daily, trades, _ = simulate_hold(signal, open_, close, 0.10, 0.0)
     # peak 12, close of day 3 is 10 (more than 10% below): sold at the open of day 4 (9.0);
     # the signal is still on, so no new entry until it turns off (day 4) and on again (day 5)
     assert np.prod(1 + daily[:5]) == pytest.approx(9.0 / 10.0)
@@ -81,3 +81,51 @@ def test_pooled_market_is_the_equal_weight_portfolio_of_its_stocks():
     assert trades == n1 + n2
     np.testing.assert_allclose(daily[:10], first[:10])
     np.testing.assert_allclose(daily[10:], (first[10:] + second) / 2)
+
+
+def test_psr_lower_bound_needs_evidence():
+    from regime_fusion.dev.fitness import FLOOR, psr_lower_bound
+    rng = np.random.default_rng(2)
+    trades = rng.normal(0.004, 0.02, 200)
+    # the same kind of trades, fewer of them: a wider margin and a lower bound
+    assert psr_lower_bound(trades) > psr_lower_bound(trades[:12])
+    # the bound is below the plain Sharpe ratio
+    assert psr_lower_bound(trades) < trades.mean() / trades.std(ddof=1)
+    # fat tails with negative skew lower the bound at the same mean and volatility
+    crash = np.full(200, 0.006)
+    crash[:4] = 0.006 - 0.002 * 200 / 4
+    crash = (crash - crash.mean()) / crash.std(ddof=1) * trades.std(ddof=1) + trades.mean()
+    assert psr_lower_bound(crash) < psr_lower_bound(trades)
+    assert psr_lower_bound(np.zeros(100)) == FLOOR
+
+
+def test_trade_returns_match_the_daily_returns():
+    rng = np.random.default_rng(4)
+    close = 10 * np.cumprod(1 + rng.normal(0, 0.02, 300))
+    open_, high, low = close * 0.999, close * 1.01, close * 0.99
+    signal = rng.random(300) < 0.2
+    for name in ("acttrade", "hold", "long"):
+        daily, n, returns = Design(name, 0.001).simulate(signal, open_, high, low, close)
+        assert len(returns) == n
+        assert np.prod(1 + daily) == pytest.approx(np.prod(1 + returns))
+
+
+def test_trailing_rank_uses_no_later_rows():
+    import pandas as pd
+    from regime_fusion.dev.features import trailing_rank
+    from regime_fusion.testing import check_no_lookahead
+    rng = np.random.default_rng(3)
+    frame = pd.DataFrame({"a": np.cumsum(rng.normal(size=600)), "b": rng.normal(size=600)})
+    frame.iloc[100:110, 1] = np.nan
+    check_no_lookahead(trailing_rank, frame, [130, 200, 400, 599])
+    ranked = trailing_rank(frame)
+    assert ranked.iloc[:125].isna().all().all()
+    assert ranked.stack().dropna().between(-1, 1).all()
+
+
+def test_psr_lower_bound_never_drops_its_margin():
+    from regime_fusion.dev.fitness import psr_lower_bound
+    # four similar winning trades and one tiny one: strong positive skew, a negative variance term
+    few = np.array([0.050, 0.051, 0.049, 0.050, 0.001])
+    s = few.mean() / few.std(ddof=1)
+    assert psr_lower_bound(few) < s - 1.0
