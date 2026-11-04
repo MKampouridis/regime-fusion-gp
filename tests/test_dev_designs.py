@@ -176,3 +176,28 @@ def test_seeded_grammar_starts_with_every_median_rule():
     data = {"fa:a": np.array([-0.5, 0.5]), "fa:b": np.zeros(2), "sa:c": np.zeros(2), "ta:d": np.zeros(2)}
     from regime_fusion.engine.tree import signals
     assert list(signals(rules[0], data)["C"]) == [False, True]   # fa:a above its median
+
+
+def test_stock_factors_use_no_later_rows():
+    import pandas as pd
+    from regime_fusion.dev.factors import stock_factors
+    from regime_fusion.testing import check_no_lookahead
+    rng = np.random.default_rng(6)
+    n = 600
+    days = pd.bdate_range("2012-01-02", periods=n)
+    close = pd.Series(50 * np.cumprod(1 + rng.normal(0, 0.015, n)), index=days)
+    prices = pd.DataFrame({"adj_close": close, "close": close, "traded_close": close})
+    steps = np.repeat(np.arange(n // 60 + 1), 60)[:n].astype(float)
+    fundamentals = pd.DataFrame({c: 1e9 * (1 + 0.1 * steps) for c in (
+        "shares_outstanding", "net_income_ttm", "net_income_ttm_prev", "equity", "revenue_ttm",
+        "operating_cash_flow_ttm", "operating_income_ttm", "assets", "liabilities")}, index=days)
+    market = pd.Series(rng.normal(0, 0.01, n), index=days)
+
+    def compute(frame):
+        return stock_factors(frame[["adj_close", "close", "traded_close"]], frame[fundamentals.columns],
+                             frame["market"])
+
+    data = pd.concat([prices, fundamentals, market.rename("market")], axis=1)
+    check_no_lookahead(compute, data, [300, 450, 599])
+    table = compute(data)
+    assert table["mom_12_1"].iloc[300] == pytest.approx(close.iloc[279] / close.iloc[48] - 1)
