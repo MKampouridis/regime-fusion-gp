@@ -41,6 +41,8 @@ SMALL_DIR = Path("~/rfgp-small").expanduser()
 DOWNLOAD_START = dt.date(2009, 1, 1)
 KEEP_UNTIL = "2019-12-31"
 RANKS = (1001, 3000)
+MIN_MARKET_VALUE = 100e6   # about the bottom of the Russell 2000; below it, micro-caps and share-unit errors
+MIN_PRICE = 1.0
 LIST = "company_tickers_exchange.json"
 FUNDAMENTALS = ["shares_outstanding", "net_income_ttm", "net_income_ttm_prev", "equity", "revenue_ttm",
                 "operating_cash_flow_ttm", "operating_income_ttm", "assets", "liabilities"]   # what dev.factors uses
@@ -137,7 +139,7 @@ def _write_report(name: str, summary: dict) -> None:
     log.info("%s: %s", name, {k: (len(v) if isinstance(v, list) else v) for k, v in summary.items()})
 
 
-def membership(years=range(2010, 2019)) -> pd.DataFrame:
+def membership(years=range(2012, 2019)) -> pd.DataFrame:
     """Per June reconstitution, the ids ranked 1,001-3,000 by market value among candidates with data."""
     use_small_dir()
     rows = []
@@ -147,19 +149,21 @@ def membership(years=range(2010, 2019)) -> pd.DataFrame:
     for s in ids:
         p = pd.read_parquet(store.layer("interim", "prices", f"{s}.parquet"))
         f = pd.read_parquet(store.layer("interim", "fundamentals", f"{s}.parquet"), columns=["shares_outstanding"])
-        caps[s] = (p["traded_close"] * f["shares_outstanding"].reindex(p.index)).dropna()
+        cap = (p["traded_close"] * f["shares_outstanding"].reindex(p.index))
+        caps[s] = cap.where(p["close"] >= MIN_PRICE).dropna()
     for year in years:
         day = pd.Timestamp(f"{year}-06-30")
         values = {}
         for s, cap in caps.items():
             known = cap.loc[:day]
-            if len(known) and (day - known.index[-1]).days <= 7:
+            if len(known) and (day - known.index[-1]).days <= 7 and known.iloc[-1] >= MIN_MARKET_VALUE:
                 values[s] = float(known.iloc[-1])
         ranked = pd.Series(values).sort_values(ascending=False)
         members = ranked.iloc[RANKS[0] - 1:RANKS[1]]
         rows += [{"year": year, "id": s, "rank": i + RANKS[0], "market_value": v} for i, (s, v) in enumerate(members.items())]
-        log.info("%d: %d candidates with a market value; members ranked %d-%d: %d (smallest %.0f m)",
-                 year, len(ranked), RANKS[0], RANKS[1], len(members), members.min() / 1e6 if len(members) else np.nan)
+        log.info("%d: %d candidates of at least %.0f m; members ranked %d-%d: %d (largest %.0f m, smallest %.0f m)",
+                 year, len(ranked), MIN_MARKET_VALUE / 1e6, RANKS[0], RANKS[1], len(members),
+                 members.max() / 1e6 if len(members) else np.nan, members.min() / 1e6 if len(members) else np.nan)
     table = pd.DataFrame(rows)
     table.to_csv(SMALL_DIR / "reports" / "membership.csv", index=False)
     return table
@@ -188,3 +192,48 @@ def member_mask(index: pd.DatetimeIndex, columns: list[str]) -> pd.DataFrame:
         cols = [c for c in group["id"] if c in mask.columns]
         mask.loc[days, cols] = True
     return mask
+
+
+def screen(horizons=(20, 60), first_year: int = 2010) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The factor screen of ``dev.factors`` on the small-cap universe, members only (July to June
+    after each June ranking), and median-split long/short portfolios by year at 10 bps."""
+    from regime_fusion.dev.ic import newey_west_t
+    from regime_fusion.dev.longshort import LongShortMarket
+    use_small_dir()
+    ids = sorted(pd.read_csv(SMALL_DIR / "reports" / "membership.csv")["id"].unique())
+    tables = {s: pd.read_parquet(store.layer("processed", "factors", f"{s}.parquet")).loc["2009":"2019-06-30"] for s in ids}
+    opens = pd.concat({s: pd.read_parquet(store.layer("interim", "prices", f"{s}.parquet"))["adj_open"].loc["2009":"2019-06-30"]
+                       for s in ids}, axis=1)
+    days = opens.index
+    mask = member_mask(days, list(opens.columns))
+    factors = {f: pd.concat({s: t[f] for s, t in tables.items()}, axis=1).reindex(days)[opens.columns].where(mask)
+               for f in F.SIGNS}
+    signals = {f: F.SIGNS[f] * F.cross_rank(t) for f, t in factors.items()}
+    signals["composite"] = F.composite(factors)
+    rows = []
+    for h in horizons:
+        forward = opens.shift(-(h + 1)) / opens.shift(-1) - 1
+        fwd_rank = forward.rank(axis=1)
+        for name, sig in signals.items():
+            ic = sig.rank(axis=1).corrwith(fwd_rank, axis=1)
+            ic = ic[(sig.notna() & forward.notna()).sum(axis=1) >= 200]
+            ic = ic[(ic.index.year >= first_year) & (ic.index <= "2018-12-31")]
+            by_year = ic.groupby(ic.index.year).mean()
+            rows.append({"factor": name, "h": h, "ic": ic.mean(), "t": newey_west_t(ic, h - 1),
+                         "years_positive": int((by_year > 0).sum()), **{str(y): v for y, v in by_year.items()}})
+    ic_table = pd.DataFrame(rows)
+    ls_rows = []
+    for name in ["composite", "mom_12_1", "rev_1m", "book_price", "earnings_price", "op_profitability",
+                 "share_issuance", "volatility_60", "size"]:
+        sig = signals[name]
+        for year in range(first_year, 2019):
+            sel = days.year == year
+            o, sgn = opens[sel].to_numpy(), sig[sel].to_numpy()
+            for cost in (0.0, 0.001):
+                net, _, _ = LongShortMarket(o, 20, cost, np.isfinite(sgn)).simulate(sgn > 0)
+                ls_rows.append({"signal": name, "year": year, "cost": cost, "return": float(np.prod(1 + net) - 1),
+                                "sharpe": float(net.mean() / net.std(ddof=1) * np.sqrt(252 / 20)) if net.std(ddof=1) > 0 else 0.0})
+    ls_table = pd.DataFrame(ls_rows)
+    ic_table.to_csv(SMALL_DIR / "reports" / "factor_screen.csv", index=False)
+    ls_table.to_csv(SMALL_DIR / "reports" / "long_short.csv", index=False)
+    return ic_table, ls_table
