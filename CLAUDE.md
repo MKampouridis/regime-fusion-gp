@@ -15,6 +15,17 @@ Research code for Michael Kampouridis's paper on regime-conditioned strongly-typ
 - Push straight to `main` (Michael's preference) and summarise each change for him in plain English.
 - The plan is in `docs/RESEARCH_PLAN.md`; decisions in `docs/DECISIONS.md` take precedence over it.
 
+## Which model does what (10 November 2026)
+
+Michael asked for the most capable model to do the complex thinking and cheaper models the simpler work, with Claude deciding case by case. He sets the main session's model and effort (`/model`, `/effort`); Claude cannot change them, so the saving comes from handing work to helpers on cheaper models (`.claude/agents/`).
+
+- **The main session keeps:** research design; statistics and what they mean; anything about look-ahead, test data, the protocol or a recorded decision; what is put to Michael; the brief for every helper; and the review of whatever a helper returns. It also does any task of a few tool calls itself, since starting a helper costs more than that.
+- **`builder` (Sonnet)** implements a written specification: code and tests for a settled design, or a document from an outline. Brief it with the files to read, the exact deliverables, the files it may touch and a check it must pass.
+- **`runner` (Haiku)** runs commands and reports what happened: the test suite, scripts, listings, searches for where something is defined or used, the queue and logs on CERES, fetching results. It changes no files. Prefer it to the built-in Explore agent for plain look-ups, since Explore runs on a dearer model.
+- **Where the helpers are not loaded** (a session that began before `.claude/agents/` existed), use the general-purpose agent with the model set to `sonnet` or `haiku` and the same kind of brief.
+- **A helper's report is a claim to check.** Read the diff, rerun the deciding command and compare any number with its source before relying on it or telling Michael. Helpers never commit, push, submit jobs, download data or touch files outside their brief; the main session does those after its review.
+- **Move a task up** to the main session when a helper fails twice or its result does not survive review. Do not start several helpers for second opinions on research conclusions unless Michael asks: agents in parallel spend credits quickly.
+
 ## Environment
 
 - The cloud workspace has 2 cores and cannot reach SEC, Yahoo, GDELT, BigQuery or Hugging Face, so download scripts run on Michael's Mac or on CERES.
