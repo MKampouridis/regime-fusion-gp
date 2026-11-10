@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from regime_fusion.config import load_config
 from regime_fusion.data import fundamentals, prices, sec, store
 from regime_fusion.data.calendar import study_calendar
 from regime_fusion.data.settings import load_settings
@@ -194,6 +195,13 @@ def member_mask(index: pd.DatetimeIndex, columns: list[str]) -> pd.DataFrame:
     return mask
 
 
+def read_until(path, end=None, columns=None, start=None) -> pd.DataFrame:
+    """A parquet table cut at ``end`` (default ``period.development_end``) straight after reading, so
+    nothing later in the file can be used by mistake. ``start`` optionally cuts the beginning too."""
+    cut = pd.Timestamp(load_config().period.development_end if end is None else end)
+    return pd.read_parquet(path, columns=columns).loc[start:cut]
+
+
 def screen(horizons=(20, 60), first_year: int = 2010) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The factor screen of ``dev.factors`` on the small-cap universe, members only (July to June
     after each June ranking), and median-split long/short portfolios by year at 10 bps."""
@@ -201,9 +209,11 @@ def screen(horizons=(20, 60), first_year: int = 2010) -> tuple[pd.DataFrame, pd.
     from regime_fusion.dev.longshort import LongShortMarket
     use_small_dir()
     ids = sorted(pd.read_csv(SMALL_DIR / "reports" / "membership.csv")["id"].unique())
-    tables = {s: pd.read_parquet(store.layer("processed", "factors", f"{s}.parquet")).loc["2009":"2019-06-30"] for s in ids}
-    opens = pd.concat({s: pd.read_parquet(store.layer("interim", "prices", f"{s}.parquet"))["adj_open"].loc["2009":"2019-06-30"]
-                       for s in ids}, axis=1)
+    # every table is cut at the end of the development period, so the forward returns of the last days
+    # of 2018 are missing rather than computed from prices of 2019
+    tables = {s: read_until(store.layer("processed", "factors", f"{s}.parquet"), start="2009") for s in ids}
+    opens = pd.concat({s: read_until(store.layer("interim", "prices", f"{s}.parquet"), columns=["adj_open"],
+                                     start="2009")["adj_open"] for s in ids}, axis=1)
     days = opens.index
     mask = member_mask(days, list(opens.columns))
     factors = {f: pd.concat({s: t[f] for s, t in tables.items()}, axis=1).reindex(days)[opens.columns].where(mask)

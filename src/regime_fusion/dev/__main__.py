@@ -7,7 +7,7 @@ import argparse
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from regime_fusion.dev import e8, e23, longshort, replicate, report
+from regime_fusion.dev import crosssection, e8, e23, longshort, replicate, report
 
 log = logging.getLogger("regime_fusion.dev")
 
@@ -36,8 +36,13 @@ def main(argv: list[str] | None = None) -> int:
     sub = commands.add_parser("acttrade", help="replicate ActTrade's protocol on our data (tuning, then final runs)")
     sub.add_argument("--workers", type=int, default=4)
     commands.add_parser("acttrade-report", help="summarise the ActTrade replication")
+    sub = commands.add_parser("hedged-report", help="the composite measured hedged, with liquidity-dependent costs")
+    sub.add_argument("--universe", choices=["small", "broad"], required=True)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+    if args.command == "hedged-report":
+        crosssection.report(args.universe)
+        return 0
     if args.command == "acttrade-report":
         replicate.report()
         return 0
