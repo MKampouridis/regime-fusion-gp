@@ -7,7 +7,7 @@ import argparse
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from regime_fusion.dev import crosssection, e8, e23, longshort, replicate, report
+from regime_fusion.dev import crosssection, e8, e9, e23, longshort, replicate, report
 
 log = logging.getLogger("regime_fusion.dev")
 
@@ -33,6 +33,16 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--workers", type=int, default=4)
     commands.add_parser("e8-simple", help="E8's best median-split rule per fold")
     commands.add_parser("e8-report", help="summarise E8")
+    sub = commands.add_parser("e9", help="E9: the cross-sectional GP on hedged, costed book results")
+    sub.add_argument("--universe", choices=["small", "broad"], required=True)
+    sub.add_argument("--rungs", nargs="+", default=list(e9.RUNGS), choices=list(e9.RUNGS))
+    sub.add_argument("--years", nargs="+", type=int, default=list(e9.TEST_YEARS), choices=list(e9.TEST_YEARS))
+    sub.add_argument("--runs", type=int, default=e9.RUNS)
+    sub.add_argument("--workers", type=int, default=3)
+    sub = commands.add_parser("e9-benchmarks", help="E9's simple alternatives on the same folds, hedge and costs")
+    sub.add_argument("--universe", choices=["small", "broad"], required=True)
+    sub = commands.add_parser("e9-report", help="summarise E9 and apply the plan's four rules")
+    sub.add_argument("--universe", choices=["small", "broad"], required=True)
     sub = commands.add_parser("acttrade", help="replicate ActTrade's protocol on our data (tuning, then final runs)")
     sub.add_argument("--workers", type=int, default=4)
     commands.add_parser("acttrade-report", help="summarise the ActTrade replication")
@@ -58,6 +68,26 @@ def main(argv: list[str] | None = None) -> int:
             if phase == "tuning":
                 log.info("chosen exits: %s", replicate.chosen_exits())
         replicate.report()
+        return 0
+    if args.command == "e9-report":
+        e9.report(args.universe)
+        return 0
+    if args.command == "e9-benchmarks":
+        for name, frame in e9.save_benchmarks(args.universe).items():
+            main = frame[frame.index.year.isin(e9.MAIN_YEARS)]
+            print(f"{name}: gross {100 * main['gross'].mean() * 12.6:.2f}% a year, net {100 * main['net'].mean() * 12.6:.2f}%")
+        return 0
+    if args.command == "e9":
+        years = sorted(set(args.years) | {e9.TEST_YEARS[0]})   # each year starts from the previous year's holdings
+        for year in years:
+            todo = e9.jobs(args.universe, args.rungs, [year], args.runs)
+            log.info("E9 %d: %d runs to do with %d workers", year, len(todo), args.workers)
+            if not todo:
+                continue
+            e9.context(args.universe)   # load once, before the workers fork
+            with ProcessPoolExecutor(args.workers) as pool:
+                for i, future in enumerate(as_completed([pool.submit(e9.run_job, j) for j in todo]), 1):
+                    log.info("%d %d/%d %s", year, i, len(todo), future.result())
         return 0
     if args.command == "e8-simple":
         e8.simple_baseline()
