@@ -7,7 +7,7 @@ import argparse
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from regime_fusion.dev import crosssection, e8, e9, e23, longshort, replicate, report
+from regime_fusion.dev import control, crosssection, e8, e9, e23, longshort, replicate, report
 
 log = logging.getLogger("regime_fusion.dev")
 
@@ -43,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_argument("--universe", choices=["small", "broad"], required=True)
     sub = commands.add_parser("e9-report", help="summarise E9 and apply the plan's four rules")
     sub.add_argument("--universe", choices=["small", "broad"], required=True)
+    for part, what in (("1a", "ranking stocks"), ("1b", "timing one stock")):
+        sub = commands.add_parser(f"control-{part}", help=f"positive control {part.upper()}: {what} (docs/E9_PLAN.md)")
+        sub.add_argument("--workers", type=int, default=3)
+        sub.add_argument("--runs", type=int, default=control.RUNS_1A if part == "1a" else control.RUNS_1B)
+    commands.add_parser("control-report", help="summarise the positive control and apply the plan's conditions")
     sub = commands.add_parser("acttrade", help="replicate ActTrade's protocol on our data (tuning, then final runs)")
     sub.add_argument("--workers", type=int, default=4)
     commands.add_parser("acttrade-report", help="summarise the ActTrade replication")
@@ -68,6 +73,20 @@ def main(argv: list[str] | None = None) -> int:
             if phase == "tuning":
                 log.info("chosen exits: %s", replicate.chosen_exits())
         replicate.report()
+        return 0
+    if args.command == "control-report":
+        control.report()
+        return 0
+    if args.command in ("control-1a", "control-1b"):
+        part = args.command[-2:]
+        todo = control.jobs_1a(args.runs) if part == "1a" else control.jobs_1b(args.runs)
+        run_job = control.run_job_1a if part == "1a" else control.run_job_1b
+        log.info("control %s: %d runs to do with %d workers", part, len(todo), args.workers)
+        if todo and part == "1a":
+            e9.context("small")   # load once, before the workers fork
+        with ProcessPoolExecutor(args.workers) as pool:
+            for i, future in enumerate(as_completed([pool.submit(run_job, j) for j in todo]), 1):
+                log.info("%d/%d %s", i, len(todo), future.result())
         return 0
     if args.command == "e9-report":
         e9.report(args.universe)
