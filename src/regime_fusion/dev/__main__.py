@@ -85,8 +85,12 @@ def main(argv: list[str] | None = None) -> int:
         if todo and part == "1a":
             e9.context("small")   # load once, before the workers fork
         with ProcessPoolExecutor(args.workers) as pool:
-            for i, future in enumerate(as_completed([pool.submit(run_job, j) for j in todo]), 1):
-                log.info("%d/%d %s", i, len(todo), future.result())
+            futures = {pool.submit(run_job, j): j for j in todo}
+            for i, future in enumerate(as_completed(futures), 1):
+                try:
+                    log.info("%d/%d %s", i, len(todo), future.result())
+                except ValueError as problem:   # a strength that planting cannot reach in this sample: left out
+                    log.warning("%d/%d %s left out: %s", i, len(todo), futures[future], problem)
         return 0
     if args.command == "e9-report":
         e9.report(args.universe)
