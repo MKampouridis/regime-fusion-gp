@@ -1,6 +1,6 @@
 # Plan for approval: a positive control and experiment E9
 
-**Status: PROPOSED on 10 November 2026. Not approved. Nothing in this plan runs before Michael approves it.**
+**Status: APPROVED by Michael on 10 November 2026, unchanged. The rules for success below are fixed from that date.**
 
 Written by Claude at Michael's request, after the study of 10 November 2026 ([`DECISIONS.md`](DECISIONS.md)). It follows the rules of the development experiments (4 November 2026): data up to `development_end` (2018) only, no hold-out stock, rules for success fixed before any run, every variant reported.
 
