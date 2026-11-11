@@ -366,3 +366,56 @@ def test_a_negative_lambda_only_when_chance_already_exceeds_the_target():
         lam = control.calibrate_1b(prices, s, 0.05, 400)
         assert control.planted_ic_1b(prices, s, lam, 400) == pytest.approx(0.05, abs=control.IC_TOLERANCE_1B)
         assert abs(lam) * np.abs(s).max() < 1
+
+
+# ------------------------------------------------------------------- the model chosen on held-back dates
+def test_holdback_split_keeps_the_latest_dates_out():
+    fit, held = e9.holdback_split(np.arange(57))
+    assert list(fit) == list(range(40)) and list(held) == list(range(40, 57))
+    fit, held = e9.holdback_split(np.arange(3))
+    assert len(fit) == 1 and len(held) == 2
+
+
+class _Fake:
+    def __init__(self, name, fitness):
+        self.name, self.fitness = name, fitness
+
+    def key(self):
+        return (self.name,)
+
+
+def test_choose_on_holdback_takes_the_best_candidate_on_the_held_dates(monkeypatch):
+    rng = np.random.default_rng(0)
+    signal = {"good": np.tile(np.arange(10) < 3, (6, 1)), "bad": np.tile(np.arange(10) >= 7, (6, 1)),
+              "tiny": np.tile(np.arange(10) < 0, (6, 1))}
+    returns = np.tile(np.where(np.arange(10) < 3, 0.02, -0.01), (6, 1)) + rng.normal(0, 0.001, (6, 10))
+    market = e9.BookMarket(returns, np.zeros_like(returns), 0.1, 0.4)
+    monkeypatch.setattr(e9, "signals", lambda individual, data: {"C": signal[individual.name]})
+    population = [_Fake("bad", 0.9), _Fake("bad", 0.9), _Fake("good", 0.5), _Fake("tiny", 0.4),
+                  _Fake("good", e9.FLOOR)]
+    chosen, score = e9.choose_on_holdback(population, {}, market)
+    assert chosen.name == "good" and score > 0
+    # only the fittest candidate is looked at when one candidate is allowed
+    assert e9.choose_on_holdback(population, {}, market, candidates=1)[0].name == "bad"
+    # every candidate at the floor on the held dates (an empty book): the fittest stays
+    assert e9.choose_on_holdback([_Fake("tiny", 0.4)], {}, market)[0].name == "tiny"
+    assert e9.choose_on_holdback([_Fake("good", e9.FLOOR)], {}, market) is None
+
+
+def test_run_1a_with_holdback_evolves_on_the_earlier_dates_and_writes_apart(ctx, tmp_path, monkeypatch):
+    monkeypatch.setattr(control.small, "SMALL_DIR", tmp_path)
+    kwargs = dict(ctx=ctx, budget={"population": 20, "generations": 2}, test_start=20, selection="holdback")
+    a = control.run_1a("P1", 0.05, 300, 12, 0, **kwargs)
+    b = control.run_1a("P1", 0.05, 300, 12, 0, write=False, **kwargs)
+    assert a["tree"] == b["tree"] and a["gp_test_mean"] == b["gp_test_mean"]
+    assert (a["selection"], a["fit_dates"], a["held_dates"]) == ("holdback", 8, 4)
+    assert control.path_1a("P1", 0.05, 300, 12, 0, "holdback").exists()
+    assert not control.path_1a("P1", 0.05, 300, 12, 0).exists()
+    assert "1a-holdback" in control.path_1a("P1", 0.05, 300, 12, 0, "holdback").parts
+    # the references see every training date, so they match the first version's
+    plain = control.run_1a("P1", 0.05, 300, 12, 0, write=False, **{**kwargs, "selection": "fitness"})
+    assert plain["references"] == a["references"] and plain["held_dates"] == 0
+    jobs = control.jobs_1a(runs=1, selection="holdback", plants=("P1",))
+    assert len(jobs) == 20 and all(j[0] == "P1" and j[5] == "holdback" for j in jobs)
+    with pytest.raises(ValueError):
+        control.part_1a("other")

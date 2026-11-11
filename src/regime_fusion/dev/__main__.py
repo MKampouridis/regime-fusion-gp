@@ -47,7 +47,12 @@ def main(argv: list[str] | None = None) -> int:
         sub = commands.add_parser(f"control-{part}", help=f"positive control {part.upper()}: {what} (docs/E9_PLAN.md)")
         sub.add_argument("--workers", type=int, default=3)
         sub.add_argument("--runs", type=int, default=control.RUNS_1A if part == "1a" else control.RUNS_1B)
-    commands.add_parser("control-report", help="summarise the positive control and apply the plan's conditions")
+        if part == "1a":
+            sub.add_argument("--selection", choices=control.SELECTIONS, default="fitness",
+                             help="how a run's model is chosen: by training fitness, or on held-back training dates")
+            sub.add_argument("--plants", nargs="+", choices=control.PLANTS, default=list(control.PLANTS))
+    sub = commands.add_parser("control-report", help="summarise the positive control and apply the plan's conditions")
+    sub.add_argument("--selection", choices=control.SELECTIONS, default="fitness")
     sub = commands.add_parser("acttrade", help="replicate ActTrade's protocol on our data (tuning, then final runs)")
     sub.add_argument("--workers", type=int, default=4)
     commands.add_parser("acttrade-report", help="summarise the ActTrade replication")
@@ -75,11 +80,12 @@ def main(argv: list[str] | None = None) -> int:
         replicate.report()
         return 0
     if args.command == "control-report":
-        control.report()
+        control.report(args.selection)
         return 0
     if args.command in ("control-1a", "control-1b"):
         part = args.command[-2:]
-        todo = control.jobs_1a(args.runs) if part == "1a" else control.jobs_1b(args.runs)
+        todo = (control.jobs_1a(args.runs, args.selection, args.plants) if part == "1a"
+                else control.jobs_1b(args.runs))
         run_job = control.run_job_1a if part == "1a" else control.run_job_1b
         log.info("control %s: %d runs to do with %d workers", part, len(todo), args.workers)
         if todo and part == "1a":

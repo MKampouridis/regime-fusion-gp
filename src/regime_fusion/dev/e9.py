@@ -37,7 +37,7 @@ from regime_fusion.dev import broad
 from regime_fusion.dev import crosssection as C
 from regime_fusion.dev import factors as F
 from regime_fusion.dev import small
-from regime_fusion.dev.fitness import LowerBoundEvaluator
+from regime_fusion.dev.fitness import FLOOR, LowerBoundEvaluator, psr_lower_bound
 from regime_fusion.engine.gp import evolve
 from regime_fusion.engine.rungs import load_rungs
 from regime_fusion.engine.tree import Grammar, describe, signals, to_record
@@ -65,6 +65,53 @@ RUNGS = {
 }
 BANDED = "composite (literature signs), banded 20/40"
 STATE_WINDOWS = {"vol_window": 60, "return_window": 250, "min_history": 250}
+
+
+# ------------------------------------------------------------------- choosing a run's model on held-back dates
+HOLDBACK = 0.3                    # share of the training dates, the latest ones, kept out of the evolution
+CANDIDATES = 50                   # the fittest distinct individuals of the last generation that are compared
+
+
+class KeepingEvaluator(LowerBoundEvaluator):
+    """``LowerBoundEvaluator`` that remembers the last population the evolution showed it (``final``)."""
+
+    final: list = []
+
+    def retain(self, population) -> None:
+        self.final = list(population)
+        super().retain(population)
+
+
+def holdback_split(positions: np.ndarray, share: float = HOLDBACK) -> tuple[np.ndarray, np.ndarray]:
+    """The training positions split in time: the earlier part to evolve on, the latest ``share`` held back."""
+    held = min(max(2, round(share * len(positions))), len(positions) - 1)
+    return positions[:-held], positions[-held:]
+
+
+def choose_on_holdback(population, data: dict[str, np.ndarray], market: "BookMarket",
+                       coverage: float | None = None, candidates: int = CANDIDATES):
+    """Among the ``candidates`` fittest distinct individuals (those at the floor left out), the one whose
+    book has the highest PSR lower bound on the held-back dates (``data`` and ``market`` cover those dates
+    only). A book outside the size bounds on more than ``1 - coverage`` of them scores the floor. Returns
+    the individual and its held-back score; ties, and the case where every candidate is at the floor, go to
+    the fittest. None if no individual is above the floor."""
+    coverage = COVERAGE if coverage is None else coverage
+    floor = math.ceil(coverage * len(market.returns))
+    ranked, seen = [], set()
+    for individual in sorted(population, key=lambda i: -i.fitness):
+        if individual.fitness <= FLOOR or individual.key() in seen:
+            continue
+        seen.add(individual.key())
+        ranked.append(individual)
+        if len(ranked) == candidates:
+            break
+    chosen, best = None, -math.inf
+    for individual in ranked:
+        net, active, _ = market.simulate(signals(individual, data)["C"])
+        score = psr_lower_bound(net) if active >= floor else FLOOR
+        if score > best:
+            chosen, best = individual, float(score)
+    return (chosen, best) if chosen is not None else None
 
 
 # ---------------------------------------------------------------------------------------- the book market

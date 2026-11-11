@@ -37,7 +37,6 @@ from regime_fusion.data import store
 from regime_fusion.dev import e9
 from regime_fusion.dev import small
 from regime_fusion.dev.designs import Design
-from regime_fusion.dev.fitness import LowerBoundEvaluator
 from regime_fusion.engine.fitness import Evaluator, sharpe
 from regime_fusion.engine.gp import evolve
 from regime_fusion.engine.panel import PRICE_COLUMNS, Panel, load_panel
@@ -248,8 +247,18 @@ def oracle_signal(plant: str, g: np.ndarray, tradable: np.ndarray) -> np.ndarray
     return top_book(g, tradable)
 
 
-def path_1a(plant: str, ic: float, stocks: int, train: int, run_number: int) -> Path:
-    return (small.SMALL_DIR / "results" / CAMPAIGN / "1a" / plant / ic_label(ic) / f"n{stocks}" / f"t{train}"
+SELECTIONS = ("fitness", "holdback")    # how a run's model is chosen; "fitness" is the plan's first version
+
+
+def part_1a(selection: str = "fitness") -> str:
+    """The results folder of 1A for a way of choosing the model: ``1a``, or ``1a-holdback`` for the repair."""
+    if selection not in SELECTIONS:
+        raise ValueError(f"unknown selection {selection!r}")
+    return "1a" if selection == "fitness" else f"1a-{selection}"
+
+
+def path_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, selection: str = "fitness") -> Path:
+    return (small.SMALL_DIR / "results" / CAMPAIGN / part_1a(selection) / plant / ic_label(ic) / f"n{stocks}" / f"t{train}"
             / f"run{run_number:02d}.json")
 
 
@@ -310,9 +319,12 @@ def _reference_scores(inputs: dict[str, np.ndarray], returns: np.ndarray, train:
 # ------------------------------------------------------------------------------------------------ runs, 1A
 def run_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, write: bool = True, *,
            ctx: e9.Context | None = None, budget: dict[str, int] | None = None,
-           test_start: int = TEST_START) -> dict[str, Any]:
+           test_start: int = TEST_START, selection: str = "fitness") -> dict[str, Any]:
     """Plant, evolve on the first ``train`` dates, score the GP and the references on the dates from
-    ``test_start``. ``ctx``, ``budget`` and ``test_start`` are for tests."""
+    ``test_start``. With ``selection="holdback"`` the GP evolves on the earlier training dates only and its
+    model is the candidate that does best on the latest ones (``e9.choose_on_holdback``); the references
+    always use every training date. ``ctx``, ``budget`` and ``test_start`` are for tests."""
+    part_1a(selection)
     started = time.perf_counter()
     config = load_config()
     base = load_rungs()[e9.BASE_RUNG]
@@ -324,14 +336,21 @@ def run_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, writ
     train_pos, test_pos = np.arange(train), np.arange(test_start, dates)
     zero_cost = np.zeros_like(returns)
     groups = groups_1a(inputs)
-    market = e9.BookMarket(returns[train_pos], zero_cost[train_pos], e9.LOW, e9.HIGH)
-    settings = replace(base.fitness, min_trades=math.ceil(e9.COVERAGE * train))
-    evaluator = LowerBoundEvaluator({n: inputs[n][train_pos] for g in groups.values() for n in g}, market, settings,
-                                    cases=False)
+    names = [n for g in groups.values() for n in g]
+    fit_pos, held_pos = (train_pos, train_pos[:0]) if selection == "fitness" else e9.holdback_split(train_pos)
+    market = e9.BookMarket(returns[fit_pos], zero_cost[fit_pos], e9.LOW, e9.HIGH)
+    settings = replace(base.fitness, min_trades=math.ceil(e9.COVERAGE * len(fit_pos)))
+    evaluator = e9.KeepingEvaluator({n: inputs[n][fit_pos] for n in names}, market, settings, cases=False)
     grammar = Grammar(groups, fusion_functions=("AND", "OR", "IF"), sources=e9.SOURCES, max_branch_depth=3)
     gp_config = replace(base.gp, **budget, active_trading=False)
     rng = make_rng(config.base_seed, "dev", CAMPAIGN, "1a-gp", stocks, train, run_number)
     best = evolve(grammar, evaluator, gp_config, rng).best
+    holdback_score = None
+    if selection == "holdback":
+        found = e9.choose_on_holdback(evaluator.final, {n: inputs[n][held_pos] for n in names},
+                                      e9.BookMarket(returns[held_pos], zero_cost[held_pos], e9.LOW, e9.HIGH))
+        if found is not None:
+            best, holdback_score = found
     used = e9.inputs_used(best)
 
     later = e9.BookMarket(returns[test_pos], zero_cost[test_pos], e9.LOW, e9.HIGH)
@@ -353,7 +372,8 @@ def run_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, writ
                       "detected": bool(found["detected"]) if plant == "P1" else None}
     record = {
         "campaign": CAMPAIGN, "part": "1a", "plant": plant, "ic": ic, "stocks": stocks, "train": train, "run": run_number,
-        "budget": budget, "lambda": data["lambda"], "n_tradable_mean": float(tradable.sum(axis=1).mean()),
+        "budget": budget, "selection": selection, "fit_dates": int(len(fit_pos)), "held_dates": int(len(held_pos)),
+        "holdback_score": holdback_score, "lambda": data["lambda"], "n_tradable_mean": float(tradable.sum(axis=1).mean()),
         "realised_ic": _clean(mean_spearman(data["g"], returns)),
         "model": describe(best), "tree": to_record(best), "fitness": best.fitness, "inputs_used": used,
         "detected": detected(plant, used), "uses_planted": uses_planted(used),
@@ -363,20 +383,22 @@ def run_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, writ
     }
     record["provenance"] = provenance.collect(
         config, rung_digest=base.digest(overrides=budget), rung_spec=base.spec, experiment=CAMPAIGN, part="1a",
-        plant=plant, ic=ic, stocks=stocks, train=train, run=run_number, sources=list(e9.SOURCES))
+        plant=plant, ic=ic, stocks=stocks, train=train, run=run_number, selection=selection,
+        sources=list(e9.SOURCES))
     if write:
-        provenance.write(path_1a(plant, ic, stocks, train, run_number), record)
+        provenance.write(path_1a(plant, ic, stocks, train, run_number, selection), record)
     return record
 
 
-def jobs_1a(runs: int = RUNS_1A) -> list[tuple]:
-    """Unfinished runs as (plant, ic, stocks, train, run)."""
-    return [(p, ic, s, t, k) for (p, ic, s, t) in CELLS_1A for k in range(runs)
-            if not path_1a(p, ic, s, t, k).exists()]
+def jobs_1a(runs: int = RUNS_1A, selection: str = "fitness", plants=PLANTS) -> list[tuple]:
+    """Unfinished runs as (plant, ic, stocks, train, run), with the selection added when it is not "fitness"."""
+    extra = () if selection == "fitness" else (selection,)
+    return [(p, ic, s, t, k, *extra) for (p, ic, s, t) in CELLS_1A if p in plants for k in range(runs)
+            if not path_1a(p, ic, s, t, k, selection).exists()]
 
 
 def run_job_1a(job: tuple) -> str:
-    record = run_1a(*job)
+    record = run_1a(*job[:5], selection=job[5] if len(job) > 5 else "fitness")
     return (f"{job}: fitness {record['fitness']:.3f}, detected {record['detected']}, "
             f"{record['seconds']:.0f} s")
 
@@ -602,14 +624,15 @@ def table_1b(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def report() -> dict[str, pd.DataFrame]:
+def report(selection: str = "fitness") -> dict[str, pd.DataFrame]:
     """Print and write the tables of 1A and 1B, and apply the plan's three conditions to 1A. Works on whatever
-    runs exist."""
+    runs exist. ``selection`` picks which version of 1A is read (its table goes to ``control_<part>.csv``)."""
+    part = part_1a(selection)
     pd.set_option("display.width", 250)
     pd.set_option("display.max_columns", 40)
     out: dict[str, pd.DataFrame] = {}
-    records = _records(small.SMALL_DIR / "results" / CAMPAIGN / "1a")
-    print(f"Control 1A (ranking stocks): {len(records)} runs found")
+    records = _records(small.SMALL_DIR / "results" / CAMPAIGN / part)
+    print(f"Control 1A (ranking stocks), model chosen by {selection}: {len(records)} runs found")
     if records:
         frame = pd.DataFrame([_flat_1a(r) for r in records])
         table = table_1a(frame)
@@ -623,7 +646,7 @@ def report() -> dict[str, pd.DataFrame]:
         print("\nThe plan's conditions before E9 runs:")
         for line in conditions_1a(frame, table):
             print(line)
-        target = small.SMALL_DIR / "results" / "control_1a.csv"
+        target = small.SMALL_DIR / "results" / f"control_{part.replace('-', '_')}.csv"
         target.parent.mkdir(parents=True, exist_ok=True)
         table.to_csv(target, index=False)
     records = _records(store.data_dir() / "results" / CAMPAIGN / "1b")
