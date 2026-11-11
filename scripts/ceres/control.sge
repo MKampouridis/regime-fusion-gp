@@ -1,0 +1,27 @@
+#!/bin/bash
+# One element of an SGE job array for the positive control (docs/E10_PLAN.md): element K of N does
+# part K of the runs chosen by ARGS. Submit from the repository folder, with N equal to the array's size:
+#
+#   mkdir -p logs
+#   qsub -t 1-60 -tc 60 -v ARGS="--selection score-book --plants P1 --ics 0 0.02 0.03" scripts/ceres/control.sge
+#
+# Finished runs are skipped, so a failed or stopped element is simply submitted again (same -t range,
+# or qsub -t 17 -v N=60,ARGS=... for element 17 alone: N must stay the size of the first submission).
+# The small-cap development data must be in ~/rfgp-small (raw, interim and processed).
+#$ -N rfgp-control
+#$ -S /bin/bash
+#$ -q all.q
+#$ -cwd
+#$ -j y
+#$ -o logs/
+set -eo pipefail   # not -u: conda's own activation scripts use variables that may be unset
+: "${ARGS:?give ARGS with qsub -v}"
+case "${SGE_TASK_ID:-}" in ''|*[!0-9]*) echo "submit this as a job array (qsub -t ...)" >&2; exit 1 ;; esac
+N="${N:-${SGE_TASK_LAST:?}}"
+unset PYTHONPATH   # CERES sets one for its own Pythons; the environment's Python would load their packages
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
+conda activate rfgp
+export RFGP_DATA_DIR="${RFGP_DATA_DIR:-$HOME/rfgp-data}"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1
+export NUMBA_CACHE_DIR="${TMPDIR:-/tmp}/numba-cache-$USER"   # compiled code kept on the node, not on NFS
+python -m regime_fusion.dev control-1a $ARGS --workers 1 --shard "$SGE_TASK_ID/$N"

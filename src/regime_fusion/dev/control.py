@@ -23,6 +23,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import zlib
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -35,6 +36,7 @@ from regime_fusion import provenance
 from regime_fusion.config import load_config
 from regime_fusion.data import store
 from regime_fusion.dev import e9
+from regime_fusion.dev import score
 from regime_fusion.dev import small
 from regime_fusion.dev.designs import Design
 from regime_fusion.engine.fitness import Evaluator, sharpe
@@ -46,7 +48,8 @@ from regime_fusion.seeds import make_rng
 from regime_fusion.windows import DateRange
 
 CAMPAIGN = "dev-control"
-PLANTS = ("P1", "P2", "P3")
+PLANTS = ("P1", "P2", "P3", "P4")
+DEFAULT_PLANTS = ("P1", "P2", "P3")   # the plants of the plan's first control (P4 is asked for by name)
 ICS = (0.0, 0.02, 0.03, 0.05, 0.10)
 SIZES = (50, 300, 700)
 RUNS_1A = 20
@@ -55,6 +58,8 @@ TEST_START = 57               # the first test date's position (24 test dates wi
 TOP = 0.2                     # the reference learners' and the oracle's book: the top fifth
 AR = 0.9
 PLANTED = ("fa:planted", "ta:planted", "rg:planted_state")
+LONG_SHARE = 0.7              # long samples: the first 70% of the dates train, the rest test
+MEAN_BLOCK = 6.0              # long samples: the stationary bootstrap's mean block length (dates)
 REFERENCES = ("best_single", "ridge", "lightgbm")
 REFERENCE_LABELS = {"best_single": "best single input", "ridge": "ridge", "lightgbm": "LightGBM"}
 IC_TOLERANCE_1A = 0.001
@@ -157,14 +162,41 @@ def _rank_input(values: np.ndarray, tradable: np.ndarray) -> np.ndarray:
     return 2.0 * frame.rank(axis=1, pct=True).to_numpy(dtype=float) - 1.0
 
 
-def planted_data(ctx: e9.Context, plant: str, ic: float, stocks: int, run_number: int) -> dict[str, Any]:
+def long_train(dates: int) -> int:
+    """The number of training dates of a long sample: the first 70% of its dates, rounded."""
+    return int(round(LONG_SHARE * dates))
+
+
+def block_positions(n: int, length: int, mean_block: float, rng: np.random.Generator) -> np.ndarray:
+    """``length`` positions into ``n`` dates by the stationary bootstrap: each step either starts a new block at
+    a random position (probability 1 / ``mean_block``) or follows the one before, wrapping round at the end.
+    (``analysis.stats.stationary_bootstrap`` returns exactly ``n`` positions; this is the same rule for any length.)"""
+    first = rng.integers(n)
+    restart = rng.random(length) < 1.0 / mean_block
+    starts = rng.integers(n, size=length)
+    restart[0], starts[0] = True, first
+    steps = np.arange(length)
+    began = np.maximum.accumulate(np.where(restart, steps, 0))
+    return (starts[began] + steps - began) % n
+
+
+def planted_data(ctx: e9.Context, plant: str, ic: float, stocks: int, run_number: int,
+                 dates: int | None = None) -> dict[str, Any]:
     """One replicate of the planted data from the small-cap context (see the module docstring). Everything
-    random is drawn from one generator, in the same order whatever the plant and strength."""
+    random is drawn from one generator, in the same order whatever the plant and strength. With ``dates`` (a long
+    sample) the real dates are first resampled to that many by a block bootstrap with its own generator, which
+    depends on ``dates`` and the run only; everything else then runs along the new timeline. ``positions`` in the
+    result are the real dates' positions that the rows stand for."""
     if plant not in PLANTS:
         raise ValueError(f"plant must be one of {PLANTS}")
     config = load_config()
     rng = make_rng(config.base_seed, "dev", CAMPAIGN, "1a", stocks, run_number)
     hedged = np.asarray(ctx.hedged, dtype=float)
+    positions = np.arange(len(hedged))
+    if dates is not None:
+        long_rng = make_rng(config.base_seed, "dev", CAMPAIGN, "1a-long", dates, run_number)
+        positions = block_positions(len(hedged), dates, MEAN_BLOCK, long_rng)
+        hedged = hedged[positions]
     dates, n = hedged.shape
     # 1. the stocks
     subset = np.ones(n, dtype=bool)
@@ -197,18 +229,21 @@ def planted_data(ctx: e9.Context, plant: str, ic: float, stocks: int, run_number
     elif plant == "P2":
         both = np.where(tradable, ((u1 > 0.2) & (u2 > 0.2)).astype(float), np.nan)
         g = both - np.nanmean(both, axis=1, keepdims=True)
-    else:
+    elif plant == "P3":
         g = np.where((state > 0)[:, None], u1, u2)
+    else:                                  # P4: the characteristic's sign follows the state
+        g = state[:, None] * u1
     g = np.where(tradable, g, np.nan)
     # 6. the strength
     lam = calibrate_1a(shuffled, g, ic)
     returns = shuffled + lam * g
     # 7. the inputs
     names = [f"fa:{f}" for f in e9.FA_FACTORS] + [f"ta:{f}" for f in e9.TA_FACTORS] + list(e9.CONTEXT)
-    inputs = {name: np.where(subset[None, :], ctx.inputs[name], np.nan) for name in names}
+    inputs = {name: np.where(subset[None, :], np.asarray(ctx.inputs[name])[positions], np.nan) for name in names}
     inputs["fa:planted"], inputs["ta:planted"] = u1, u2
     inputs["rg:planted_state"] = np.repeat(state[:, None], n, axis=1)
-    return {"inputs": inputs, "returns": returns, "g": g, "lambda": lam, "tradable": tradable}
+    return {"inputs": inputs, "returns": returns, "g": g, "lambda": lam, "tradable": tradable,
+            "positions": positions}
 
 
 def groups_1a(inputs: dict[str, np.ndarray]) -> dict[str, list[str]]:
@@ -217,9 +252,11 @@ def groups_1a(inputs: dict[str, np.ndarray]) -> dict[str, list[str]]:
 
 
 def detected(plant: str, used) -> bool:
-    """Whether the rule's deciding part uses what the plant needs: P1 the characteristic, P2 both, P3 both and the state."""
+    """Whether the rule's deciding part uses what the plant needs: P1 the characteristic, P2 both, P3 both and the
+    state, P4 the characteristic and the state."""
     used = set(used)
-    need = {"P1": {"fa:planted"}, "P2": {"fa:planted", "ta:planted"}, "P3": set(PLANTED)}[plant]
+    need = {"P1": {"fa:planted"}, "P2": {"fa:planted", "ta:planted"}, "P3": set(PLANTED),
+            "P4": {"fa:planted", "rg:planted_state"}}[plant]
     return need <= used
 
 
@@ -242,6 +279,8 @@ def top_book(score: np.ndarray, tradable: np.ndarray, share: float = TOP) -> np.
 
 
 def oracle_signal(plant: str, g: np.ndarray, tradable: np.ndarray) -> np.ndarray:
+    """The best book that knows the plant: P2 the stocks with both characteristics high, the others (P1, P3 and
+    P4) the top fifth by ``g``."""
     if plant == "P2":
         return np.where(np.isfinite(g), g, -1.0) > 0
     return top_book(g, tradable)
@@ -250,7 +289,10 @@ def oracle_signal(plant: str, g: np.ndarray, tradable: np.ndarray) -> np.ndarray
 # Versions of the GP in 1A. "fitness": the plan's first version (model = fittest, fitness on raw returns).
 # "holdback": the model is chosen on held-back training dates. "clipped", "ranks": the fitness scores books
 # on clipped or ranked training returns (``e9.fitness_returns``). Test results always use the returns as planted.
-SELECTIONS = ("fitness", "holdback", "clipped", "ranks")
+# "score-book", "score-rank": the scoring GP of E10 (``score.evolve_score``) with its book or rank fitness, on the
+# planted returns as they are (it ranks them itself); its book is the top fifth of its score, like the references'.
+SCORE_FITNESS = {"score-book": "book", "score-rank": "rank"}
+SELECTIONS = ("fitness", "holdback", "clipped", "ranks", *SCORE_FITNESS)
 
 
 def part_1a(selection: str = "fitness") -> str:
@@ -260,18 +302,26 @@ def part_1a(selection: str = "fitness") -> str:
     return "1a" if selection == "fitness" else f"1a-{selection}"
 
 
-def path_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, selection: str = "fitness") -> Path:
-    return (small.SMALL_DIR / "results" / CAMPAIGN / part_1a(selection) / plant / ic_label(ic) / f"n{stocks}" / f"t{train}"
-            / f"run{run_number:02d}.json")
+def path_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, selection: str = "fitness",
+            dates: int | None = None) -> Path:
+    """Where a run's record goes; a long sample (``dates``) has an extra folder ``d<dates>`` after the stocks'."""
+    folder = small.SMALL_DIR / "results" / CAMPAIGN / part_1a(selection) / plant / ic_label(ic) / f"n{stocks}"
+    if dates is not None:
+        folder = folder / f"d{dates}"
+    return folder / f"t{train}" / f"run{run_number:02d}.json"
 
 
 def _cells_1a() -> list[tuple[str, float, int, int]]:
-    cells = [(p, ic, s, 57) for p in PLANTS for ic in ICS for s in SIZES]
-    cells += [(p, ic, 700, 36) for p in PLANTS for ic in ICS]
+    cells = [(p, ic, s, 57) for p in DEFAULT_PLANTS for ic in ICS for s in SIZES]
+    cells += [(p, ic, 700, 36) for p in DEFAULT_PLANTS for ic in ICS]
     return cells
 
 
 CELLS_1A = _cells_1a()
+CELLS_P4 = [("P4", ic, s, 57) for ic in ICS for s in SIZES] + [("P4", ic, 700, 36) for ic in ICS]
+DATES_LONG = (150, 315)
+RUNS_LONG = 10
+CELLS_LONG = [(p, ic, 700, long_train(d), d) for p in ("P3", "P4") for ic in (0.03, 0.05, 0.10) for d in DATES_LONG]
 
 
 # ----------------------------------------------------------------------------------- reference learners
@@ -322,40 +372,56 @@ def _reference_scores(inputs: dict[str, np.ndarray], returns: np.ndarray, train:
 # ------------------------------------------------------------------------------------------------ runs, 1A
 def run_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, write: bool = True, *,
            ctx: e9.Context | None = None, budget: dict[str, int] | None = None,
-           test_start: int = TEST_START, selection: str = "fitness") -> dict[str, Any]:
+           test_start: int = TEST_START, selection: str = "fitness", dates: int | None = None) -> dict[str, Any]:
     """Plant, evolve on the first ``train`` dates, score the GP and the references on the dates from
     ``test_start``. With ``selection="holdback"`` the GP evolves on the earlier training dates only and its
     model is the candidate that does best on the latest ones (``e9.choose_on_holdback``); the references
-    always use every training date. ``ctx``, ``budget`` and ``test_start`` are for tests."""
+    always use every training date. With "score-book" or "score-rank" the GP is the scoring GP of E10 and its
+    book is the top fifth of its score, as for the references. With ``dates`` the sample is a long one
+    (``planted_data``): ``train`` must be ``long_train(dates)`` and the test dates start there.
+    ``ctx``, ``budget`` and ``test_start`` are for tests."""
     part_1a(selection)
+    if dates is not None:
+        if train != long_train(dates):
+            raise ValueError(f"a long sample of {dates} dates trains on {long_train(dates)} dates, not {train}")
+        test_start = train
     started = time.perf_counter()
     config = load_config()
     base = load_rungs()[e9.BASE_RUNG]
     ctx = e9.context("small") if ctx is None else ctx
     budget = e9.BUDGET if budget is None else budget
-    data = planted_data(ctx, plant, ic, stocks, run_number)
-    inputs, returns, tradable = data["inputs"], data["returns"], data["tradable"]
-    dates = len(ctx.dates)
-    train_pos, test_pos = np.arange(train), np.arange(test_start, dates)
+    data = planted_data(ctx, plant, ic, stocks, run_number, dates)
+    inputs, returns, tradable, positions = data["inputs"], data["returns"], data["tradable"], data["positions"]
+    n_dates = len(returns)
+    train_pos, test_pos = np.arange(train), np.arange(test_start, n_dates)
     zero_cost = np.zeros_like(returns)
     groups = groups_1a(inputs)
     names = [n for g in groups.values() for n in g]
     fit_pos, held_pos = e9.holdback_split(train_pos) if selection == "holdback" else (train_pos, train_pos[:0])
-    evidence = selection if selection in e9.EVIDENCE else "raw"
-    market = e9.BookMarket(e9.fitness_returns(returns[fit_pos], evidence), zero_cost[fit_pos], e9.LOW, e9.HIGH)
-    settings = replace(base.fitness, min_trades=math.ceil(e9.COVERAGE * len(fit_pos)))
-    evaluator = e9.KeepingEvaluator({n: inputs[n][fit_pos] for n in names}, market, settings, cases=False)
-    grammar = Grammar(groups, fusion_functions=("AND", "OR", "IF"), sources=e9.SOURCES, max_branch_depth=3)
-    gp_config = replace(base.gp, **budget, active_trading=False)
-    rng = make_rng(config.base_seed, "dev", CAMPAIGN, "1a-gp", stocks, train, run_number)
-    best = evolve(grammar, evaluator, gp_config, rng).best
+    rng = make_rng(config.base_seed, "dev", CAMPAIGN, "1a-gp", stocks, train, run_number)   # not the version's
     holdback_score = None
-    if selection == "holdback":
-        found = e9.choose_on_holdback(evaluator.final, {n: inputs[n][held_pos] for n in names},
-                                      e9.BookMarket(returns[held_pos], zero_cost[held_pos], e9.LOW, e9.HIGH))
-        if found is not None:
-            best, holdback_score = found
-    used = e9.inputs_used(best)
+    test_inputs = {n: inputs[n][test_pos] for n in names}
+    if selection in SCORE_FITNESS:
+        evidence = "ranks"
+        best = score.evolve_score({n: inputs[n][train_pos] for n in names},
+                                  {"FA": groups["FA"], "TA": groups["TA"]}, returns[train_pos], zero_cost[train_pos],
+                                  fitness=SCORE_FITNESS[selection], if_inputs=[n for n in names if n.startswith("rg:")],
+                                  budget=budget, rng=rng)
+        used = best.inputs_used()
+    else:
+        evidence = selection if selection in e9.EVIDENCE else "raw"
+        market = e9.BookMarket(e9.fitness_returns(returns[fit_pos], evidence), zero_cost[fit_pos], e9.LOW, e9.HIGH)
+        settings = replace(base.fitness, min_trades=math.ceil(e9.COVERAGE * len(fit_pos)))
+        evaluator = e9.KeepingEvaluator({n: inputs[n][fit_pos] for n in names}, market, settings, cases=False)
+        grammar = Grammar(groups, fusion_functions=("AND", "OR", "IF"), sources=e9.SOURCES, max_branch_depth=3)
+        gp_config = replace(base.gp, **budget, active_trading=False)
+        best = evolve(grammar, evaluator, gp_config, rng).best
+        if selection == "holdback":
+            found = e9.choose_on_holdback(evaluator.final, {n: inputs[n][held_pos] for n in names},
+                                          e9.BookMarket(returns[held_pos], zero_cost[held_pos], e9.LOW, e9.HIGH))
+            if found is not None:
+                best, holdback_score = found
+        used = e9.inputs_used(best)
 
     later = e9.BookMarket(returns[test_pos], zero_cost[test_pos], e9.LOW, e9.HIGH)
     test_tradable = tradable[test_pos]
@@ -363,7 +429,12 @@ def run_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, writ
     def result(signal: np.ndarray) -> float:
         return float(later.gross(signal).mean())
 
-    gp_result = result(signals(best, {n: inputs[n][test_pos] for g in groups.values() for n in g})["C"])
+    if selection in SCORE_FITNESS:
+        gp_result = result(top_book(best.score(test_inputs, test_tradable), test_tradable))
+        model_text, model_tree = best.describe(), best.to_record()
+    else:
+        gp_result = result(signals(best, test_inputs)["C"])
+        model_text, model_tree = describe(best), to_record(best)
     oracle = result(oracle_signal(plant, data["g"][test_pos], test_tradable))
 
     def captured(x: float) -> float | None:
@@ -379,30 +450,51 @@ def run_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, writ
         "budget": budget, "selection": selection, "evidence": evidence, "fit_dates": int(len(fit_pos)), "held_dates": int(len(held_pos)),
         "holdback_score": holdback_score, "lambda": data["lambda"], "n_tradable_mean": float(tradable.sum(axis=1).mean()),
         "realised_ic": _clean(mean_spearman(data["g"], returns)),
-        "model": describe(best), "tree": to_record(best), "fitness": best.fitness, "inputs_used": used,
+        "model": model_text, "tree": model_tree, "fitness": best.fitness, "inputs_used": used,
         "detected": detected(plant, used), "uses_planted": uses_planted(used),
         "gp_test_mean": gp_result, "oracle_test_mean": oracle, "captured": captured(gp_result),
-        "references": refs, "test_dates": [d.strftime("%Y-%m-%d") for d in ctx.dates[test_pos]],
+        "references": refs, "test_dates": [d.strftime("%Y-%m-%d") for d in ctx.dates[positions[test_pos]]],
         "seconds": round(time.perf_counter() - started, 2),
     }
+    extra = {} if dates is None else {"dates": dates}
+    record.update(extra)
     record["provenance"] = provenance.collect(
         config, rung_digest=base.digest(overrides=budget), rung_spec=base.spec, experiment=CAMPAIGN, part="1a",
         plant=plant, ic=ic, stocks=stocks, train=train, run=run_number, selection=selection,
-        sources=list(e9.SOURCES))
+        sources=list(e9.SOURCES), **extra)
     if write:
-        provenance.write(path_1a(plant, ic, stocks, train, run_number, selection), record)
+        provenance.write(path_1a(plant, ic, stocks, train, run_number, selection, dates), record)
     return record
 
 
-def jobs_1a(runs: int = RUNS_1A, selection: str = "fitness", plants=PLANTS) -> list[tuple]:
-    """Unfinished runs as (plant, ic, stocks, train, run), with the selection added when it is not "fitness"."""
+def jobs_1a(runs: int = RUNS_1A, selection: str = "fitness", plants=None, ics=None, long: bool = False) -> list[tuple]:
+    """Unfinished runs as (plant, ic, stocks, train, run), with the selection added when it is not "fitness".
+    ``plants`` default to P1-P3 (P4's cells, ``CELLS_P4``, come when it is named), ``ics`` limits the strengths.
+    With ``long`` only the long samples (``CELLS_LONG``, at most ``RUNS_LONG`` runs each, ``plants`` default P3 and
+    P4) come, as (plant, ic, stocks, train, run, selection, dates)."""
+    wanted = None if ics is None else {float(i) for i in ics}
+    if long:
+        plants = ("P3", "P4") if plants is None else plants
+        return [(p, ic, s, t, k, selection, d) for (p, ic, s, t, d) in CELLS_LONG
+                if p in plants and (wanted is None or ic in wanted) for k in range(min(runs, RUNS_LONG))
+                if not path_1a(p, ic, s, t, k, selection, d).exists()]
+    plants = DEFAULT_PLANTS if plants is None else plants
     extra = () if selection == "fitness" else (selection,)
-    return [(p, ic, s, t, k, *extra) for (p, ic, s, t) in CELLS_1A if p in plants for k in range(runs)
+    cells = CELLS_1A + (CELLS_P4 if "P4" in plants else [])
+    return [(p, ic, s, t, k, *extra) for (p, ic, s, t) in cells
+            if p in plants and (wanted is None or ic in wanted) for k in range(runs)
             if not path_1a(p, ic, s, t, k, selection).exists()]
 
 
+def shard_of(job: tuple, parts: int) -> int:
+    """The part (1 to ``parts``) of a job array that does this run: fixed by the run itself, so it does not
+    move when other runs finish, and two parts never do the same run."""
+    return zlib.crc32(repr(tuple(job)).encode()) % parts + 1
+
+
 def run_job_1a(job: tuple) -> str:
-    record = run_1a(*job[:5], selection=job[5] if len(job) > 5 else "fitness")
+    """Run a job of ``jobs_1a``: 5 elements (plant, ic, stocks, train, run), 6 with the selection, 7 with the dates."""
+    record = run_1a(*job[:5], selection=job[5] if len(job) > 5 else "fitness", dates=job[6] if len(job) > 6 else None)
     return (f"{job}: fitness {record['fitness']:.3f}, detected {record['detected']}, "
             f"{record['seconds']:.0f} s")
 
@@ -533,6 +625,7 @@ def _records(root: Path) -> list[dict]:
 
 def _flat_1a(r: dict) -> dict:
     row = {"plant": r["plant"], "ic": r["ic"], "stocks": r["stocks"], "train": r["train"], "run": r["run"],
+           "dates": r.get("dates"),
            "detected": bool(r["detected"]), "uses_planted": bool(r["uses_planted"]), "fitness": r["fitness"],
            "gp_test": r["gp_test_mean"], "gp_captured": _nan(r["captured"])}
     for k in REFERENCES:
@@ -563,6 +656,21 @@ def table_1a(frame: pd.DataFrame) -> pd.DataFrame:
                 row[f"{k}_detection"] = float(g[f"{k}_detected"].mean())
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def table_long(frame: pd.DataFrame) -> pd.DataFrame:
+    """One row per plant, strength and number of dates of the long samples."""
+    keys = ["plant", "ic", "dates"]
+    rows = []
+    for key, g in frame.groupby(keys, sort=True):
+        row = dict(zip(keys, key))
+        row.update({"runs": len(g), "gp_detection": float(g["detected"].mean()),
+                    "gp_captured_median": float(g["gp_captured"].median())})
+        for k in REFERENCES:
+            row[f"{k}_captured_median"] = float(g[f"{k}_captured"].median())
+        rows.append(row)
+    return pd.DataFrame(rows, columns=keys + ["runs", "gp_detection", "gp_captured_median",
+                                              *[f"{k}_captured_median" for k in REFERENCES]])
 
 
 def _holds(flag: bool) -> str:
@@ -637,6 +745,8 @@ def report(selection: str = "fitness") -> dict[str, pd.DataFrame]:
     out: dict[str, pd.DataFrame] = {}
     records = _records(small.SMALL_DIR / "results" / CAMPAIGN / part)
     print(f"Control 1A (ranking stocks), version {selection!r}: {len(records)} runs found")
+    long_records = [r for r in records if r.get("dates") is not None]
+    records = [r for r in records if r.get("dates") is None]      # the conditions are about the 81 real dates
     if records:
         frame = pd.DataFrame([_flat_1a(r) for r in records])
         table = table_1a(frame)
@@ -653,6 +763,16 @@ def report(selection: str = "fitness") -> dict[str, pd.DataFrame]:
         target = small.SMALL_DIR / "results" / f"control_{part.replace('-', '_')}.csv"
         target.parent.mkdir(parents=True, exist_ok=True)
         table.to_csv(target, index=False)
+    if long_records:
+        longs = table_long(pd.DataFrame([_flat_1a(r) for r in long_records]))
+        out["1a_long"] = longs
+        shown = longs.assign(gp_detection=100 * longs["gp_detection"])
+        print(f"\nLong samples (block-bootstrapped dates, 70% training): {len(long_records)} runs found "
+              f"(detection in %; captured = share of the oracle's result)")
+        print(shown.round(3).to_string(index=False))
+        target = small.SMALL_DIR / "results" / f"control_{part.replace('-', '_')}_long.csv"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        longs.to_csv(target, index=False)
     records = _records(store.data_dir() / "results" / CAMPAIGN / "1b")
     print(f"\nControl 1B (timing one stock): {len(records)} runs found")
     if records:
@@ -668,4 +788,4 @@ def report(selection: str = "fitness") -> dict[str, pd.DataFrame]:
     return out
 
 
-__all__ = ["CELLS_1A", "planted_data", "run_1a", "jobs_1a", "run_job_1a", "run_1b", "jobs_1b", "run_job_1b", "report"]
+__all__ = ["CELLS_1A", "CELLS_P4", "CELLS_LONG", "planted_data", "run_1a", "jobs_1a", "run_job_1a", "run_1b", "jobs_1b", "run_job_1b", "report"]

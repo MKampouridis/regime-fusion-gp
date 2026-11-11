@@ -447,3 +447,258 @@ def test_run_1a_on_ranked_returns_changes_the_fitness_only(ctx, tmp_path, monkey
         assert a["oracle_test_mean"] == plain["oracle_test_mean"] and a["references"] == plain["references"]
         assert control.path_1a("P1", 0.05, 300, 12, 0, version).exists()
     assert plain["evidence"] == "raw"
+
+
+# ------------------------------------------------------------------------ the scoring GP's two versions (S1b)
+def test_the_score_versions_run_end_to_end_and_repeat_exactly(ctx, tmp_path, monkeypatch):
+    monkeypatch.setattr(control.small, "SMALL_DIR", tmp_path)
+    kwargs = dict(ctx=ctx, budget={"population": 12, "generations": 2}, test_start=20)
+    plain = control.run_1a("P1", 0.05, 300, 12, 0, write=False, **kwargs)
+    for version, fitness in (("score-book", "book"), ("score-rank", "rank")):
+        a = control.run_1a("P1", 0.05, 300, 12, 0, selection=version, **kwargs)
+        b = control.run_1a("P1", 0.05, 300, 12, 0, write=False, selection=version, **kwargs)
+        for key in ("model", "tree", "fitness", "inputs_used", "detected", "uses_planted", "gp_test_mean",
+                    "oracle_test_mean", "captured", "references", "lambda"):
+            assert a[key] == b[key], key
+        assert (a["selection"], a["evidence"], a["held_dates"], a["fit_dates"]) == (version, "ranks", 0, 12)
+        assert set(a["tree"]) == {"fusion", "branches", "fitness"} and "fusion:" in a["model"]
+        assert np.isfinite(a["gp_test_mean"]) and isinstance(a["detected"], bool)
+        # the references and the oracle do not depend on the GP's version
+        assert a["references"] == plain["references"] and a["oracle_test_mean"] == plain["oracle_test_mean"]
+        assert control.path_1a("P1", 0.05, 300, 12, 0, version).exists()
+        assert f"1a-{version}" in control.path_1a("P1", 0.05, 300, 12, 0, version).parts
+        assert json.loads(control.path_1a("P1", 0.05, 300, 12, 0, version).read_text())["selection"] == version
+    assert not control.path_1a("P1", 0.05, 300, 12, 0).exists()
+    # the score model's result is the top fifth of its score, evaluated like the references'
+    from regime_fusion.dev import score
+    model = score.ScoreModel.from_record(json.loads(control.path_1a("P1", 0.05, 300, 12, 0, "score-book").read_text())["tree"])
+    data = control.planted_data(ctx, "P1", 0.05, 300, 0)
+    test = np.arange(20, len(ctx.dates))
+    later = e9.BookMarket(data["returns"][test], np.zeros((len(test), data["returns"].shape[1])), e9.LOW, e9.HIGH)
+    tradable = data["tradable"][test]
+    expected = later.gross(control.top_book(model.score({n: v[test] for n, v in data["inputs"].items()}, tradable),
+                                            tradable)).mean()
+    assert expected == pytest.approx(
+        json.loads(control.path_1a("P1", 0.05, 300, 12, 0, "score-book").read_text())["gp_test_mean"])
+
+
+def test_the_gps_seed_is_the_same_call_for_every_version(ctx, monkeypatch):
+    calls = []
+    real = control.make_rng
+
+    def spy(*args):
+        calls.append(args)
+        return real(*args)
+
+    monkeypatch.setattr(control, "make_rng", spy)
+    kwargs = dict(ctx=ctx, budget={"population": 8, "generations": 1}, test_start=20, write=False)
+    seen = {}
+    for version in ("fitness", "ranks", "score-book", "score-rank"):
+        calls.clear()
+        control.run_1a("P3", 0.05, 300, 12, 0, selection=version, **kwargs)
+        seen[version] = [c for c in calls if c[3] == "1a-gp"]
+    assert len(seen["fitness"]) == 1 and seen["fitness"][0][4:] == (300, 12, 0)
+    assert all(v == seen["fitness"] for v in seen.values())
+    assert "score-book" in control.SELECTIONS and "score-rank" in control.SELECTIONS
+    assert control.part_1a("score-rank") == "1a-score-rank"
+
+
+# -------------------------------------------------------------------------------------------------- P4
+def test_p1_to_p3_data_are_unchanged_by_the_fourth_plant(ctx):
+    import hashlib
+    # checksums of the data (returns, g, every input) computed before P4 was added
+    expected = {("P1", 0.05, 700, 0): "61ba635e2b32b7b3", ("P2", 0.03, 300, 1): "6f268b155869499e",
+                ("P3", 0.10, 700, 2): "c80ede26f57eaea6"}
+    for (plant, ic, stocks, run), digest in expected.items():
+        d = control.planted_data(ctx, plant, ic, stocks, run)
+        h = hashlib.sha256()
+        h.update(np.nan_to_num(d["returns"], nan=-9).tobytes())
+        h.update(np.nan_to_num(d["g"], nan=-9).tobytes())
+        for k in sorted(d["inputs"]):
+            h.update(np.nan_to_num(d["inputs"][k], nan=-9).tobytes())
+        assert h.hexdigest()[:16] == digest, plant
+
+
+def test_p4_follows_the_state_and_fa_alone_shows_no_overall_correlation():
+    big = synthetic_context(stocks=200, dates=80, seed=3)
+    data = control.planted_data(big, "P4", 0.10, 700, 0)
+    state = data["inputs"]["rg:planted_state"][:, 0]
+    u1 = data["inputs"]["fa:planted"]
+    assert (state > 0).any() and (state < 0).any()
+    for d in range(len(state)):
+        assert np.array_equal(data["g"][d], state[d] * u1[d], equal_nan=True)
+    assert control.mean_spearman(data["g"], data["returns"]) == pytest.approx(0.10, abs=control.IC_TOLERANCE_1A)
+    assert data["lambda"] > 0
+    # signed by the state the per-date correlation of fa:planted is the planted strength; unsigned it cancels
+    per_date = control._spearman_rows(u1, data["returns"])
+    assert np.nanmean(per_date * state) > 0.07
+    assert abs(np.nanmean(per_date)) < 0.05
+    # same shuffle and inputs as the other plants for the same sample
+    p1 = control.planted_data(big, "P1", 0.0, 700, 0)
+    zero = control.planted_data(big, "P4", 0.0, 700, 0)
+    assert np.array_equal(p1["returns"], zero["returns"], equal_nan=True)
+    assert np.array_equal(p1["inputs"]["fa:planted"], u1, equal_nan=True)
+
+
+def test_p4_detection_rule_and_oracle(ctx):
+    assert control.detected("P4", ["fa:planted", "rg:planted_state"])
+    assert control.detected("P4", ["fa:planted", "rg:planted_state", "ta:x"])
+    assert not control.detected("P4", ["fa:planted"])
+    assert not control.detected("P4", ["rg:planted_state", "ta:planted"])
+    assert "P4" in control.PLANTS and "P4" not in control.DEFAULT_PLANTS
+    data = control.planted_data(ctx, "P4", 0.10, 700, 0)
+    test = np.arange(20, len(ctx.dates))
+    market = e9.BookMarket(data["returns"][test], np.zeros((len(test), data["returns"].shape[1])))
+    book = control.oracle_signal("P4", data["g"][test], data["tradable"][test])
+    assert market.gross(book).mean() > 0.01
+
+
+def test_p4_runs_for_the_references_without_a_detected_flag(ctx):
+    a = control.run_1a("P4", 0.05, 300, 12, 0, write=False, ctx=ctx, budget={"population": 8, "generations": 1},
+                       test_start=20)
+    assert all(a["references"][k]["detected"] is None for k in control.REFERENCES)
+    assert a["plant"] == "P4" and a["detected"] in (True, False)
+
+
+# ------------------------------------------------------------------------------------------- long samples
+def test_a_long_sample_resamples_the_dates_and_keeps_the_rest_of_the_machinery(ctx):
+    d = control.planted_data(ctx, "P3", 0.05, 700, 0, dates=150)
+    assert d["returns"].shape == (150, ctx.hedged.shape[1]) and d["g"].shape == d["returns"].shape
+    assert all(v.shape == d["returns"].shape for v in d["inputs"].values())
+    pos = d["positions"]
+    assert len(pos) == 150 and pos.min() >= 0 and pos.max() < len(ctx.dates)
+    assert np.array_equal(d["tradable"], np.isfinite(ctx.hedged)[pos])
+    assert control.mean_spearman(d["g"], d["returns"]) == pytest.approx(0.05, abs=control.IC_TOLERANCE_1A)
+    # a decoy input is the real input at those dates
+    assert np.array_equal(d["inputs"]["fa:earnings_price"], ctx.inputs["fa:earnings_price"][pos], equal_nan=True)
+    # blocks: mostly consecutive positions (mean block 6), with some jumps
+    steps = np.diff(pos) % len(ctx.dates)
+    assert 0.6 < (steps == 1).mean() < 0.95
+    # determinism
+    again = control.planted_data(ctx, "P3", 0.05, 700, 0, dates=150)
+    assert np.array_equal(again["returns"], d["returns"], equal_nan=True) and np.array_equal(again["positions"], pos)
+    # the default is the real dates
+    short = control.planted_data(ctx, "P3", 0.05, 700, 0)
+    assert np.array_equal(short["positions"], np.arange(len(ctx.dates))) and short["returns"].shape[0] == len(ctx.dates)
+
+
+def test_the_bootstrap_positions_depend_on_dates_and_run_only(ctx):
+    base = control.planted_data(ctx, "P3", 0.03, 700, 1, dates=150)["positions"]
+    for plant, ic, stocks in (("P4", 0.10, 700), ("P1", 0.0, 700), ("P2", 0.05, 300)):
+        assert np.array_equal(control.planted_data(ctx, plant, ic, stocks, 1, dates=150)["positions"], base)
+    assert not np.array_equal(control.planted_data(ctx, "P3", 0.03, 700, 2, dates=150)["positions"], base)
+    assert not np.array_equal(control.planted_data(ctx, "P3", 0.03, 700, 1, dates=315)["positions"][:150], base)
+    # and the helper alone: any length, wrapping round
+    got = control.block_positions(10, 100, 6.0, np.random.default_rng(0))
+    assert len(got) == 100 and got.min() >= 0 and got.max() < 10
+
+
+def test_the_planted_characteristic_is_slow_along_the_new_timeline(ctx):
+    u1 = control.planted_data(ctx, "P1", 0.0, 700, 0, dates=315)["inputs"]["fa:planted"]
+    both = np.isfinite(u1[1:]) & np.isfinite(u1[:-1])
+    assert np.corrcoef(u1[1:][both], u1[:-1][both])[0, 1] == pytest.approx(0.9, abs=0.03)
+
+
+def test_long_split_paths_and_train_check(ctx, tmp_path, monkeypatch):
+    monkeypatch.setattr(control.small, "SMALL_DIR", tmp_path)
+    assert control.long_train(150) == 105 and control.long_train(315) == 220
+    target = control.path_1a("P4", 0.05, 700, 220, 3, "score-book", 315)
+    assert target == (tmp_path / "results" / "dev-control" / "1a-score-book" / "P4" / "ic005" / "n700" / "d315" / "t220"
+                      / "run03.json")
+    assert control.path_1a("P4", 0.05, 700, 57, 3) == (tmp_path / "results" / "dev-control" / "1a" / "P4" / "ic005"
+                                                       / "n700" / "t57" / "run03.json")
+    kwargs = dict(ctx=ctx, budget={"population": 8, "generations": 1})
+    with pytest.raises(ValueError):
+        control.run_1a("P3", 0.05, 700, 57, 0, write=False, dates=40, **kwargs)
+    a = control.run_1a("P3", 0.05, 300, control.long_train(40), 0, dates=40, **kwargs)
+    b = control.run_1a("P3", 0.05, 300, control.long_train(40), 0, write=False, dates=40, **kwargs)
+    assert control.long_train(40) == 28
+    assert a["dates"] == 40 and a["train"] == 28 and len(a["test_dates"]) == 12
+    assert a["tree"] == b["tree"] and a["gp_test_mean"] == b["gp_test_mean"] and a["references"] == b["references"]
+    assert control.path_1a("P3", 0.05, 300, 28, 0, "fitness", 40).exists()
+    assert not control.path_1a("P3", 0.05, 300, 28, 0).exists()
+    assert all(d.count("-") == 2 for d in a["test_dates"])
+    # the positions, so the test dates, do not depend on the GP's version
+    for version in ("score-rank", "ranks"):
+        c = control.run_1a("P3", 0.05, 300, 28, 0, write=False, dates=40, selection=version, **kwargs)
+        assert c["test_dates"] == a["test_dates"] and c["references"] == a["references"]
+
+
+# ------------------------------------------------------------------------------------------------ the jobs
+def test_the_job_lists_for_p4_ics_and_long_samples(tmp_path, monkeypatch):
+    monkeypatch.setattr(control.small, "SMALL_DIR", tmp_path)
+    assert len(control.CELLS_1A) == 60 and len(control.CELLS_P4) == 20 and len(set(control.CELLS_P4)) == 20
+    assert {c[0] for c in control.CELLS_P4} == {"P4"} and sum(1 for c in control.CELLS_P4 if c[3] == 36) == 5
+    assert len(control.jobs_1a(runs=1)) == 60
+    assert len(control.jobs_1a(runs=1, plants=("P4",))) == 20
+    assert len(control.jobs_1a(runs=1, plants=control.PLANTS)) == 80
+    assert len(control.jobs_1a(runs=2, plants=("P1", "P4"))) == 2 * 40
+    ics = control.jobs_1a(runs=1, selection="score-book", plants=("P1",), ics=[0.0, 0.02, 0.03])
+    assert len(ics) == 3 * 4 and {j[1] for j in ics} == {0.0, 0.02, 0.03} and all(j[5] == "score-book" and len(j) == 6 for j in ics)
+    long = control.jobs_1a(runs=10, long=True)
+    assert len(control.CELLS_LONG) == 12 and len(long) == 120
+    assert {j[0] for j in long} == {"P3", "P4"} and {j[6] for j in long} == {150, 315} and all(len(j) == 7 for j in long)
+    assert {(j[6], j[3]) for j in long} == {(150, 105), (315, 220)} and all(j[2] == 700 for j in long)
+    assert len(control.jobs_1a(runs=3, long=True)) == 36
+    assert len(control.jobs_1a(runs=10, long=True, ics=[0.05])) == 40
+    assert len(control.jobs_1a(runs=10, long=True, plants=("P4",), selection="score-rank")) == 60
+    # finished records are skipped in each form
+    for p in (control.path_1a("P4", 0.03, 700, 57, 0), control.path_1a("P3", 0.05, 700, 220, 1, "fitness", 315)):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}")
+    assert ("P4", 0.03, 700, 57, 0) not in control.jobs_1a(runs=1, plants=("P4",)) and \
+        len(control.jobs_1a(runs=1, plants=("P4",))) == 19
+    skipped = control.jobs_1a(runs=10, long=True)
+    assert ("P3", 0.05, 700, 220, 1, "fitness", 315) not in skipped and len(skipped) == 119
+
+
+def test_run_job_1a_reads_all_three_forms(monkeypatch):
+    seen = []
+
+    def fake(*args, **kwargs):
+        seen.append((args, kwargs))
+        return {"fitness": 0.1, "detected": False, "seconds": 1.0}
+
+    monkeypatch.setattr(control, "run_1a", fake)
+    control.run_job_1a(("P1", 0.05, 700, 57, 2))
+    control.run_job_1a(("P1", 0.05, 700, 57, 2, "ranks"))
+    control.run_job_1a(("P4", 0.05, 700, 220, 2, "score-rank", 315))
+    assert seen[0] == (("P1", 0.05, 700, 57, 2), {"selection": "fitness", "dates": None})
+    assert seen[1][1] == {"selection": "ranks", "dates": None}
+    assert seen[2] == (("P4", 0.05, 700, 220, 2), {"selection": "score-rank", "dates": 315})
+
+
+def test_the_report_with_a_p4_record_and_long_records(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(control.small, "SMALL_DIR", tmp_path / "small")
+    monkeypatch.setenv("RFGP_DATA_DIR", str(tmp_path / "data"))
+    for k in range(4):
+        write(control.path_1a("P1", 0.05, 700, 57, k), fake_1a("P1", 0.05, 700, 57, k, k < 3, 0.02))
+        write(control.path_1a("P1", 0.0, 700, 57, k), fake_1a("P1", 0.0, 700, 57, k, False, 0.001 * (-1) ** k))
+    write(control.path_1a("P4", 0.05, 700, 57, 0), fake_1a("P4", 0.05, 700, 57, 0, False))
+    for k in range(3):
+        for plant in ("P3", "P4"):
+            record = fake_1a(plant, 0.05, 700, 220, k, k == 0, 0.04)
+            record["dates"] = 315
+            write(control.path_1a(plant, 0.05, 700, 220, k, "fitness", 315), record)
+    out = control.report()
+    text = capsys.readouterr().out
+    assert set(out) == {"1a", "1a_long"}
+    table, longs = out["1a"], out["1a_long"]
+    assert (table["plant"] == "P4").sum() == 1 and "dates" not in table.columns
+    assert len(table) == 3 and table["runs"].sum() == 9           # the long records stay out of the 81-date table
+    assert list(longs.columns) == ["plant", "ic", "dates", "runs", "gp_detection", "gp_captured_median",
+                                   "best_single_captured_median", "ridge_captured_median", "lightgbm_captured_median"]
+    assert longs["runs"].tolist() == [3, 3] and longs["gp_detection"].iloc[0] == pytest.approx(1 / 3)
+    assert longs["gp_captured_median"].iloc[0] == pytest.approx(0.8)
+    assert "Long samples" in text and "over 4 runs" in text      # the condition counts the 81-date records only
+    assert (tmp_path / "small" / "results" / "control_1a_long.csv").exists()
+    assert pd.read_csv(tmp_path / "small" / "results" / "control_1a_long.csv")["dates"].tolist() == [315, 315]
+
+
+def test_shards_split_the_runs_without_overlap_and_do_not_move():
+    jobs = control.jobs_1a(runs=3, selection="score-book", plants=("P1",))
+    parts = [control.shard_of(j, 7) for j in jobs]
+    assert set(parts) <= set(range(1, 8)) and len(set(parts)) == 7
+    # a run's part depends on the run alone, not on which other runs are still to do
+    assert [control.shard_of(j, 7) for j in jobs[5:]] == parts[5:]
+    assert control.shard_of(list(jobs[0]), 7) == parts[0]

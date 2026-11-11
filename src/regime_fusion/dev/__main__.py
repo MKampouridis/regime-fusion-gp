@@ -51,7 +51,14 @@ def main(argv: list[str] | None = None) -> int:
             sub.add_argument("--selection", choices=control.SELECTIONS, default="fitness",
                              help="the GP's version: the plan's first, the model chosen on held-back dates, "
                                   "or the fitness on clipped or ranked training returns")
-            sub.add_argument("--plants", nargs="+", choices=control.PLANTS, default=list(control.PLANTS))
+            sub.add_argument("--plants", nargs="+", choices=control.PLANTS, default=None,
+                             help="default P1-P3 (P3 and P4 with --long); P4 only when named")
+            sub.add_argument("--ics", nargs="+", type=float, default=None, help="only these strengths")
+            sub.add_argument("--long", action="store_true",
+                             help="the long samples (150 and 315 block-bootstrapped dates) instead of the 81 real dates")
+            sub.add_argument("--shard", default=None, metavar="K/N",
+                             help="do only part K of N of the runs (for a job array: each run belongs to one part, "
+                                  "whichever runs are already finished)")
     sub = commands.add_parser("control-report", help="summarise the positive control and apply the plan's conditions")
     sub.add_argument("--selection", choices=control.SELECTIONS, default="fitness")
     sub = commands.add_parser("acttrade", help="replicate ActTrade's protocol on our data (tuning, then final runs)")
@@ -85,8 +92,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command in ("control-1a", "control-1b"):
         part = args.command[-2:]
-        todo = (control.jobs_1a(args.runs, args.selection, args.plants) if part == "1a"
+        todo = (control.jobs_1a(args.runs, args.selection, args.plants, args.ics, args.long) if part == "1a"
                 else control.jobs_1b(args.runs))
+        if part == "1a" and args.shard:
+            k, n = (int(x) for x in args.shard.split("/"))
+            if not 1 <= k <= n:
+                raise SystemExit("--shard K/N needs 1 <= K <= N")
+            todo = [job for job in todo if control.shard_of(job, n) == k]
         run_job = control.run_job_1a if part == "1a" else control.run_job_1b
         log.info("control %s: %d runs to do with %d workers", part, len(todo), args.workers)
         if todo and part == "1a":
