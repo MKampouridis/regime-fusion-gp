@@ -247,7 +247,10 @@ def oracle_signal(plant: str, g: np.ndarray, tradable: np.ndarray) -> np.ndarray
     return top_book(g, tradable)
 
 
-SELECTIONS = ("fitness", "holdback")    # how a run's model is chosen; "fitness" is the plan's first version
+# Versions of the GP in 1A. "fitness": the plan's first version (model = fittest, fitness on raw returns).
+# "holdback": the model is chosen on held-back training dates. "clipped", "ranks": the fitness scores books
+# on clipped or ranked training returns (``e9.fitness_returns``). Test results always use the returns as planted.
+SELECTIONS = ("fitness", "holdback", "clipped", "ranks")
 
 
 def part_1a(selection: str = "fitness") -> str:
@@ -337,8 +340,9 @@ def run_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, writ
     zero_cost = np.zeros_like(returns)
     groups = groups_1a(inputs)
     names = [n for g in groups.values() for n in g]
-    fit_pos, held_pos = (train_pos, train_pos[:0]) if selection == "fitness" else e9.holdback_split(train_pos)
-    market = e9.BookMarket(returns[fit_pos], zero_cost[fit_pos], e9.LOW, e9.HIGH)
+    fit_pos, held_pos = e9.holdback_split(train_pos) if selection == "holdback" else (train_pos, train_pos[:0])
+    evidence = selection if selection in e9.EVIDENCE else "raw"
+    market = e9.BookMarket(e9.fitness_returns(returns[fit_pos], evidence), zero_cost[fit_pos], e9.LOW, e9.HIGH)
     settings = replace(base.fitness, min_trades=math.ceil(e9.COVERAGE * len(fit_pos)))
     evaluator = e9.KeepingEvaluator({n: inputs[n][fit_pos] for n in names}, market, settings, cases=False)
     grammar = Grammar(groups, fusion_functions=("AND", "OR", "IF"), sources=e9.SOURCES, max_branch_depth=3)
@@ -372,7 +376,7 @@ def run_1a(plant: str, ic: float, stocks: int, train: int, run_number: int, writ
                       "detected": bool(found["detected"]) if plant == "P1" else None}
     record = {
         "campaign": CAMPAIGN, "part": "1a", "plant": plant, "ic": ic, "stocks": stocks, "train": train, "run": run_number,
-        "budget": budget, "selection": selection, "fit_dates": int(len(fit_pos)), "held_dates": int(len(held_pos)),
+        "budget": budget, "selection": selection, "evidence": evidence, "fit_dates": int(len(fit_pos)), "held_dates": int(len(held_pos)),
         "holdback_score": holdback_score, "lambda": data["lambda"], "n_tradable_mean": float(tradable.sum(axis=1).mean()),
         "realised_ic": _clean(mean_spearman(data["g"], returns)),
         "model": describe(best), "tree": to_record(best), "fitness": best.fitness, "inputs_used": used,
@@ -632,7 +636,7 @@ def report(selection: str = "fitness") -> dict[str, pd.DataFrame]:
     pd.set_option("display.max_columns", 40)
     out: dict[str, pd.DataFrame] = {}
     records = _records(small.SMALL_DIR / "results" / CAMPAIGN / part)
-    print(f"Control 1A (ranking stocks), model chosen by {selection}: {len(records)} runs found")
+    print(f"Control 1A (ranking stocks), version {selection!r}: {len(records)} runs found")
     if records:
         frame = pd.DataFrame([_flat_1a(r) for r in records])
         table = table_1a(frame)

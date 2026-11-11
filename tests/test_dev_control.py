@@ -419,3 +419,31 @@ def test_run_1a_with_holdback_evolves_on_the_earlier_dates_and_writes_apart(ctx,
     assert len(jobs) == 20 and all(j[0] == "P1" and j[5] == "holdback" for j in jobs)
     with pytest.raises(ValueError):
         control.part_1a("other")
+
+
+# --------------------------------------------------------------- the returns the training fitness is shown
+def test_fitness_returns_clip_or_rank_each_date_on_its_own():
+    r = np.array([[0.0, 1.0, 2.0, 100.0, np.nan], [np.nan, np.nan, np.nan, np.nan, np.nan], [3.0, -50.0, 1.0, 2.0, 0.0]])
+    assert e9.fitness_returns(r) is not None and np.array_equal(e9.fitness_returns(r, "raw"), r, equal_nan=True)
+    ranks = e9.fitness_returns(r, "ranks")
+    assert np.allclose(ranks[0, :4], [-1, -1 / 3, 1 / 3, 1]) and np.isnan(ranks[0, 4]) and np.isnan(ranks[1]).all()
+    assert np.allclose(ranks[2], [1, -1, 0, 0.5, -0.5])
+    clipped = e9.fitness_returns(r, "clipped")
+    assert clipped[0, 3] < 100 and clipped[2, 1] > -50 and clipped[0, 1] == 1.0 and np.isnan(clipped[0, 4])
+    # a date's values do not depend on any other date
+    assert np.array_equal(e9.fitness_returns(r[:1], "ranks"), ranks[:1], equal_nan=True)
+    assert np.array_equal(e9.fitness_returns(r[2:], "clipped"), clipped[2:], equal_nan=True)
+    with pytest.raises(ValueError):
+        e9.fitness_returns(r, "other")
+
+
+def test_run_1a_on_ranked_returns_changes_the_fitness_only(ctx, tmp_path, monkeypatch):
+    monkeypatch.setattr(control.small, "SMALL_DIR", tmp_path)
+    kwargs = dict(ctx=ctx, budget={"population": 20, "generations": 2}, test_start=20)
+    plain = control.run_1a("P1", 0.05, 300, 12, 0, write=False, **kwargs)
+    for version in ("ranks", "clipped"):
+        a = control.run_1a("P1", 0.05, 300, 12, 0, selection=version, **kwargs)
+        assert a["evidence"] == version and a["held_dates"] == 0 and a["fit_dates"] == 12
+        assert a["oracle_test_mean"] == plain["oracle_test_mean"] and a["references"] == plain["references"]
+        assert control.path_1a("P1", 0.05, 300, 12, 0, version).exists()
+    assert plain["evidence"] == "raw"

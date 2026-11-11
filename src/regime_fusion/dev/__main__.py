@@ -49,7 +49,8 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_argument("--runs", type=int, default=control.RUNS_1A if part == "1a" else control.RUNS_1B)
         if part == "1a":
             sub.add_argument("--selection", choices=control.SELECTIONS, default="fitness",
-                             help="how a run's model is chosen: by training fitness, or on held-back training dates")
+                             help="the GP's version: the plan's first, the model chosen on held-back dates, "
+                                  "or the fitness on clipped or ranked training returns")
             sub.add_argument("--plants", nargs="+", choices=control.PLANTS, default=list(control.PLANTS))
     sub = commands.add_parser("control-report", help="summarise the positive control and apply the plan's conditions")
     sub.add_argument("--selection", choices=control.SELECTIONS, default="fitness")

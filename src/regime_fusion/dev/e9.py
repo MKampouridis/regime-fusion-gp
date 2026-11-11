@@ -114,6 +114,37 @@ def choose_on_holdback(population, data: dict[str, np.ndarray], market: "BookMar
     return (chosen, best) if chosen is not None else None
 
 
+# ------------------------------------------------------------- the returns the training fitness is shown
+EVIDENCE = ("raw", "clipped", "ranks")
+CLIP = (5.0, 95.0)                # percentiles of a date's returns for "clipped"
+
+
+def fitness_returns(hedged: np.ndarray, how: str = "raw") -> np.ndarray:
+    """The date x stock returns a training fitness scores books on. ``raw``: unchanged. ``clipped``: each
+    date's returns limited to that date's 5th and 95th percentiles. ``ranks``: each return replaced by its
+    rank among the date's stocks, from -1 to 1. Each date uses its own stocks only, and NaN stays NaN.
+    A few extreme returns dominate a book's raw result and hide a weak signal; the other two limit that.
+    Only the fitness is meant to see these: results are always measured on the returns themselves."""
+    if how not in EVIDENCE:
+        raise ValueError(f"unknown evidence {how!r}")
+    hedged = np.asarray(hedged, dtype=float)
+    if how == "raw":
+        return hedged
+    out = np.full(hedged.shape, np.nan)
+    for i, row in enumerate(hedged):
+        ok = np.isfinite(row)
+        if not ok.any():
+            continue
+        if how == "clipped":
+            low, high = np.percentile(row[ok], CLIP)
+            out[i, ok] = np.clip(row[ok], low, high)
+        else:
+            n = int(ok.sum())
+            ranks = pd.Series(row[ok]).rank().to_numpy() - 1.0
+            out[i, ok] = 2.0 * ranks / (n - 1) - 1.0 if n > 1 else 0.0
+    return out
+
+
 # ---------------------------------------------------------------------------------------- the book market
 class BookMarket:
     """Hedged returns and costs of a date x stock grid; ``simulate`` scores a date x stock Boolean signal.
