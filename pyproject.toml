@@ -26,6 +26,8 @@ download = [
     "requests>=2.31",
     "yfinance>=0.2.54",
 ]
+# Downloading from WRDS (src/regime_fusion/data/wrds.py); the tests use a fake connection.
+wrds = ["wrds>=3.2"]
 # The machine-learning benchmarks (src/regime_fusion/ml).
 ml = [
     "scikit-learn>=1.4",

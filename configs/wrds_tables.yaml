@@ -1,0 +1,96 @@
+# Tables to describe and download from WRDS (src/regime_fusion/data/wrds.py; see docs/DATA.md, "WRDS").
+#
+# Each entry:
+#   table        schema.table on WRDS
+#   candidates   other tables to describe only (a name, or {table:, date_column:})
+#   columns      the columns to download, or "*" for all
+#   date_column  a date column: its minimum and maximum are reported by `describe`
+#   chunk_by     a date column; the download writes one file per calendar year of it
+#   start        first calendar year to download (chunked tables)
+#   where        extra SQL conditions, joined to the year range with AND
+#   download     true to download by default; false to describe only
+#
+# Names marked "confirm" are drafts: run `describe`, read schema.json, then correct them here.
+# To change a column list, edit `columns` and run `download` again for that table; delete the
+# table's folder under <data dir>/wrds/ first, since a finished chunk is skipped.
+
+tables:
+  crsp_dsf:                      # confirm: legacy format, frozen at December 2024
+    table: crsp.dsf
+    candidates: [{table: crsp.dsf_v2, date_column: dlycaldt}]
+    columns: [permno, date, prc, openprc, askhi, bidlo, vol, ret, shrout, cfacpr, cfacshr]
+    date_column: date
+    chunk_by: date
+    start: 1970
+    download: true
+  crsp_msf:                      # confirm
+    table: crsp.msf
+    candidates: [{table: crsp.msf_v2, date_column: mthcaldt}]
+    columns: [permno, date, prc, vol, ret, shrout, cfacpr, cfacshr]
+    date_column: date
+    download: true
+  crsp_msenames:                 # confirm
+    table: crsp.msenames
+    candidates: [crsp.stksecurityinfohist]
+    columns: [permno, namedt, nameendt, shrcd, exchcd, siccd, ticker, comnam, ncusip]
+    download: true
+  crsp_dsedelist:
+    table: crsp.dsedelist
+    columns: [permno, dlstdt, dlstcd, dlret]
+    date_column: dlstdt
+    download: true
+  crsp_msedelist:
+    table: crsp.msedelist
+    columns: [permno, dlstdt, dlstcd, dlret]
+    date_column: dlstdt
+    download: true
+  crsp_dsi:
+    table: crsp.dsi
+    columns: [date, vwretd, ewretd, sprtrn]
+    date_column: date
+    download: true
+  ccm_link:                      # confirm
+    table: crsp.ccmxpf_lnkhist
+    candidates: [crsp.ccmxpf_linktable]
+    columns: [gvkey, lpermno, lpermco, linktype, linkprim, linkdt, linkenddt]
+    download: true
+  comp_funda:
+    table: comp.funda
+    columns: [gvkey, datadate, fyear, indfmt, datafmt, popsrc, consol, at, lt, seq, ceq, pstk, pstkrv,
+              pstkl, txditc, sale, revt, cogs, xsga, xint, ib, ni, oancf, act, lct, che, dlc, dltt, dp,
+              capx, csho, prcc_f]
+    date_column: datadate
+    chunk_by: datadate
+    start: 1965
+    where: "indfmt = 'INDL' AND datafmt = 'STD' AND popsrc = 'D' AND consol = 'C'"
+    download: true
+  comp_fundq:
+    table: comp.fundq
+    columns: [gvkey, datadate, fyearq, fqtr, rdq, indfmt, datafmt, popsrc, consol, atq, ltq, seqq, ceqq,
+              pstkq, txditcq, saleq, revtq, cogsq, xsgaq, xintq, ibq, niq, oancfy, actq, lctq, cheq, dlcq,
+              dlttq, cshoq, prccq]
+    date_column: datadate
+    chunk_by: datadate
+    start: 1970
+    where: "indfmt = 'INDL' AND datafmt = 'STD' AND popsrc = 'D' AND consol = 'C'"
+    download: true
+  comp_company:
+    table: comp.company
+    columns: [gvkey, sic, gsector, ggroup, conm]
+    download: true
+  ff_factors_daily:
+    table: ff.factors_daily
+    columns: "*"
+    download: true
+  ff_factors_monthly:
+    table: ff.factors_monthly
+    columns: "*"
+    download: true
+  ff_fivefactors_daily:
+    table: ff.fivefactors_daily
+    columns: "*"
+    download: true
+  ff_fivefactors_monthly:
+    table: ff.fivefactors_monthly
+    columns: "*"
+    download: true
