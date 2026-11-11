@@ -225,3 +225,24 @@ def test_help_and_import_do_not_load_wrds_package():
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     assert "describe" in done.stdout and "download" in done.stdout
+
+
+def test_describe_records_a_table_without_permission_and_goes_on(root, capsys):
+    class Denied(FakeConnection):
+        def raw_sql(self, sql, chunksize=None):
+            if "FROM crsp.msenames" in sql:
+                raise RuntimeError("(psycopg2.errors.InsufficientPrivilege) permission denied for schema crsp_x")
+            return super().raw_sql(sql, chunksize=chunksize)
+
+    out = wrds.describe(Denied(), SPEC, root)
+    names = out["tables"]["names"]
+    assert names["exists"] and names["access"] is False and "rows" not in names
+    assert out["tables"]["daily"]["rows"] == 5                     # the others are still described
+    assert "no permission" in capsys.readouterr().out
+
+    class Broken(FakeConnection):
+        def raw_sql(self, sql, chunksize=None):
+            raise RuntimeError("something else")
+
+    with pytest.raises(RuntimeError):
+        wrds.describe(Broken(), SPEC, root)

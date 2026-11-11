@@ -54,6 +54,11 @@ tables:
     candidates: [crsp.ccmxpf_linktable]
     columns: [gvkey, lpermno, lpermco, linktype, linkprim, linkdt, linkenddt]
     download: true
+  comp_names:                    # confirm: for linking CRSP and Compustat by CUSIP if the link table is not subscribed
+    table: comp.names
+    candidates: [comp.security]
+    columns: [gvkey, cusip, tic, conm, sic, year1, year2]
+    download: false
   comp_funda:
     table: comp.funda
     columns: [gvkey, datadate, fyear, indfmt, datafmt, popsrc, consol, at, lt, seq, ceq, pstk, pstkrv,

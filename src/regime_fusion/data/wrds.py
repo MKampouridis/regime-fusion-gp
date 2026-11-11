@@ -69,7 +69,14 @@ class _WrdsPackageConnection:
         return [(str(a), str(b)) for a, b in zip(frame["column_name"], frame["data_type"])]
 
     def raw_sql(self, sql: str, chunksize: int | None = None):
-        return self._db.raw_sql(sql, chunksize=chunksize)
+        try:
+            return self._db.raw_sql(sql, chunksize=chunksize)
+        except Exception:
+            try:                      # leave the session usable for the next query
+                self._db.connection.rollback()
+            except Exception:
+                pass
+            raise
 
     def close(self) -> None:
         self._db.close()
@@ -123,12 +130,17 @@ def _describe_table(db: WrdsConnection, table: str, date_column: str | None) -> 
     info: dict[str, Any] = {
         "table": table, "exists": True, "columns": [{"name": c, "type": t} for c, t in columns],
     }
-    info["rows"] = int(db.raw_sql(f"SELECT COUNT(*) AS n FROM {table}").iloc[0, 0])
-    if date_column and date_column in {c for c, _ in columns}:
-        lim = db.raw_sql(f"SELECT MIN({date_column}) AS lo, MAX({date_column}) AS hi FROM {table}")
-        info["date_column"] = date_column
-        info["date_min"] = _date_str(lim.iloc[0, 0])
-        info["date_max"] = _date_str(lim.iloc[0, 1])
+    try:
+        info["rows"] = int(db.raw_sql(f"SELECT COUNT(*) AS n FROM {table}").iloc[0, 0])
+        if date_column and date_column in {c for c, _ in columns}:
+            lim = db.raw_sql(f"SELECT MIN({date_column}) AS lo, MAX({date_column}) AS hi FROM {table}")
+            info["date_column"] = date_column
+            info["date_min"] = _date_str(lim.iloc[0, 0])
+            info["date_max"] = _date_str(lim.iloc[0, 1])
+    except Exception as problem:      # a table the subscription does not cover: recorded, and the rest go on
+        if "permission denied" not in str(problem).lower():
+            raise
+        info["access"] = False
     return info
 
 
@@ -157,6 +169,8 @@ def describe(db: WrdsConnection, spec: dict[str, dict[str, Any]], root: Path) ->
 def _describe_line(item: dict[str, Any]) -> str:
     if not item["exists"]:
         return f"{item['table']}: not found"
+    if item.get("access") is False:
+        return f"{item['table']}: {len(item['columns'])} columns, no permission (not in the subscription)"
     line = f"{item['table']}: {len(item['columns'])} columns, {item['rows']} rows"
     if "date_min" in item:
         line += f", {item['date_column']} {item['date_min']} to {item['date_max']}"
