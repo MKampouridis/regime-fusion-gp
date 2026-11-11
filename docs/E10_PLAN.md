@@ -54,7 +54,7 @@ Rule for the choice, fixed now: the one with the higher mean detection rate over
 The control of E9 is repeated for E10 on the planted data already defined, with two additions:
 
 - **P4, reversal:** returns rise with a characteristic in one market state and fall with it in the other. No E9 rule could express this.
-- **Long samples:** cells with 240 and 420 dates (the 81 real dates resampled in blocks), to measure how much history the regime plants P3 and P4 need. This says in advance what the long history can and cannot show.
+- **Long samples:** cells with 150, 315 and 630 dates, about 12, 25 and 50 years (the 81 real dates resampled in blocks), to measure how much history the regime plants P3 and P4 need. This decides in advance whether the years before 2001 are needed at all (see the periods below).
 
 Conditions before any real data, as first written for E9 and not relaxed: (1) with nothing planted, test results centre on zero; (2) the single factor at IC 0.05 with 700 stocks is found in at least 80% of runs; (3) in no single-factor cell is the GP more than 20 points below the best simple learner. P2, P3 and P4 are reported. If the conditions fail after two repairs, see the stop rules.
 
@@ -80,28 +80,31 @@ Analyst forecasts (I/B/E/S) and earnings-surprise signals are left for later: th
 
 - **Universe:** common stocks above the 20th percentile of NYSE market value at each June, price at least $1. Stocks below that line are reported separately, since E9's signal sat in thin stocks.
 - **Bridge, 2010–2018:** the same years as now, without survivorship bias. This measures how much the bias in the present small-cap data matters. Development data.
-- **Clean test A, 1975–2009:** walk-forward by five-year block, each block tested with rules evolved on the 15 years before it. Nobody on this project has looked at these years.
-- **Clean test B, 2019–2025:** for this universe, also not looked at.
-- **A limit to state plainly:** the 17 factors were chosen from a literature that studied those early decades, so test A is clean for the GP's design but not for the choice of inputs. The comparison with benchmarks on the same inputs is unaffected by this.
+- **Clean test A, 2019–2025 (the main test):** not looked at for this universe. Rules evolved on the 15 years before each test year.
+- **Clean test B, 2001–2009:** walk-forward, each block of three years tested with rules evolved on the 15 years before it. Nobody on this project has looked at these years. Like test A it lies after decimalisation (2001), so spreads and market structure are comparable with today's.
+- **Years before 2001:** training data for test B. Markets then worked differently (prices in fractions, far wider spreads, little algorithmic trading) and most of the 17 factors were discovered on those decades, so no claim of profit is made on them. They serve as a separate test of the regime question only (1975–2000, rules 4 and 5 below), and only if the control's long samples show that the 25 years from 2001 hold too few dates to detect a regime effect. Otherwise that test is dropped.
+- **Why any old data at all:** a regime effect is counted in episodes, not days. There are about two bear markets since 2010, four since 2000 and eight since 1975.
+- **A limit to state plainly:** the 17 factors come from a literature that studied the decades before 2010, so test B is clean for the GP's design but not for the choice of inputs. The comparison with benchmarks on the same inputs is unaffected by this.
+- **Where the paper goes matters:** referees in finance expect long samples and may ask for the early decades; a computing venue will not.
 
 ### Practical points for Michael
 
 - **Login:** Michael runs the download with his own WRDS account; Claude prepares the script and never logs in for him.
 - **Licence:** WRDS data are licensed and this repository is public. Data stay outside Git, as now. Michael should check whether Essex's WRDS terms allow licensed data to be processed in a session with an AI assistant; if in doubt, Claude works only from aggregated outputs.
 - **Size:** the CRSP daily file is several gigabytes. Disk space on the server is checked before the download.
-- **Computing:** the walk-forward on 35 years with three rungs is larger than anything run on this server so far; it may go to CERES, where Michael submits the jobs.
+- **Computing:** the walk-forward over two test periods with three rungs is larger than anything run on this server so far; it may go to CERES, where Michael submits the jobs.
 
-## Rules for success on the clean tests (draft, to be frozen before test A is opened)
+## Rules for success on the clean tests (draft, to be frozen before either test is opened)
 
 Applied to test A and test B separately, long books hedged with the index, costs from estimated spreads.
 
 1. **Skill:** D1's result before costs is above zero, one-sided p < 0.05.
-2. **Profit:** D1's result after costs is positive overall and in at least 60% of the five-year blocks (test A) or of the years (test B).
+2. **Profit:** D1's result after costs is positive overall and in at least 60% of the years of the test.
 3. **Against the benchmark named in advance, banded ridge on the same inputs:** beats, matches or fails, at p < 0.05 for the paired difference after costs.
 4. **Regimes:** D3 improves on D1 if the paired difference after costs is positive with p < 0.05. This is the paper's central claim.
 5. **Conditions named in advance:** the four of E9, with Holm adjustment.
 
-The parts of the design still open (the fitness, any repair after the control) are settled on the control and the development data, and the whole is frozen in writing before test A is opened.
+The parts of the design still open (the fitness, any repair after the control) are settled on the control and the development data, and the whole is frozen in writing before either test is opened.
 
 ## Stages, costs and stop rules
 
@@ -131,6 +134,6 @@ Whichever way it falls, the result is reportable: a positive control, a design f
 2. The two candidate fitnesses and the rule for choosing between them on the control.
 3. The control's additions (P4 and long samples) and its three conditions, unrelaxed.
 4. Small caps 2012–2018 as development data only from now on.
-5. The WRDS request, the universe and the two clean tests.
+5. The WRDS request, the universe and the two clean tests (2019–2025 as the main one, 2001–2009 as the second; the years before 2001 only as training data, and as a regime-only test if the control shows they are needed).
 6. The draft rules for success, in particular banded ridge as the named benchmark.
 7. Whether the WRDS download starts now, alongside S1.
