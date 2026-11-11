@@ -4,7 +4,10 @@ Every 20 sessions the GP's Boolean rule picks a book from the stocks in the univ
 the rule is true, equal weights, long only. The book's result on a date is its hedged return less the mean
 hedged return of the stocks that could be traded that day, less the cost of the trades (tiered by value
 traded, ``dev.crosssection``). A rule must hold between 10% and 40% of the tradable stocks on at least 90% of
-the training dates, otherwise it scores the floor. Inputs are the 17 factors as ranks among the members
+the training dates, otherwise it scores the floor. The training fitness (and only it) sees each date's hedged
+returns as their ranks among that date's stocks, from -1 to 1 (``evidence="ranks"``, the default; ``fitness_returns``),
+with each cost per side divided by that date's interquartile range of hedged returns, so that costs stay on
+the same scale as the ranks (``fitness_costs``). The test dates always use the real returns and costs. Inputs are the 17 factors as ranks among the members
 (unsigned: the literature's signs are not given to the GP), two stock-context ranks and three market-state
 percentiles, all known at the close of the decision date.
 
@@ -14,7 +17,8 @@ extra year, kept apart from the main years 2015 to 2018 in the report.
 
 Seeds depend on the universe, the test year and the run number, never on the rung. Results go to
 ``<universe dir>/results/dev-e9/<rung>/<year>/run<NN>.json``. ``benchmarks`` rebuilds the plan's simple
-alternatives on the same folds, hedge and costs; ``report`` applies the plan's four rules. Development data
+alternatives on the same folds, hedge and costs; ``report`` applies the plan's four rules and the four
+conditional comparisons with the banded composite named in advance (``conditions``). Development data
 only (to ``period.development_end``).
 """
 
@@ -40,7 +44,7 @@ from regime_fusion.dev import small
 from regime_fusion.dev.fitness import FLOOR, LowerBoundEvaluator, psr_lower_bound
 from regime_fusion.engine.gp import evolve
 from regime_fusion.engine.rungs import load_rungs
-from regime_fusion.engine.tree import Grammar, describe, signals, to_record
+from regime_fusion.engine.tree import Grammar, describe, from_record, signals, to_record
 from regime_fusion.seeds import make_rng
 
 CAMPAIGN = "dev-e9"
@@ -145,7 +149,40 @@ def fitness_returns(hedged: np.ndarray, how: str = "raw") -> np.ndarray:
     return out
 
 
+def fitness_costs(hedged: np.ndarray, cost: np.ndarray, how: str = "raw") -> np.ndarray:
+    """The date x stock costs per side a training fitness charges, to go with ``fitness_returns(hedged, how)``.
+    A missing cost counts as ``crosssection.COST_BELOW``. For ``raw`` and ``clipped`` that is all. For ``ranks``
+    each date's costs are also divided by that date's interquartile range (75th less 25th percentile) of the
+    finite hedged returns, because the same range in rank units is exactly 1. A date with no finite return,
+    or a zero range, keeps its costs unchanged. Each date uses its own row only."""
+    if how not in EVIDENCE:
+        raise ValueError(f"unknown evidence {how!r}")
+    cost = np.asarray(cost, dtype=float)
+    filled = np.where(np.isfinite(cost), cost, C.COST_BELOW)
+    if how != "ranks":
+        return filled
+    hedged = np.asarray(hedged, dtype=float)
+    out = filled.copy()
+    for i, row in enumerate(hedged):
+        ok = np.isfinite(row)
+        if not ok.any():
+            continue
+        q25, q75 = np.percentile(row[ok], [25, 75])
+        if q75 - q25 > 0:
+            out[i] = filled[i] / (q75 - q25)
+    return out
+
+
 # ---------------------------------------------------------------------------------------- the book market
+def _decompose(weights: np.ndarray, returns: np.ndarray, base: np.ndarray, initial: np.ndarray,
+               cost: np.ndarray) -> np.ndarray:
+    """Date x stock net result of a book: w x (r - base) less |w - previous w| x cost, the previous weights of
+    the first date being ``initial``. ``returns`` is 0 where a stock cannot be traded; ``base`` has one value
+    per date. Summed over the stocks this is the book's net result of that date."""
+    previous = np.vstack([np.asarray(initial, dtype=float)[None, :], weights[:-1]])
+    return weights * (returns - base[:, None]) - np.abs(weights - previous) * cost
+
+
 class BookMarket:
     """Hedged returns and costs of a date x stock grid; ``simulate`` scores a date x stock Boolean signal.
 
@@ -197,6 +234,13 @@ class BookMarket:
     def costs(self, signal: np.ndarray) -> np.ndarray:
         return (self._change(signal) * self.cost).sum(axis=1)
 
+    def contributions(self, signal: np.ndarray) -> np.ndarray:
+        """Date x stock split of the net result: stock i adds w_i x (r_i - base) less its trade cost, where
+        ``base`` is the tradable mean (0 on a date with an empty book). Each row sums to ``simulate(signal)[0]``."""
+        base = np.where(self.held(signal).any(axis=1), self.base, 0.0)
+        return _decompose(self.weights(signal), np.where(self.tradable, self.returns, 0.0), base,
+                          self.initial, self.cost)
+
     def daily(self, signal: np.ndarray) -> tuple[np.ndarray, int]:
         net, active, _ = self.simulate(signal)
         return net, active
@@ -240,6 +284,13 @@ def _percentile_state(x: pd.Series, min_history: int) -> pd.Series:
     return pd.Series(out, index=x.index)
 
 
+def trailing_return(daily_market_return: pd.Series, window: int = 250) -> pd.Series:
+    """The market's raw return over the last ``window`` sessions up to and including each day (NaN until
+    ``window`` sessions exist), from its daily return."""
+    level = (1.0 + daily_market_return.astype(float).fillna(0.0)).cumprod()
+    return level / level.shift(window) - 1.0
+
+
 def market_state(daily_market_return: pd.Series, vol_window: int = 60, return_window: int = 250,
                  min_history: int = 250) -> pd.DataFrame:
     """The market's state on each session, from its daily equal-weight return, using that day and earlier
@@ -250,7 +301,7 @@ def market_state(daily_market_return: pd.Series, vol_window: int = 60, return_wi
     level = (1.0 + r.fillna(0.0)).cumprod()
     raw = pd.DataFrame({
         "market_volatility": r.rolling(vol_window, min_periods=vol_window).std(),
-        "market_return": level / level.shift(return_window) - 1.0,
+        "market_return": trailing_return(r, return_window),
         "market_drawdown": level / level.rolling(return_window, min_periods=return_window).max() - 1.0,
     })
     return raw.apply(lambda col: _percentile_state(col, min_history))
@@ -302,15 +353,17 @@ class Context:
     inputs: dict[str, np.ndarray]
     hedged: np.ndarray
     cost: np.ndarray
+    market_return_250: np.ndarray | None = None     # the market's raw return over the last 250 sessions, per date
 
     @property
     def dates(self) -> pd.DatetimeIndex:
         return self.panel.dates
 
     @classmethod
-    def from_panel(cls, panel: C.Panel, inputs: dict[str, np.ndarray]) -> Context:
+    def from_panel(cls, panel: C.Panel, inputs: dict[str, np.ndarray],
+                   market_return_250: np.ndarray | None = None) -> Context:
         return cls(panel, inputs, panel.hedged().to_numpy(dtype=float),
-                   C.cost_per_side(panel.value).to_numpy(dtype=float))
+                   C.cost_per_side(panel.value).to_numpy(dtype=float), market_return_250)
 
 
 _CONTEXTS: dict[str, Context] = {}
@@ -320,7 +373,9 @@ def context(universe: str) -> Context:
     """The panel and inputs of a universe, loaded once per process (about 25 seconds)."""
     if universe not in _CONTEXTS:
         panel = C.small_panel() if universe == "small" else C.broad_panel()
-        _CONTEXTS[universe] = Context.from_panel(panel, build_inputs(panel, universe=universe))
+        daily = daily_market_return(list(panel.forward.columns), universe_dir(universe))
+        trend = trailing_return(daily, STATE_WINDOWS["return_window"]).reindex(panel.dates).to_numpy(dtype=float)
+        _CONTEXTS[universe] = Context.from_panel(panel, build_inputs(panel, daily, universe), trend)
     return _CONTEXTS[universe]
 
 
@@ -362,8 +417,12 @@ def _carried(universe: str, rung: str, year: int, run_number: int, ctx: Context)
 
 def run(universe: str, rung: str, year: int, run_number: int, write: bool = True, *,
         ctx: Context | None = None, budget: dict[str, int] | None = None,
-        initial: np.ndarray | None | str = "carry") -> dict[str, Any]:
-    """Evolve on the fold's training dates, apply the best individual to the test dates. The book starts
+        initial: np.ndarray | None | str = "carry", evidence: str = "ranks") -> dict[str, Any]:
+    """Evolve on the fold's training dates, apply the best individual to the test dates. The training fitness
+    scores books on ``fitness_returns(hedged, evidence)`` with costs from ``fitness_costs`` (by default each
+    date's returns as ranks and the costs divided by the date's interquartile range of returns; ``"raw"``
+    scores the real returns and costs); the test dates always use the real returns and costs, and the seed
+    does not depend on ``evidence``. The book starts
     from the final weights of the same universe, rung and run number in the year before (``"carry"``, an
     error if that record is missing); the first test year starts from zero, and ``initial=None`` or an array
     of weights (one per stock) sets the start by hand. ``ctx`` and ``budget`` are for tests."""
@@ -377,7 +436,8 @@ def run(universe: str, rung: str, year: int, run_number: int, write: bool = True
     names = [n for g in groups.values() for n in g]
     train_data = {n: ctx.inputs[n][train] for n in names}
     test_data = {n: ctx.inputs[n][test] for n in names}
-    market = BookMarket(ctx.hedged[train], ctx.cost[train], LOW, HIGH)
+    market = BookMarket(fitness_returns(ctx.hedged[train], evidence),
+                        fitness_costs(ctx.hedged[train], ctx.cost[train], evidence), LOW, HIGH)
     settings = replace(base.fitness, min_trades=math.ceil(COVERAGE * len(train)))
     evaluator = LowerBoundEvaluator(train_data, market, settings, cases=False)
     grammar = Grammar(groups, fusion_functions=RUNGS[rung]["fusion"], sources=SOURCES, max_branch_depth=3)
@@ -391,6 +451,7 @@ def run(universe: str, rung: str, year: int, run_number: int, write: bool = True
     net, active, _ = later.simulate(signal)
     record = {
         "campaign": CAMPAIGN, "universe": universe, "rung": rung, "year": year, "run": run_number, "budget": budget,
+        "evidence": evidence,
         "model": describe(best), "tree": to_record(best), "fitness": best.fitness,
         "train_dates": int(len(train)), "train_active": int(best.stats["C"]["trades"]),
         "test_dates": [d.strftime("%Y-%m-%d") for d in ctx.dates[test]],
@@ -403,7 +464,7 @@ def run(universe: str, rung: str, year: int, run_number: int, write: bool = True
     }
     record["provenance"] = provenance.collect(
         config, rung_digest=base.digest(overrides=budget), rung_spec=base.spec, experiment=CAMPAIGN,
-        universe=universe, e9_rung=rung, year=year, run=run_number, sources=list(SOURCES))
+        universe=universe, e9_rung=rung, year=year, run=run_number, sources=list(SOURCES), evidence=evidence)
     if write:
         provenance.write(path(universe, rung, year, run_number), record)
     return record
@@ -543,6 +604,173 @@ def random_books(universe: str, share: float, draws: int = 1000, rng: np.random.
     return {"gross": pd.DataFrame(gross, index=index), "net": pd.DataFrame(net, index=index)}
 
 
+# -------------------------------------------------------------------------- the conditions named in advance
+# (condition, ((group, column), (group, column))); the columns are those of ``_parts``
+CONDITIONS = (
+    ("1 thin against liquid stocks", (("thin", "thin"), ("liquid", "liquid"))),
+    ("2 small against larger stocks", (("small", "small"), ("larger", "larger"))),
+    ("3 high against low market volatility", (("high", "high_volatility"), ("low", "low_volatility"))),
+    ("4 rising against falling market", (("rising", "rising"), ("falling", "falling"))),
+)
+CONDITION_COLUMNS = ["rung", "condition", "group", "dates", "gp_annual", "benchmark_annual", "difference_annual",
+                     "p_one_sided", "condition_p", "condition_p_holm", "counts"]
+
+
+def _stock_masks(ctx: Context) -> dict[str, np.ndarray]:
+    """Date x stock masks of the stock conditions. On each date the tradable stocks are split at the median of
+    ``rg:value_traded`` (``thin`` at or below it, ``liquid`` above) and of ``rg:size`` (``small``, ``larger``).
+    Those inputs are each date's percentile ranks among the members, in [-1, 1] (not centred exactly on 0:
+    ``cross_rank`` gives 2 x pct - 1), so the split is at the per-date median among the tradable stocks. A stock
+    with no value that date (not a member) is in neither group."""
+    tradable = np.isfinite(ctx.hedged)
+    out = {}
+    for name, (low, high) in (("rg:value_traded", ("thin", "liquid")), ("rg:size", ("small", "larger"))):
+        frame = pd.DataFrame(ctx.inputs[name])
+        median = frame.where(tradable).median(axis=1)       # the median of the tradable stocks only ...
+        out[low] = frame.le(median, axis=0).to_numpy()      # ... but every stock with a known value has a group,
+        out[high] = frame.gt(median, axis=0).to_numpy()     # so that the exit of a stock no longer tradable is charged
+    return out
+
+
+def _date_masks(ctx: Context) -> dict[str, np.ndarray]:
+    """Per-date masks of the date conditions: market volatility above or at or below its median percentile
+    (the input is the percentile mapped to [-1, 1], so 0.5 is 0 there), and the raw 250-session market return
+    above zero or not. A date with the value unknown is in neither group."""
+    vol = pd.DataFrame(ctx.inputs["rg:market_volatility"]).max(axis=1).to_numpy()
+    trend = np.full(len(ctx.dates), np.nan) if ctx.market_return_250 is None else np.asarray(ctx.market_return_250, float)
+    return {"high_volatility": vol > 0, "low_volatility": vol <= 0, "rising": trend > 0, "falling": trend <= 0}
+
+
+def _parts(contrib: np.ndarray, rows: np.ndarray, stock: dict[str, np.ndarray], dated: dict[str, np.ndarray],
+           index: pd.DatetimeIndex) -> pd.DataFrame:
+    """A book's per-date results (``contrib`` is the date x stock split of its net result over the panel
+    positions ``rows``): ``net``, the sum over each stock group, and ``net`` again on the dates of each date
+    group (NaN on the others)."""
+    out = {"net": contrib.sum(axis=1)}
+    for name, mask in stock.items():
+        out[name] = (contrib * mask[rows]).sum(axis=1)
+    for name, mask in dated.items():
+        out[name] = np.where(mask[rows], out["net"], np.nan)
+    return pd.DataFrame(out, index=index)
+
+
+def _gp_parts(universe: str, rung: str, records: list[dict], ctx: Context, stock, dated) -> pd.DataFrame:
+    """The per-date parts of a rung's books averaged over its runs. Each run's signal is rebuilt from its
+    stored tree on its test dates, from the same weights it started from; the rows must add up to its stored
+    ``test_net``."""
+    names = [n for g in _names(rung).values() for n in g]
+    fold_map = folds(ctx.dates)
+    frames = []
+    for rec in records:
+        year, number = rec["year"], rec["run"]
+        test = fold_map[year][1]
+        dates = [d.strftime("%Y-%m-%d") for d in ctx.dates[test]]
+        if dates != rec["test_dates"]:
+            raise ValueError(f"E9 conditions, {rung} {year} run {number}: the record's test dates are not the folds'")
+        initial = None if year == TEST_YEARS[0] else _carried(universe, rung, year, number, ctx)
+        signal = signals(from_record(rec["tree"]), {n: ctx.inputs[n][test] for n in names})["C"]
+        contrib = BookMarket(ctx.hedged[test], ctx.cost[test], LOW, HIGH, initial).contributions(signal)
+        worst = float(np.max(np.abs(contrib.sum(axis=1) - np.asarray(rec["test_net"]))))
+        if not worst <= 1e-6:
+            raise ValueError(f"E9 conditions, {rung} {year} run {number}: the rebuilt book's net result differs from "
+                             f"the record's test_net by up to {worst:.2e}")
+        frames.append(_parts(contrib, test, stock, dated, ctx.dates[test]))
+    return pd.concat(frames).groupby(level=0).mean().sort_index()
+
+
+def _banded_composite_parts(ctx: Context, stock, dated, bench: dict[str, pd.DataFrame] | None) -> pd.DataFrame:
+    """The banded composite benchmark's per-date parts, built as ``benchmarks`` builds it (continuous from the
+    first test date, from zero holdings); the rows must add up to its ``net`` column."""
+    panel = ctx.panel
+    columns = panel.forward.columns
+    rows = np.concatenate([test for _, test in folds(panel.dates).values()])
+    resid = pd.DataFrame(ctx.hedged, index=panel.dates, columns=columns).iloc[rows]
+    costs = pd.DataFrame(ctx.cost, index=panel.dates, columns=columns).iloc[rows]
+    score = pd.DataFrame(C.composite(panel).to_numpy(dtype=float), index=panel.dates, columns=columns).iloc[rows]
+    tradable = resid.notna()
+    w = C.banded_weights(score, tradable, long_only=True)
+    base = resid.mean(axis=1).fillna(0.0).where(w.sum(axis=1) > 0, 0.0)
+    contrib = _decompose(w.to_numpy(), resid.fillna(0.0).to_numpy(), base.to_numpy(), np.zeros(len(columns)),
+                         costs.fillna(C.COST_BELOW).to_numpy())
+    parts = _parts(contrib, rows, stock, dated, resid.index)
+    if bench is not None and BANDED in bench:
+        worst = float((parts["net"] - bench[BANDED]["net"].reindex(parts.index)).abs().max())
+        if not worst <= 1e-6:
+            raise ValueError(f"E9 conditions: the banded composite's decomposed net result differs from the "
+                             f"benchmark's by up to {worst:.2e}")
+    return parts
+
+
+def conditions(universe: str, rungs=tuple(RUNGS), ctx: Context | None = None,
+               bench: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
+    """The four comparisons named in advance of the GP (each rung with runs) against the banded composite,
+    after costs, over the main years: one row per rung, condition and group. ``difference_annual`` is the
+    mean per date of GP less benchmark (the GP's runs averaged) in the report's annual units, ``p_one_sided``
+    the one-sided bootstrap p that it is above zero. A condition's p is min(1, 2 x the smaller of its two
+    groups' p), Holm-adjusted over the four conditions of the rung; ``counts`` is True on both rows of a
+    condition whose adjusted p is below 0.05 (the group with the smaller p is the one that carries it).
+    Stock conditions split each date's net result by the stock's group on that date; date conditions use the
+    whole book on the dates of the group. The market-return condition needs ``ctx.market_return_250``."""
+    config = load_config()
+    ctx = context(universe) if ctx is None else ctx
+    _, records = gp_frames(universe, rungs)
+    stock, dated = _stock_masks(ctx), _date_masks(ctx)
+    per_year = 252 / C.H
+    rows = []
+    if records:
+        benchmark = _banded_composite_parts(ctx, stock, dated, bench)
+        benchmark = benchmark[benchmark.index.year.isin(MAIN_YEARS)]
+    for rung, recs in records.items():
+        gp = _gp_parts(universe, rung, recs, ctx, stock, dated)
+        gp = gp[gp.index.year.isin(MAIN_YEARS)]
+        block = []
+        for condition, groups in CONDITIONS:
+            part, p_values = [], []
+            for group, column in groups:
+                both = pd.concat([gp[column], benchmark[column].reindex(gp.index)], axis=1, keys=["gp", "bench"]).dropna()
+                diff = both["gp"] - both["bench"]
+                rng = make_rng(config.base_seed, "dev", CAMPAIGN, "report", universe, f"conditions-{rung}-{condition}-{group}")
+                p = bootstrap_mean_p(diff.to_numpy(), rng) if len(diff) >= 2 else np.nan
+                p_values.append(p)
+                part.append({"rung": rung, "condition": condition, "group": group, "dates": int(len(diff)),
+                             "gp_annual": both["gp"].mean() * per_year if len(diff) else np.nan,
+                             "benchmark_annual": both["bench"].mean() * per_year if len(diff) else np.nan,
+                             "difference_annual": diff.mean() * per_year if len(diff) else np.nan, "p_one_sided": p})
+            known = [p for p in p_values if np.isfinite(p)]
+            cond_p = min(1.0, 2.0 * min(known)) if known else np.nan
+            for row in part:
+                row["condition_p"] = cond_p
+            block.append(part)
+        holm = stats.holm([part[0]["condition_p"] for part in block])
+        for part, adjusted in zip(block, holm):
+            for row in part:
+                row["condition_p_holm"] = float(adjusted)
+                row["counts"] = bool(adjusted < 0.05)
+                rows.append(row)
+    return pd.DataFrame(rows, columns=CONDITION_COLUMNS)
+
+
+def _print_conditions(table: pd.DataFrame) -> None:
+    print("\nConditions named in advance (GP less the banded composite, after costs)")
+    print("  (main years; annual units; one-sided p that the GP is ahead; a condition's p is twice the smaller of "
+          "its groups', Holm-adjusted over the four conditions of the rung)")
+    if table.empty:
+        print("  no GP runs found")
+        return
+    shown = table.drop(columns="rung").assign(**{c: 100 * table[c] for c in
+                                                 ("gp_annual", "benchmark_annual", "difference_annual")})
+    shown = shown.rename(columns={c: c.replace("_annual", " %/yr") for c in
+                                  ("gp_annual", "benchmark_annual", "difference_annual")})
+    for rung, part in shown.groupby(table["rung"], sort=False):
+        print(f"  {rung}")
+        print("  " + part.round(4).to_string(index=False).replace("\n", "\n  "))
+    for (rung, condition), part in table.groupby(["rung", "condition"], sort=False):
+        if part["counts"].iloc[0]:
+            best = part.loc[part["p_one_sided"].idxmin()]
+            print(f"  {rung}, {condition}: counts (Holm p = {part['condition_p_holm'].iloc[0]:.4f}), "
+                  f"carried by the group {best['group']} (difference {100 * best['difference_annual']:+.2f}% a year)")
+
+
 # ------------------------------------------------------------------------------------------------ report
 def bootstrap_mean_p(x, rng: np.random.Generator, mean_block: float = 3, resamples: int = 10_000) -> float:
     """One-sided p that the mean of ``x`` is above zero: the share of stationary-bootstrap resamples of the
@@ -678,6 +906,11 @@ def report(universe: str) -> pd.DataFrame:
     else:
         print("  Rule 4 needs runs of C1, C2 and C3.")
 
+    if records:
+        cond = conditions(universe, ctx=context(universe), bench=bench)
+        _print_conditions(cond)
+        cond.to_csv(universe_dir(universe) / "results" / "e9_conditions.csv", index=False)
+
     for rung, recs in records.items():
         counts = pd.Series([n for r in recs for n in r["inputs_used"]]).value_counts()
         top = ", ".join(f"{n} ({c})" for n, c in counts.head(8).items())
@@ -694,4 +927,4 @@ def report(universe: str) -> pd.DataFrame:
 
 
 __all__ = ["BookMarket", "folds", "market_state", "build_inputs", "run", "run_job", "jobs", "benchmarks",
-           "random_books", "report", "bootstrap_mean_p"]
+           "random_books", "report", "bootstrap_mean_p", "fitness_returns", "fitness_costs", "conditions"]

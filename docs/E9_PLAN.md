@@ -4,6 +4,16 @@
 
 Written by Claude at Michael's request, after the study of 10 November 2026 ([`DECISIONS.md`](DECISIONS.md)). It follows the rules of the development experiments (4 November 2026): data up to `development_end` (2018) only, no hold-out stock, rules for success fixed before any run, every variant reported.
 
+## Amendments of 11 November 2026 (approved by Michael, before any E9 run)
+
+The positive control ran first and did not pass as written; the full account is in [`DECISIONS.md`](DECISIONS.md). What changed as a result:
+
+- **The control is accepted with one repair.** With the plan's fitness the GP missed weak planted factors that simple learners found (condition 3 failed in 7 of 16 cells). With the fitness on ranked training returns it fails in 2 cells, both at an IC of 0.02 with 700 stocks. Condition 2 holds. Condition 1 fails narrowly on one reference learner, not on the GP. Michael accepted this, knowing that it relaxes a condition after the results were seen.
+- **Fitness.** In training only, each date's hedged returns are replaced by their rank among that date's stocks, from −1 to 1, and each stock's cost per side is divided by that date's interquartile range of hedged returns (the same range is exactly 1 in rank units). The fitness is still the 95% lower bound of the Sharpe ratio of the book's result per period. Every test result, and all four rules for success, use the returns and costs themselves, as written below.
+- **Four conditions named in advance.** The GP's result after costs, less the banded composite's, is compared within: thin and liquid stocks (halves by value traded on each date); small and larger stocks (halves by size); dates of high and low market volatility (its percentile above or below 0.5); dates after a rising and a falling market (the sign of the universe's return over 250 sessions). Each group's difference gets a one-sided bootstrap p-value; a condition's p-value is twice its smaller group's; a condition counts if that is below 0.05 after Holm adjustment over the four. A GP that beats the benchmark only under one of these conditions counts as a result, reported as such.
+- **A known limit of rung C3.** A rule has one fundamental and one technical branch, and IF switches between combinations of the two. It cannot reverse a factor's direction between market states. This is to be lifted, and tested with a new planted case, before the regime question is put to a longer history.
+- **Next data.** Whatever E9 shows, the regime question moves to WRDS's long history, with an earlier period held out as the clean test. The work stops if E9 shows no skill and the long history no regime effect.
+
 ## Why these two experiments
 
 The study found three faults in how the long/short experiments (E6–E8) were set up and measured:

@@ -203,7 +203,8 @@ def synthetic_context(seed=0):
     shape = panel.member.shape
     inputs = {n: rng.uniform(-1, 1, shape) for n in
               [f"fa:{f}" for f in e9.FA_FACTORS] + [f"ta:{f}" for f in e9.TA_FACTORS] + list(e9.CONTEXT) + list(e9.STATE)}
-    return panel, e9.Context(panel, inputs, rng.normal(0, 0.05, shape), np.full(shape, 0.002))
+    trend = rng.normal(0, 0.2, shape[0])
+    return panel, e9.Context(panel, inputs, rng.normal(0, 0.05, shape), np.full(shape, 0.002), trend)
 
 
 def test_a_tiny_end_to_end_run_returns_a_record_and_repeats_exactly():
@@ -340,7 +341,181 @@ def test_report_prints_and_writes_on_a_few_tiny_runs(tmp_path, monkeypatch, caps
     table = e9.report("small")
     out = capsys.readouterr().out
     assert (tmp_path / "results" / "e9_report.csv").exists()
+    assert (tmp_path / "results" / "e9_conditions.csv").exists()
+    saved = pd.read_csv(tmp_path / "results" / "e9_conditions.csv")
+    assert list(saved.columns) == e9.CONDITION_COLUMNS
+    assert len(saved) == 3 * 4 * 2 and set(saved["rung"]) == set(e9.RUNGS)
+    assert "Conditions named in advance (GP less the banded composite, after costs)" in out
     for text in ("Rule 1", "Rule 2", "Rule 3", "Rule 4 (C2 against C1)", "Rule 4 (C3 against C2)", "GP C1", "inputs most often used",
                  "Three C1 rules", "Random books"):
         assert text in out, text
     assert e9.BANDED in set(table["line"]) and any(l.startswith("GP C1") for l in table["line"])
+
+
+def test_report_works_with_no_gp_runs(tmp_path, monkeypatch, capsys):
+    synthetic_context_in(tmp_path, monkeypatch)
+    e9.report("small")
+    out = capsys.readouterr().out
+    assert "Rule 4 needs runs" in out and "Conditions named in advance" not in out
+    assert not (tmp_path / "results" / "e9_conditions.csv").exists()
+
+
+# ------------------------------------------------------------------------ ranked evidence for the training fitness
+def test_fitness_costs_by_hand():
+    hedged = np.array([[0.0, 1.0, 2.0, 3.0, 4.0],          # 25th and 75th percentiles 1 and 3: range 2
+                       [NAN, 0.0, 10.0, NAN, 20.0],        # finite 0, 10, 20: percentiles 5 and 15: range 10
+                       [1.0, 1.0, 1.0, 1.0, 1.0],          # zero range
+                       [NAN, NAN, NAN, NAN, NAN]])         # nothing finite
+    cost = np.array([[0.02, 0.04, NAN, 0.01, 0.01],
+                     [0.10, 0.10, 0.20, NAN, 0.05],
+                     [0.01, 0.02, 0.03, 0.04, NAN],
+                     [0.01, NAN, 0.01, 0.01, 0.01]])
+    filled = np.where(np.isnan(cost), C.COST_BELOW, cost)
+    for how in ("raw", "clipped"):
+        assert e9.fitness_costs(hedged, cost, how) == pytest.approx(filled)
+    default = e9.fitness_costs(hedged, cost)
+    assert default == pytest.approx(filled)
+    ranks = e9.fitness_costs(hedged, cost, "ranks")
+    assert ranks[0] == pytest.approx(filled[0] / 2.0)
+    assert ranks[1] == pytest.approx(filled[1] / 10.0)
+    assert ranks[2] == pytest.approx(filled[2]) and ranks[3] == pytest.approx(filled[3])
+    assert ranks[0, 2] == pytest.approx(C.COST_BELOW / 2.0)
+    # a row's result does not depend on the other rows
+    for i in range(4):
+        alone = e9.fitness_costs(hedged[[i]], cost[[i]], "ranks")
+        assert alone[0] == pytest.approx(ranks[i])
+    with pytest.raises(ValueError, match="unknown"):
+        e9.fitness_costs(hedged, cost, "sideways")
+    # the interquartile range of the ranks themselves is 1, so these costs keep their meaning
+    rng = np.random.default_rng(0)
+    big = rng.normal(0, 0.1, (3, 101))
+    r = e9.fitness_returns(big, "ranks")
+    assert np.percentile(r, 75, axis=1) - np.percentile(r, 25, axis=1) == pytest.approx([1.0] * 3)
+
+
+def test_run_scores_training_on_ranks_by_default_and_tests_on_real_returns():
+    panel, ctx = synthetic_context()
+    budget = {"population": 20, "generations": 2}
+    default = e9.run("small", "C1", 2014, 0, write=False, ctx=ctx, budget=budget)
+    ranked = e9.run("small", "C1", 2014, 0, write=False, ctx=ctx, budget=budget, evidence="ranks")
+    raw = e9.run("small", "C1", 2014, 0, write=False, ctx=ctx, budget=budget, evidence="raw")
+    again = e9.run("small", "C1", 2014, 0, write=False, ctx=ctx, budget=budget, evidence="raw")
+    assert default["evidence"] == "ranks" and raw["evidence"] == "raw"
+    assert default["provenance"]["evidence"] == "ranks" and raw["provenance"]["evidence"] == "raw"
+    for key in ("tree", "test_net", "test_gross", "fitness"):
+        assert default[key] == ranked[key] and raw[key] == again[key]
+    # the training score is on another scale: the same seed, another fitness
+    assert raw["fitness"] != default["fitness"]
+    # whatever the evidence, a tree's test fields are on the real returns and costs
+    test = e9.folds(ctx.dates)[2014][1]
+    names = [n for g in e9._names("C1").values() for n in g]
+    for rec in (default, raw):
+        signal = signals(from_record(rec["tree"]), {n: ctx.inputs[n][test] for n in names})["C"]
+        net, active, _ = e9.BookMarket(ctx.hedged[test], ctx.cost[test], e9.LOW, e9.HIGH).simulate(signal)
+        assert rec["test_net"] == pytest.approx(net, abs=1e-7) and rec["test_active"] == active
+
+
+def test_raw_evidence_trains_on_the_real_returns_and_costs():
+    # evidence="raw" builds exactly the market the run used before ranks were added
+    panel, ctx = synthetic_context()
+    train = e9.folds(ctx.dates)[2014][0]
+    market = e9.BookMarket(e9.fitness_returns(ctx.hedged[train], "raw"), e9.fitness_costs(ctx.hedged[train], ctx.cost[train], "raw"))
+    plain = e9.BookMarket(ctx.hedged[train], ctx.cost[train])
+    assert np.array_equal(market.returns, plain.returns, equal_nan=True) and np.array_equal(market.cost, plain.cost)
+
+
+# ------------------------------------------------------------------------------------ contributions and conditions
+def test_contributions_sum_to_the_net_result():
+    rng = np.random.default_rng(11)
+    hedged = rng.normal(0, 0.05, (20, 12))
+    hedged[rng.random(hedged.shape) < 0.2] = NAN
+    cost = rng.choice([0.001, 0.01], size=hedged.shape)
+    cost[rng.random(cost.shape) < 0.2] = NAN
+    signal = rng.random(hedged.shape) < 0.4
+    signal[5] = False                                          # an empty book on one date
+    start = rng.random(12)
+    start /= start.sum()
+    for initial in (None, start):
+        market = e9.BookMarket(hedged, cost, initial=initial)
+        contrib = market.contributions(signal)
+        assert contrib.shape == hedged.shape
+        assert contrib.sum(axis=1) == pytest.approx(market.simulate(signal)[0], abs=1e-12)
+    market, signal = tiny_market()
+    assert market.contributions(signal).sum(axis=1) == pytest.approx(market.simulate(signal)[0])
+    # date 0 of the hand-checked example: A and B each 0.5 x (return - 0.01) less 0.5 x 0.01
+    assert market.contributions(signal)[0] == pytest.approx([0.5 * 0.01 - 0.005, 0.5 * 0.03 - 0.005, 0.0, 0.0])
+
+
+def conditions_context(**kwargs):
+    panel, ctx = synthetic_context(**kwargs)
+    return ctx
+
+
+def test_banded_composite_parts_add_up_to_its_net_column_and_the_groups_to_the_total(tmp_path, monkeypatch):
+    ctx = synthetic_context_in(tmp_path, monkeypatch)
+    bench = e9.benchmarks("small")
+    stock, dated = e9._stock_masks(ctx), e9._date_masks(ctx)
+    parts = e9._banded_composite_parts(ctx, stock, dated, bench)       # raises if the net column is not reproduced
+    assert parts["net"].to_numpy() == pytest.approx(bench[e9.BANDED]["net"].reindex(parts.index).to_numpy(), abs=1e-9)
+    assert (parts["thin"] + parts["liquid"]).to_numpy() == pytest.approx(parts["net"].to_numpy(), abs=1e-12)
+    assert (parts["small"] + parts["larger"]).to_numpy() == pytest.approx(parts["net"].to_numpy(), abs=1e-12)
+    for a, b in (("high_volatility", "low_volatility"), ("rising", "falling")):
+        assert parts[[a, b]].sum(axis=1, min_count=1).to_numpy() == pytest.approx(parts["net"].to_numpy())
+        assert (parts[a].notna() ^ parts[b].notna()).all()
+
+
+def test_gp_parts_reproduce_each_runs_stored_net_and_split_it_by_group(tmp_path, monkeypatch):
+    ctx = synthetic_context_in(tmp_path, monkeypatch)
+    budget = {"population": 20, "generations": 2}
+    records = [e9.run("small", "C2", year, k, ctx=ctx, budget=budget) for year in (2014, 2015) for k in (0, 1)]
+    stock, dated = e9._stock_masks(ctx), e9._date_masks(ctx)
+    parts = e9._gp_parts("small", "C2", records, ctx, stock, dated)    # raises if a run's net is not reproduced
+    mean = pd.concat([pd.Series(r["test_net"], index=pd.DatetimeIndex(r["test_dates"])) for r in records]
+                     ).groupby(level=0).mean().sort_index()
+    assert parts["net"].to_numpy() == pytest.approx(mean.to_numpy(), abs=1e-7)
+    assert (parts["thin"] + parts["liquid"]).to_numpy() == pytest.approx(parts["net"].to_numpy(), abs=1e-12)
+    # a record that does not match is refused
+    bad = [dict(records[0], test_net=[x + 0.01 for x in records[0]["test_net"]])]
+    with pytest.raises(ValueError, match="test_net"):
+        e9._gp_parts("small", "C2", bad, ctx, stock, dated)
+
+
+def test_a_book_better_in_one_half_differs_from_the_benchmark_only_there():
+    # 8 stocks; value traded rank rises with the column. Columns 0-3 are thin, 4-7 liquid.
+    hedged = np.tile(np.array([0.00, 0.01, 0.02, 0.03, 0.02, 0.01, 0.00, -0.01]), (6, 1))
+    market = e9.BookMarket(hedged, np.zeros_like(hedged), low=0.0, high=1.0)
+    gp = np.zeros(hedged.shape, dtype=bool)
+    gp[:, 3] = gp[:, 5] = True                     # the best thin stock and a liquid one
+    other = np.zeros(hedged.shape, dtype=bool)
+    other[:, 0] = other[:, 5] = True               # the worst thin stock and the same liquid one
+    value = np.tile(np.linspace(-1, 1, 8), (6, 1))
+    ctx = e9.Context(None, {"rg:value_traded": value, "rg:size": -value, "rg:market_volatility": np.zeros((6, 8))},
+                     hedged, np.zeros_like(hedged))
+    stock = e9._stock_masks(ctx)
+    assert stock["thin"][0].tolist() == [True] * 4 + [False] * 4
+    assert stock["small"][0].tolist() == [False] * 4 + [True] * 4
+    rows = np.arange(6)
+    index = pd.bdate_range("2015-01-05", periods=6)
+    a = e9._parts(market.contributions(gp), rows, stock, {}, index)
+    b = e9._parts(market.contributions(other), rows, stock, {}, index)
+    # thin: 0.5 x (0.03 - base) against 0.5 x (0.00 - base), the base cancelling; liquid: the same stock, so the same
+    assert (a["thin"] - b["thin"]).to_numpy() == pytest.approx([0.5 * 0.03] * 6, abs=1e-12)
+    assert (a["liquid"] - b["liquid"]).to_numpy() == pytest.approx(np.zeros(6), abs=1e-12)
+    assert e9.bootstrap_mean_p((a["thin"] - b["thin"]).to_numpy() + np.array([0, .001, 0, .001, 0, .001]),
+                               make_rng(1, "t"), resamples=500) < 0.05
+
+
+def test_date_conditions_use_only_the_decision_dates_information():
+    rng = np.random.default_rng(8)
+    series = pd.Series(rng.normal(0, 0.01, 80), index=pd.bdate_range("2015-01-05", periods=80))
+    check_no_lookahead(lambda s: e9.trailing_return(s, 8).to_frame("trend"), series, [8, 20, 50, 79])
+    r = e9.trailing_return(series, 8)
+    assert r.iloc[:8].isna().all()
+    assert r.iloc[10] == pytest.approx((1 + series.iloc[3:11]).prod() - 1)       # sessions 3 to 10: eight returns
+    # the groups themselves: the volatility percentile above its middle and the trend above zero
+    def groups(s):
+        vol = e9.market_state(s, 5, 8, 6)["market_volatility"]
+        return pd.DataFrame({"high_volatility": vol > 0, "rising": e9.trailing_return(s, 8) > 0}).astype(float)
+    check_no_lookahead(groups, series, [10, 30, 60, 79])
+    # market_state still uses the same trailing return
+    assert e9.market_state(series, 5, 8, 6)["market_return"].notna().sum() > 0
